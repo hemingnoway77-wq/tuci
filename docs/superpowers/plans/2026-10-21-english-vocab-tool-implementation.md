@@ -133,7 +133,7 @@ Assert.DoesNotContain("[[fake]]", renderedFromUntrustedText);
 
 **Interfaces:** 消费 Task 1；`OpenAiCompatibleAnalyzer(HttpClient client)` 实现 `IWordAnalyzer`；`ChatEndpoint.Resolve(string baseUrl) -> Uri`；`AnalysisJson.Parse(string json) -> WordAnalysis`。定义 `AnalysisException(string userMessage)`，消息只能来自代码中受控的中文文案。
 
-- [x] 写地址测试：`https://host/prefix/v1/` 拼接一次 `chat/completions`，完整 endpoint 不重复追加；不猜测 `/v1`；拒绝 URL 内嵌用户名/密码、query、fragment 和非 loopback HTTP，接受本机 HTTP。
+- [x] 写地址测试：`https://host/prefix/v1/` 拼接一次 `chat/completions`，完整 endpoint 不重复追加；不猜测 `/v1`；拒绝 URL 内嵌用户名/密码、query、fragment 和非 HTTP(S) 协议；根据用户追加要求支持本机、局域网及自定义主机名的 HTTP。
 - [x] 写协议测试：Bearer 仅在头部；请求含用户配置 model、单词、原句和固定任务要求；`stream:false`；不发送目录、历史正文、强制结构化参数或额外模型参数；不自动重试。使用假 Key，确认 401/429/500 回显 Key 时错误中不出现 Key 或原始响应。
 - [x] 写 JSON 正常及错误测试：普通 JSON、单层 `json` 围栏可用；无效单词返回解释；有效词要求 1–3 meanings、恰好 2 examples、2–4 collocations、0–12 related、合法枚举、主词性属于 meanings；拒绝缺失、类型错误、空内容、任意前后散文、未知关系或异常超长内容。音标为空允许。
 - [x] 固定模型 JSON 字段：`is_valid_word,error,phonetics:{uk,us},primary_pos,meanings:[{part_of_speech,definition}],examples:[{english,chinese}],collocations:[{english,chinese}],related:[{word,relation}]`；枚举用小写规格词性和 `same_root/synonym/antonym/confusable`。服务响应读取 `choices[0].message.content`；非文本、截断或拒绝结果不可保存。

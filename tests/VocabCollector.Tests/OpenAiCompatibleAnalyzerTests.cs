@@ -8,6 +8,14 @@ public class OpenAiCompatibleAnalyzerTests
 {
     private const string Canary = "sk-unit-test-canary-784d";
     private static readonly ApiOptions Options = new("https://host/v1", Canary, "configured-model");
+    [Fact] public async Task Request_AllowsHttpLanApiAndPreservesPortAndPrefix()
+    {
+        using var handler = new RecordingHttpHandler(); using var client = new HttpClient(handler);
+        var result = await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options with { BaseUrl = "http://192.168.1.100:1234/v1" }, default);
+        Assert.True(result.IsValidWord);
+        Assert.Equal("http://192.168.1.100:1234/v1/chat/completions", handler.Address!.AbsoluteUri);
+        Assert.Equal("Bearer " + Canary, handler.Authorization);
+    }
     [Fact] public async Task Request_UsesConfiguredModelAndKeepsKeyOutOfMessages()
     {
         using var handler = new RecordingHttpHandler(); using var client = new HttpClient(handler);

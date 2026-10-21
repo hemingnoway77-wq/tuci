@@ -4,7 +4,7 @@
 
 ## 开始使用
 
-1. 双击 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
+1. 本次 HTTP 兼容版双击 `dist/win-x64-http/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
 2. 点击右上角“设置”，填写 API 地址、API Key、模型名。
 3. 选择 **Obsidian 仓库根目录**，填写仓库内的单词子目录，默认 `英语单词`。
 4. 按需开启“按主要词性分文件夹”，保存设置。
@@ -23,7 +23,7 @@ API Key：你的服务商提供的 Key
 模型名：服务商实际提供的模型名称
 ```
 
-程序会追加 `/chat/completions`；也可填写已经含此后缀的完整地址。不会猜测或追加 `/v1`。普通服务须用 HTTPS，本机 loopback 服务可用 HTTP。模型需要能按提示返回 JSON；不要求专有结构化输出功能。
+程序会追加 `/chat/completions`；也可填写已经含此后缀的完整地址。不会猜测或追加 `/v1`。支持 HTTP 和 HTTPS，包括本机地址、局域网 IP 和自定义主机名，例如 `http://localhost:11434/v1`、`http://192.168.1.100:1234/v1`。模型需要能按提示返回 JSON；不要求专有结构化输出功能。
 
 解析最长等待 90 秒，可主动取消；失败后不自动重试。用户点击解析会调用其配置的服务商，具体费用由该服务商和模型决定。
 

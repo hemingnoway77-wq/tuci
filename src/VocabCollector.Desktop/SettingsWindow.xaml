@@ -5,7 +5,7 @@
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
       <StackPanel Margin="0,0,8,0">
         <TextBlock Text="API 地址" Style="{StaticResource FieldLabel}" /><TextBox x:Name="BaseUrlBox" />
-        <TextBlock Text="例如 https://your-provider.example/v1，使用服务商提供的 API 前缀。" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,6,0,16" TextWrapping="Wrap" />
+        <TextBlock Text="支持 HTTP / HTTPS，例如 http://localhost:11434/v1，使用服务商提供的 API 前缀。" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,6,0,16" TextWrapping="Wrap" />
         <TextBlock Text="API Key" Style="{StaticResource FieldLabel}" /><PasswordBox x:Name="KeyBox" />
         <TextBlock Text="仅在本机加密保存，不写入单词笔记。" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,6,0,16" />
         <TextBlock Text="模型名" Style="{StaticResource FieldLabel}" /><TextBox x:Name="ModelBox" Margin="0,0,0,20" />
