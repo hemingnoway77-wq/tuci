@@ -1,0 +1,13 @@
+using VocabCollector.Core.Ai;
+namespace VocabCollector.Tests;
+public class ChatEndpointTests
+{
+    [Theory]
+    [InlineData("https://host/prefix/v1/", "https://host/prefix/v1/chat/completions")]
+    [InlineData("https://host/custom", "https://host/custom/chat/completions")]
+    [InlineData("https://host/v1/chat/completions", "https://host/v1/chat/completions")]
+    [InlineData("http://127.0.0.1:2345/v1", "http://127.0.0.1:2345/v1/chat/completions")]
+    public void Endpoint_AppendsOnlyTheCompletionSuffix(string input, string expected) => Assert.Equal(expected, ChatEndpoint.Resolve(input).AbsoluteUri);
+    [Theory][InlineData("http://host/v1")][InlineData("https://user:pass@host/v1")][InlineData("https://host/v1?key=abc")][InlineData("https://host/v1#frag")][InlineData("not a url")]
+    public void Endpoint_RejectsUnsafeConfiguration(string input) => Assert.Throws<ArgumentException>(() => ChatEndpoint.Resolve(input));
+}

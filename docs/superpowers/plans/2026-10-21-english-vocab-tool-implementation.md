@@ -133,12 +133,12 @@ Assert.DoesNotContain("[[fake]]", renderedFromUntrustedText);
 
 **Interfaces:** 消费 Task 1；`OpenAiCompatibleAnalyzer(HttpClient client)` 实现 `IWordAnalyzer`；`ChatEndpoint.Resolve(string baseUrl) -> Uri`；`AnalysisJson.Parse(string json) -> WordAnalysis`。定义 `AnalysisException(string userMessage)`，消息只能来自代码中受控的中文文案。
 
-- [ ] 写地址测试：`https://host/prefix/v1/` 拼接一次 `chat/completions`，完整 endpoint 不重复追加；不猜测 `/v1`；拒绝 URL 内嵌用户名/密码、query、fragment 和非 loopback HTTP，接受本机 HTTP。
-- [ ] 写协议测试：Bearer 仅在头部；请求含用户配置 model、单词、原句和固定任务要求；`stream:false`；不发送目录、历史正文、强制结构化参数或额外模型参数；不自动重试。使用假 Key，确认 401/429/500 回显 Key 时错误中不出现 Key 或原始响应。
-- [ ] 写 JSON 正常及错误测试：普通 JSON、单层 `json` 围栏可用；无效单词返回解释；有效词要求 1–3 meanings、恰好 2 examples、2–4 collocations、0–12 related、合法枚举、主词性属于 meanings；拒绝缺失、类型错误、空内容、任意前后散文、未知关系或异常超长内容。音标为空允许。
-- [ ] 固定模型 JSON 字段：`is_valid_word,error,phonetics:{uk,us},primary_pos,meanings:[{part_of_speech,definition}],examples:[{english,chinese}],collocations:[{english,chinese}],related:[{word,relation}]`；枚举用小写规格词性和 `same_root/synonym/antonym/confusable`。服务响应读取 `choices[0].message.content`；非文本、截断或拒绝结果不可保存。
-- [ ] 写超时与取消测试：注入阻塞 handler；用户取消能立即结束；测试 client 将 Timeout 设为 50 毫秒以验证与主动取消不同的中文超时提示，生产 client 为 90 秒。响应最大 1 MiB，字段文本最多 2,000 字符。关闭自动重定向，错误不包含原始响应正文。
-- [ ] `Endpoint_AppendsOnlyTheCompletionSuffix` 与 `ApiError_DoesNotEchoKey` 包含这些断言；后者在 401、429、500 中分别运行：
+- [x] 写地址测试：`https://host/prefix/v1/` 拼接一次 `chat/completions`，完整 endpoint 不重复追加；不猜测 `/v1`；拒绝 URL 内嵌用户名/密码、query、fragment 和非 loopback HTTP，接受本机 HTTP。
+- [x] 写协议测试：Bearer 仅在头部；请求含用户配置 model、单词、原句和固定任务要求；`stream:false`；不发送目录、历史正文、强制结构化参数或额外模型参数；不自动重试。使用假 Key，确认 401/429/500 回显 Key 时错误中不出现 Key 或原始响应。
+- [x] 写 JSON 正常及错误测试：普通 JSON、单层 `json` 围栏可用；无效单词返回解释；有效词要求 1–3 meanings、恰好 2 examples、2–4 collocations、0–12 related、合法枚举、主词性属于 meanings；拒绝缺失、类型错误、空内容、任意前后散文、未知关系或异常超长内容。音标为空允许。
+- [x] 固定模型 JSON 字段：`is_valid_word,error,phonetics:{uk,us},primary_pos,meanings:[{part_of_speech,definition}],examples:[{english,chinese}],collocations:[{english,chinese}],related:[{word,relation}]`；枚举用小写规格词性和 `same_root/synonym/antonym/confusable`。服务响应读取 `choices[0].message.content`；非文本、截断或拒绝结果不可保存。
+- [x] 写超时与取消测试：注入阻塞 handler；用户取消能立即结束；测试 client 将 Timeout 设为 50 毫秒以验证与主动取消不同的中文超时提示，生产 client 为 90 秒。响应最大 1 MiB，字段文本最多 2,000 字符。关闭自动重定向，错误不包含原始响应正文。
+- [x] `Endpoint_AppendsOnlyTheCompletionSuffix` 与 `ApiError_DoesNotEchoKey` 包含这些断言；后者在 401、429、500 中分别运行：
 
 ```csharp
 Assert.Equal("https://host/prefix/v1/chat/completions", ChatEndpoint.Resolve("https://host/prefix/v1/").AbsoluteUri);
@@ -146,8 +146,8 @@ Assert.DoesNotContain(canaryKey, error.Message);
 Assert.Equal(1, handler.RequestCount);
 ```
 
-- [ ] 运行 `dotnet test tests/VocabCollector.Tests --filter "FullyQualifiedName~ChatEndpoint|FullyQualifiedName~AnalysisJson|FullyQualifiedName~OpenAiCompatible"`，期望缺少实现或断言失败。
-- [ ] 实现三个 AI 模块，重跑相同命令至全部通过，提交：`feat: analyze words through configurable OpenAI-compatible APIs`。
+- [x] 运行 `dotnet test tests/VocabCollector.Tests --filter "FullyQualifiedName~ChatEndpoint|FullyQualifiedName~AnalysisJson|FullyQualifiedName~OpenAiCompatible"`，期望缺少实现或断言失败。
+- [x] 实现三个 AI 模块，重跑相同命令至全部通过，提交：`feat: analyze words through configurable OpenAI-compatible APIs`。
 
 ### Task 4：加密设置与完整解析保存流程
 
