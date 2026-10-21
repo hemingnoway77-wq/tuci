@@ -17,7 +17,7 @@ public interface IWordAnalyzer
 public interface IVocabularyStore
 {
     Task<VaultIndex> ScanAsync(VaultOptions options, CancellationToken ct);
-    Task<NoteLocation> SaveNewAsync(string word, PartOfSpeech primaryPos, string markdown, VaultOptions options, CancellationToken ct);
+    Task<SavedNote> SaveNewAsync(string word, PartOfSpeech primaryPos, Func<VaultIndex, string> render, VaultOptions options, CancellationToken ct);
 }
 public interface ISettingsStore
 {

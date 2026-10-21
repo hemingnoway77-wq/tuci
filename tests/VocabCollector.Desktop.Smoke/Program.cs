@@ -68,6 +68,15 @@ public sealed class SmokeRunner(App app)
         Check(text == vm.Markdown && !text.Contains('\r'), "displayed note matches UTF-8 LF file");
         await File.WriteAllTextAsync(Path.Combine(output,"sample.md"), text);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); Snapshot(main,Path.Combine(output,"main.png"));
+        main.Width=main.MinWidth; main.Height=main.MinHeight;
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        main.UpdateLayout(); Snapshot(main,Path.Combine(output,"main-minimum-before-scroll.png"));
+        Check(!VisibleBounds(Control<TextBox>(main,"ContextBox"),main).IntersectsWith(VisibleBounds(Control<Button>(main,"GenerateButton"),main)),"minimum-size input must not overlap generate button");
+        var inputs=Control<ScrollViewer>(main,"InputScroll"); inputs.ScrollToBottom();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Check(VisibleBounds(Control<TextBox>(main,"ContextBox"),main).Height >= Control<TextBox>(main,"ContextBox").ActualHeight-1,"source context remains reachable at minimum size");
+        Snapshot(main,Path.Combine(output,"main-minimum.png")); main.Width=1100; main.Height=760;
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         Invoke(Control<Button>(main,"OpenNoteButton")); await Until(() => navigator.Opened == note.AbsolutePath);
         var before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
         await Until(() => !vm.IsBusy && vm.Message.Contains("已经收录"));
@@ -97,6 +106,18 @@ public sealed class SmokeRunner(App app)
         while (!condition()) { if (watch.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException("Timed out waiting for UI state"); await Task.Delay(20); }
     }
     private static void Check(bool valid,string message) { if (!valid) throw new InvalidOperationException(message); }
+    private static Rect VisibleBounds(FrameworkElement element,Window root)
+    {
+        var result=element.TransformToAncestor(root).TransformBounds(new Rect(0,0,element.ActualWidth,element.ActualHeight));
+        for(DependencyObject? current=element; current!=null && current!=root; current=VisualTreeHelper.GetParent(current))
+        {
+            if(current is FrameworkElement frame && frame.ClipToBounds)
+                result.Intersect(frame.TransformToAncestor(root).TransformBounds(new Rect(0,0,frame.ActualWidth,frame.ActualHeight)));
+            if(current is Visual visual && VisualTreeHelper.GetClip(visual) is Geometry clip)
+                result.Intersect(visual.TransformToAncestor(root).TransformBounds(clip.Bounds));
+        }
+        return result;
+    }
     private static void Snapshot(Window window,string path)
     {
         window.UpdateLayout(); var visual=(FrameworkElement)window.Content;

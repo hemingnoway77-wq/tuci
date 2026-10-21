@@ -71,14 +71,14 @@ README.md
 
 - `ApiOptions(string BaseUrl, string ApiKey, string Model)`、`VaultOptions(string RootPath, string OutputSubfolder, bool ClassifyByPartOfSpeech)`、`AppSettings(ApiOptions Api, VaultOptions Vault)`：不可变 record。
 - `CaptureRequest(string Word, string Context)`；`CaptureStage` 为 `Validating, CallingAi, Saving`。
-- `NoteLocation(string Word, string AbsolutePath, string VaultRelativePath)`；相对路径保留 `.md`，渲染链接时去掉扩展名。
+- `NoteLocation(string Word, string AbsolutePath, string VaultRelativePath)`；相对路径保留 `.md`，渲染链接时去掉扩展名。`SavedNote(NoteLocation Note, string Markdown)` 返回实际提交内容。
 - `PartOfSpeech` 对应规格的 11 种词性；`RelationKind` 为 `SameRoot, Synonym, Antonym, Confusable`。
 - `Meaning(PartOfSpeech PartOfSpeech, string Definition)`、`BilingualText(string English, string Chinese)`、`RelatedCandidate(string Word, RelationKind Kind)`、`ResolvedRelation(RelationKind Kind, NoteLocation Note)`。
 - `WordAnalysis(bool IsValidWord, string Error, string UkPhonetic, string UsPhonetic, PartOfSpeech PrimaryPartOfSpeech, IReadOnlyList<Meaning> Meanings, IReadOnlyList<BilingualText> Examples, IReadOnlyList<BilingualText> Collocations, IReadOnlyList<RelatedCandidate> Related)`。
 - `CaptureStatus` 为 `Saved, AlreadyExists, InvalidInput, Failed, Cancelled`；`CaptureResult(CaptureStatus Status, string Word, string Markdown, IReadOnlyList<NoteLocation> Notes, string Message)`。
 - `ICaptureService.CaptureAsync(CaptureRequest request, AppSettings settings, IProgress<CaptureStage>? progress, CancellationToken ct) -> Task<CaptureResult>`。
 - `IWordAnalyzer.AnalyzeAsync(string word, string context, ApiOptions options, CancellationToken ct) -> Task<WordAnalysis>`。
-- `IVocabularyStore.ScanAsync(VaultOptions options, CancellationToken ct) -> Task<VaultIndex>`；`SaveNewAsync(string word, PartOfSpeech primaryPos, string markdown, VaultOptions options, CancellationToken ct) -> Task<NoteLocation>`。
+- `IVocabularyStore.ScanAsync(VaultOptions options, CancellationToken ct) -> Task<VaultIndex>`；`SaveNewAsync(string word, PartOfSpeech primaryPos, Func<VaultIndex,string> render, VaultOptions options, CancellationToken ct) -> Task<SavedNote>`。最终审查后修订为锁内使用最新索引渲染，并在提交前复核关联，避免锁等待期间删除的目标留下悬空链接。
 - `ISettingsStore.LoadAsync(CancellationToken ct) -> Task<SettingsLoadResult>`；`SaveAsync(AppSettings settings, CancellationToken ct) -> Task`。`SettingsLoadResult(AppSettings Settings, string Warning)` 在 Key 损坏时保留其他字段、Key 置空并返回中文说明。
 - `IAppNavigator.OpenNote(NoteLocation note)`、`OpenFolder(NoteLocation note)`，仅 Desktop 实现；测试使用记录参数的替身。
 

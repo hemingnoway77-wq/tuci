@@ -28,10 +28,12 @@ public sealed class CaptureService(IWordAnalyzer analyzer, IVocabularyStore stor
             index = await store.ScanAsync(settings.Vault, ct);
             existing = index.Find(word);
             if (existing.Count > 0) return Duplicate(word, existing);
-            markdown = new NoteRenderer().Render(word, context, analysis, index.ResolveRelated(word, analysis.Related), timeProvider.GetLocalNow());
+            var renderer = new NoteRenderer(); var created = timeProvider.GetLocalNow();
+            string Render(VaultIndex current) => markdown = renderer.Render(word, context, analysis, current.ResolveRelated(word, analysis.Related), created);
+            markdown = Render(index);
             ct.ThrowIfCancellationRequested(); progress?.Report(CaptureStage.Saving);
-            var note = await store.SaveNewAsync(word, analysis.PrimaryPartOfSpeech, markdown, settings.Vault, ct);
-            return new(CaptureStatus.Saved, word, markdown, [note], "已保存，可以在 Obsidian 中复习。");
+            var saved = await store.SaveNewAsync(word, analysis.PrimaryPartOfSpeech, Render, settings.Vault, ct);
+            return new(CaptureStatus.Saved, word, saved.Markdown, [saved.Note], "已保存，可以在 Obsidian 中复习。");
         }
         catch (DuplicateWordException e) { return Duplicate(word, e.Notes); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return new(CaptureStatus.Cancelled, word, markdown, [], "已取消，未保存新的笔记。"); }

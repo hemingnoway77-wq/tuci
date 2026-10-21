@@ -60,11 +60,22 @@ public class CaptureServiceTests
         var result=await new CaptureService(new FakeWordAnalyzer(),new CancelAfterCommitStore(cts),TimeProvider.System).CaptureAsync(new("resilient",""),Settings(vault),null,cts.Token);
         Assert.Equal(CaptureStatus.Saved,result.Status); Assert.True(File.Exists(Assert.Single(result.Notes).AbsolutePath));
     }
+    [Fact] public async Task TargetDeletedBeforeWriteLockIsNotLinkedInSavedContent()
+    {
+        using var vault=new TempVault(); var prior=vault.Note("英语单词/名词/resilience.md");
+        var progress=new InlineProgress<CaptureStage>(stage=>{if(stage==CaptureStage.Saving)File.Delete(prior.AbsolutePath);});
+        var result=await new CaptureService(new FakeWordAnalyzer(),new VaultStore(),TimeProvider.System).CaptureAsync(new("resilient",""),Settings(vault),progress,default);
+        Assert.Equal(CaptureStatus.Saved,result.Status);
+        var saved=await File.ReadAllTextAsync(Assert.Single(result.Notes).AbsolutePath);
+        Assert.DoesNotContain("[[英语单词/名词/resilience|resilience]]",saved);
+        Assert.Contains("暂无已收录的关联词",saved);
+        Assert.Equal(saved,result.Markdown);
+    }
     private sealed class CancelAfterCommitStore(CancellationTokenSource cts) : IVocabularyStore
     {
         private readonly VaultStore real=new();
         public Task<VaultIndex> ScanAsync(VaultOptions options,CancellationToken ct)=>real.ScanAsync(options,ct);
-        public async Task<NoteLocation> SaveNewAsync(string word,PartOfSpeech pos,string markdown,VaultOptions options,CancellationToken ct)
-        {var result=await real.SaveNewAsync(word,pos,markdown,options,ct);cts.Cancel();return result;}
+        public async Task<SavedNote> SaveNewAsync(string word,PartOfSpeech pos,Func<VaultIndex,string> render,VaultOptions options,CancellationToken ct)
+        {var result=await real.SaveNewAsync(word,pos,render,options,ct);cts.Cancel();return result;}
     }
 }

@@ -12,6 +12,7 @@ public sealed record Meaning(PartOfSpeech PartOfSpeech, string Definition);
 public sealed record BilingualText(string English, string Chinese);
 public sealed record RelatedCandidate(string Word, RelationKind Kind);
 public sealed record NoteLocation(string Word, string AbsolutePath, string VaultRelativePath);
+public sealed record SavedNote(NoteLocation Note, string Markdown);
 public sealed record ResolvedRelation(RelationKind Kind, NoteLocation Note);
 public sealed record WordAnalysis(bool IsValidWord, string Error, string UkPhonetic, string UsPhonetic,
     PartOfSpeech PrimaryPartOfSpeech, IReadOnlyList<Meaning> Meanings, IReadOnlyList<BilingualText> Examples,

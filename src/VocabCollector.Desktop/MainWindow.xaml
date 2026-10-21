@@ -10,7 +10,8 @@
       <Grid.ColumnDefinitions><ColumnDefinition Width="320" /><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
       <Border Background="White" CornerRadius="12" Padding="22">
         <Grid><Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-          <StackPanel IsEnabled="{Binding CanConfigure}">
+          <ScrollViewer x:Name="InputScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsEnabled="{Binding CanConfigure}">
+          <StackPanel>
             <TextBlock Text="遇见一个新单词" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,24" />
             <TextBlock Text="英文单词" Style="{StaticResource FieldLabel}" />
             <TextBox x:Name="WordBox" Text="{Binding Word,UpdateSourceTrigger=PropertyChanged}" FontSize="20" ToolTip="单个英文单词，最多 64 个字符" />
@@ -18,6 +19,7 @@
             <TextBox x:Name="ContextBox" Text="{Binding Context,UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" Height="140" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" />
             <TextBlock Text="粘贴遇见它的那句话，帮助 AI 判断这里的词义和词性。" Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,10,0,0" />
           </StackPanel>
+          </ScrollViewer>
           <StackPanel Grid.Row="1" Margin="0,24,0,0">
             <Button x:Name="GenerateButton" Content="解析并保存" Style="{StaticResource PrimaryButton}" Command="{Binding GenerateCommand}" Padding="18,13" />
             <Button x:Name="CancelButton" Content="取消本次解析" Command="{Binding CancelCommand}" Background="Transparent" Margin="0,8,0,0" />

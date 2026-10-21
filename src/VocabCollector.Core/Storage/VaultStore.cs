@@ -34,7 +34,7 @@ public sealed class VaultStore : IVocabularyStore
         return new VaultIndex(notes);
     }, ct);
 
-    public async Task<NoteLocation> SaveNewAsync(string word, PartOfSpeech primaryPos, string markdown, VaultOptions options, CancellationToken ct)
+    public async Task<SavedNote> SaveNewAsync(string word, PartOfSpeech primaryPos, Func<VaultIndex, string> render, VaultOptions options, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         var wordRoot = VaultPaths.WordRoot(options);
@@ -43,13 +43,15 @@ public sealed class VaultStore : IVocabularyStore
         var lockPath = Path.Combine(wordRoot, ".vocabcollector.write.lock");
         VaultPaths.EnsureInside(options.RootPath, lockPath);
         await using var writeLock = await AcquireLockAsync(lockPath, ct);
-        var existing = (await ScanAsync(options, ct)).Find(word);
+        var latestIndex = await ScanAsync(options, ct);
+        var existing = latestIndex.Find(word);
         if (existing.Count > 0) throw new DuplicateWordException(existing);
         var directory = options.ClassifyByPartOfSpeech ? Path.Combine(wordRoot, VaultPaths.PartFolder(primaryPos)) : wordRoot;
         VaultPaths.EnsureInside(options.RootPath, directory);
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, WordInput.ToFileName(word));
         var temporary = Path.Combine(directory, ".vocab-" + Guid.NewGuid().ToString("N") + ".tmp");
+        var markdown = render(latestIndex);
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -60,11 +62,18 @@ public sealed class VaultStore : IVocabularyStore
                 await stream.WriteAsync(bytes, ct);
                 await stream.FlushAsync(ct);
             }
+            // Re-resolve related files immediately before committing, including changes during lock wait/write.
+            var finalMarkdown = render(await ScanAsync(options, ct));
+            if (!string.Equals(markdown, finalMarkdown, StringComparison.Ordinal))
+            {
+                markdown = finalMarkdown;
+                await File.WriteAllTextAsync(temporary, markdown, new UTF8Encoding(false), ct);
+            }
             ct.ThrowIfCancellationRequested();
             VaultPaths.EnsureInside(options.RootPath, path);
             File.Move(temporary, path, false);
             // The atomic move is the commit point: later cancellation must not report an unsaved result.
-            return new(word, path, Path.GetRelativePath(options.RootPath, path).Replace('\\', '/'));
+            return new(new(word, path, Path.GetRelativePath(options.RootPath, path).Replace('\\', '/')), markdown);
         }
         finally
         {
