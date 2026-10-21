@@ -31,6 +31,6 @@ public partial class MainWindow : Window
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         if (!_viewModel.IsBusy) return;
-        e.Cancel = true; _viewModel.CancelCommand.Execute(null); _viewModel.Message = "正在取消本次解析，完成后可以关闭窗口。";
+        e.Cancel = true; _viewModel.CancelCommand.Execute(null); _viewModel.Message = "正在取消本次操作，完成后可以关闭窗口。";
     }
 }

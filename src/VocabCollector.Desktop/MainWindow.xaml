@@ -4,6 +4,7 @@
     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
     <DockPanel Margin="0,0,0,24">
       <Button x:Name="SettingsButton" DockPanel.Dock="Right" Content="设置" Click="Settings_Click" IsEnabled="{Binding CanConfigure}" VerticalAlignment="Center" />
+      <Button x:Name="RefreshLinksButton" DockPanel.Dock="Right" Content="刷新词条链接" Command="{Binding RefreshLinksCommand}" Margin="0,0,10,0" VerticalAlignment="Center" ToolTip="本地刷新已有词条及历史笔记中的链接，不调用 AI" />
       <StackPanel><TextBlock Text="单词收集器" FontSize="26" FontWeight="Bold" /><TextBlock Text="把遇见的单词，留在自己的词库里。" Foreground="{StaticResource Muted}" Margin="0,6,0,0" /></StackPanel>
     </DockPanel>
     <Grid Grid.Row="1">
@@ -22,7 +23,7 @@
           </ScrollViewer>
           <StackPanel Grid.Row="1" Margin="0,24,0,0">
             <Button x:Name="GenerateButton" Content="解析并保存" Style="{StaticResource PrimaryButton}" Command="{Binding GenerateCommand}" Padding="18,13" />
-            <Button x:Name="CancelButton" Content="取消本次解析" Command="{Binding CancelCommand}" Background="Transparent" Margin="0,8,0,0" />
+            <Button x:Name="CancelButton" Content="取消本次操作" Command="{Binding CancelCommand}" Background="Transparent" Margin="0,8,0,0" />
             <TextBlock Text="已有笔记会保留，重复单词不会覆盖。" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,14,0,0" />
           </StackPanel>
         </Grid>

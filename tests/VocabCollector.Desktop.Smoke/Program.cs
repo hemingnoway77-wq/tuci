@@ -21,7 +21,7 @@ public static class Program
         var exitCode = 1;
         app.Dispatcher.BeginInvoke(new Action(async () =>
         {
-            try { await new SmokeRunner(app).RunChecksAsync(); Console.WriteLine("PASS: real WPF controls, encrypted settings, HTTP capture, existing links, duplicate, 401, malformed JSON, cancellation and screenshots"); exitCode = 0; }
+            try { await new SmokeRunner(app).RunChecksAsync(); Console.WriteLine("PASS: real WPF controls, encrypted settings, HTTP capture, local link refresh without API, duplicate, 401, malformed JSON, cancellation and screenshots"); exitCode = 0; }
             catch (Exception error) { Console.Error.WriteLine(error); }
             finally { app.Shutdown(); app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.ApplicationIdle); }
         }));
@@ -39,7 +39,8 @@ public sealed class SmokeRunner(App app)
         var bindings = new BindingErrors(); PresentationTraceSources.DataBindingSource.Listeners.Add(bindings); PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
         await using var server = new MockApiServer();
         using var client = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(90) };
-        var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(client), new VaultStore(), TimeProvider.System), AppSettings.Default);
+        var vaultStore = new VaultStore();
+        var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(client), vaultStore, TimeProvider.System), AppSettings.Default, vaultStore);
         var navigator = new RecordingNavigator(); var main = new MainWindow(vm, settingsStore, navigator); app.MainWindow = main; main.Show();
         Invoke(Control<Button>(main, "SettingsButton"));
         await Until(() => app.Windows.OfType<SettingsWindow>().Any(w => w.IsVisible));
@@ -67,10 +68,23 @@ public sealed class SmokeRunner(App app)
         Check(text.Contains("[[英语单词/名词/resilience|resilience]]") && text.Contains("She remained resilient after the setback."), "existing link and source context");
         Check(text == vm.Markdown && !text.Contains('\r'), "displayed note matches UTF-8 LF file");
         await File.WriteAllTextAsync(Path.Combine(output,"sample.md"), text);
+        Check(!text.Contains("[[英语单词/名词/economy|economy]]"), "a missing example-word card is plain text");
+        var manualTarget = Path.Combine(vault, "英语单词", "名词", "economy.md");
+        await File.WriteAllTextAsync(manualTarget, "manually added target note");
+        var beforeRefresh = server.Requests;
+        Invoke(Control<Button>(main,"RefreshLinksButton"));
+        await Until(() => !vm.IsBusy && vm.Message.Contains("链接刷新完成"));
+        text = await File.ReadAllTextAsync(note.AbsolutePath);
+        Check(text.Contains("[[英语单词/名词/economy|economy]]"), "manual refresh links an old example after a target is added");
+        Check(vm.Markdown == text, "manual refresh reloads the displayed note from disk");
+        Check(server.Requests == beforeRefresh, "refresh uses zero model requests");
+        Check(await File.ReadAllTextAsync(manualTarget) == "manually added target note", "unmanaged manual note stays unchanged");
+        await File.WriteAllTextAsync(Path.Combine(output,"sample-refreshed.md"), text);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); Snapshot(main,Path.Combine(output,"main.png"));
         main.Width=main.MinWidth; main.Height=main.MinHeight;
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         main.UpdateLayout(); Snapshot(main,Path.Combine(output,"main-minimum-before-scroll.png"));
+        Check(!VisibleBounds(Control<Button>(main,"RefreshLinksButton"),main).IntersectsWith(VisibleBounds(Control<Button>(main,"SettingsButton"),main)),"minimum-size refresh and settings buttons do not overlap");
         Check(!VisibleBounds(Control<TextBox>(main,"ContextBox"),main).IntersectsWith(VisibleBounds(Control<Button>(main,"GenerateButton"),main)),"minimum-size input must not overlap generate button");
         var inputs=Control<ScrollViewer>(main,"InputScroll"); inputs.ScrollToBottom();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -87,8 +101,9 @@ public sealed class SmokeRunner(App app)
         await Until(() => !vm.IsBusy && vm.Message.Contains("兼容性"));
         server.Mode = ApiMode.Slow; Control<TextBox>(main,"WordBox").Text = "cancelled"; before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
         await Until(() => vm.IsBusy && server.Requests > before); Check(!Control<Button>(main,"SettingsButton").IsEnabled, "settings disabled during request");
+        Check(!Control<Button>(main,"RefreshLinksButton").IsEnabled, "link refresh disabled during request");
         Invoke(Control<Button>(main,"CancelButton")); await Until(() => !vm.IsBusy && vm.Message.Contains("取消"));
-        Check(vm.Word == "cancelled" && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == 2, "errors and cancellation create no note");
+        Check(vm.Word == "cancelled" && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == 3, "errors and cancellation create no note");
         Check(await File.ReadAllTextAsync(prior) == "handwritten historical notes", "historical file unchanged");
         Check(bindings.Errors.Count == 0, "no WPF binding errors: " + string.Join(" | ",bindings.Errors));
         await File.WriteAllTextAsync(Path.Combine(output,"result.txt"),$"PASS\nVault: {vault}\nSample: {note.AbsolutePath}\nRequests: {server.Requests}\nBinding errors: 0\n");

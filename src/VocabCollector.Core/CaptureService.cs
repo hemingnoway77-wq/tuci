@@ -29,11 +29,23 @@ public sealed class CaptureService(IWordAnalyzer analyzer, IVocabularyStore stor
             existing = index.Find(word);
             if (existing.Count > 0) return Duplicate(word, existing);
             var renderer = new NoteRenderer(); var created = timeProvider.GetLocalNow();
-            string Render(VaultIndex current) => markdown = renderer.Render(word, context, analysis, current.ResolveRelated(word, analysis.Related), created);
+            string Render(VaultIndex current) => markdown = renderer.Render(word, context, analysis, current, created);
             markdown = Render(index);
             ct.ThrowIfCancellationRequested(); progress?.Report(CaptureStage.Saving);
             var saved = await store.SaveNewAsync(word, analysis.PrimaryPartOfSpeech, Render, settings.Vault, ct);
-            return new(CaptureStatus.Saved, word, saved.Markdown, [saved.Note], "已保存，可以在 Obsidian 中复习。");
+            var message = "已保存，可以在 Obsidian 中复习。";
+            // A successful commit remains saved even if the optional local maintenance is cancelled or fails.
+            if (store is ILinkMaintenance maintenance)
+            {
+                try
+                {
+                    var refreshed = await maintenance.RefreshLinksAsync(settings.Vault, ct);
+                    if (refreshed.Updated > 0) message += $" 已为 {refreshed.Updated} 份历史笔记更新链接（未调用 AI）。";
+                    if (refreshed.Skipped > 0 || refreshed.Failed > 0) message += " 部分人工修改或不可写的内容已跳过，可稍后刷新。";
+                }
+                catch (Exception) { message += " 本地补链未完成，可稍后点击刷新词条链接。"; }
+            }
+            return new(CaptureStatus.Saved, word, saved.Markdown, [saved.Note], message);
         }
         catch (DuplicateWordException e) { return Duplicate(word, e.Notes); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return new(CaptureStatus.Cancelled, word, markdown, [], "已取消，未保存新的笔记。"); }

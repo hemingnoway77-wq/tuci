@@ -1,8 +1,11 @@
 namespace VocabCollector.Core.Storage;
 public sealed class VaultIndex(IReadOnlyList<NoteLocation> notes)
 {
-    private readonly IReadOnlyList<NoteLocation> _notes = notes;
-    public IReadOnlyList<NoteLocation> Find(string word) => _notes.Where(n => n.Word.Equals(word, StringComparison.OrdinalIgnoreCase)).ToArray();
+    public IReadOnlyList<NoteLocation> Notes { get; } = Array.AsReadOnly(notes.ToArray());
+    private readonly Dictionary<string, IReadOnlyList<NoteLocation>> _byWord = notes
+        .GroupBy(n => n.Word, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(g => g.Key, g => (IReadOnlyList<NoteLocation>)Array.AsReadOnly(g.ToArray()), StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyList<NoteLocation> Find(string word) => _byWord.TryGetValue(word, out var matches) ? matches : [];
     public IReadOnlyList<ResolvedRelation> ResolveRelated(string currentWord, IReadOnlyList<RelatedCandidate> candidates)
     {
         List<ResolvedRelation> result = [];

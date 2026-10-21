@@ -7,8 +7,21 @@ public sealed class DuplicateWordException(IReadOnlyList<NoteLocation> notes) : 
     public IReadOnlyList<NoteLocation> Notes { get; } = notes;
 }
 
-public sealed class VaultStore : IVocabularyStore
+public sealed class VaultStore : IVocabularyStore, ILinkMaintenance
 {
+    private readonly LinkRefresher _links = new();
+
+    public async Task<LinkRefreshResult> RefreshLinksAsync(VaultOptions options, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var wordRoot = VaultPaths.WordRoot(options);
+        if (!Directory.Exists(wordRoot)) return new(0, 0, 0);
+        var lockPath = Path.Combine(wordRoot, ".vocabcollector.write.lock");
+        VaultPaths.EnsureInside(options.RootPath, lockPath);
+        await using var writeLock = await AcquireLockAsync(lockPath, ct);
+        return await _links.RefreshAsync(options, await ScanAsync(options, ct), ct);
+    }
+
     public Task<VaultIndex> ScanAsync(VaultOptions options, CancellationToken ct) => Task.Run(() =>
     {
         var wordRoot = VaultPaths.WordRoot(options);

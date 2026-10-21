@@ -27,6 +27,27 @@ public class OpenAiCompatibleAnalyzerTests
         Assert.DoesNotContain(Canary, handler.Body); Assert.Contains("source sentence", handler.Body);
         Assert.False(body.RootElement.TryGetProperty("response_format", out _)); Assert.Equal(1, handler.RequestCount);
     }
+    [Fact] public async Task Request_DescribesLearningFieldsAndSendsOnlyWordAndContextAsData()
+    {
+        using var handler = new RecordingHttpHandler(); using var client = new HttpClient(handler);
+        await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("introduced", "The team introduced a new policy.", Options, default);
+        using var body = JsonDocument.Parse(handler.Body);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Equal(2, messages.GetArrayLength());
+        var instructions = messages[0].GetProperty("content").GetString()!;
+        var schemaLine = instructions.Split('\n').Single(x => x.TrimStart().StartsWith("{\"is_valid_word\":true", StringComparison.Ordinal));
+        using var schema = JsonDocument.Parse(schemaLine);
+        Assert.True(schema.RootElement.TryGetProperty("lemma", out _));
+        Assert.True(schema.RootElement.TryGetProperty("form_note", out _));
+        Assert.True(schema.RootElement.TryGetProperty("grammar", out var grammar));
+        Assert.True(grammar[0].TryGetProperty("pattern", out _));
+        Assert.True(grammar[0].TryGetProperty("explanation", out _));
+        Assert.True(schema.RootElement.GetProperty("related")[0].TryGetProperty("explanation", out _));
+        using var data = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal(new[] { "word", "context" }, data.RootElement.EnumerateObject().Select(x => x.Name));
+        Assert.Equal("introduced", data.RootElement.GetProperty("word").GetString());
+        Assert.Equal("The team introduced a new policy.", data.RootElement.GetProperty("context").GetString());
+    }
     [Theory][InlineData(401)][InlineData(429)][InlineData(500)][InlineData(404)]
     public async Task ApiError_DoesNotEchoKeyOrRetry(int status)
     {

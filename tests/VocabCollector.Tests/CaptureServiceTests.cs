@@ -46,7 +46,7 @@ public class CaptureServiceTests
     {
         using var vault=new TempVault(); Directory.CreateDirectory(Path.Combine(vault.Root,"英语单词","形容词","resilient.md"));
         var result=await new CaptureService(new FakeWordAnalyzer(),new VaultStore(),TimeProvider.System).CaptureAsync(new("resilient",""),Settings(vault),null,default);
-        Assert.Equal(CaptureStatus.Failed,result.Status); Assert.Contains("## 词性与释义",result.Markdown); Assert.Empty(result.Notes);
+        Assert.Equal(CaptureStatus.Failed,result.Status); Assert.Contains("**释义**",result.Markdown); Assert.Empty(result.Notes);
     }
     [Fact] public async Task ModelErrorCreatesNoFile()
     {
@@ -68,7 +68,7 @@ public class CaptureServiceTests
         Assert.Equal(CaptureStatus.Saved,result.Status);
         var saved=await File.ReadAllTextAsync(Assert.Single(result.Notes).AbsolutePath);
         Assert.DoesNotContain("[[英语单词/名词/resilience|resilience]]",saved);
-        Assert.Contains("暂无已收录的关联词",saved);
+        Assert.Contains("- resilience：",saved);
         Assert.Equal(saved,result.Markdown);
     }
     private sealed class CancelAfterCommitStore(CancellationTokenSource cts) : IVocabularyStore
