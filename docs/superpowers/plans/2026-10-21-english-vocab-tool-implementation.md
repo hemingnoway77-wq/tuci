@@ -155,10 +155,10 @@ Assert.Equal(1, handler.RequestCount);
 
 **Interfaces:** 消费 Task 1–3；`WindowsSettingsStore(string settingsDirectory)` 实现 `ISettingsStore`；`CaptureService(IWordAnalyzer analyzer, IVocabularyStore store, TimeProvider timeProvider)` 实现 `ICaptureService`。默认设置目录为 `%LOCALAPPDATA%/VocabCollector`，默认输出子目录 `英语单词`、分类开启；API 值默认空白。
 
-- [ ] 写设置测试：保存/重读一致；磁盘 JSON 无明文假 Key；密文损坏保留其他设置且给重填提示；文件损坏不崩溃、不悄悄覆盖；保存失败留旧有效配置。使用用户级 DPAPI 及独立临时目录。
-- [ ] 写完整流程测试：进度依次 Validating/CallingAi/Saving；输入无效或原句超过 2,000 字符不调用 AI；已有单词返回全部已有路径且 AI 调用次数为 0；无效词/模型错误不调用保存；成功包含真实路径、完整 Markdown 与正确时间。
-- [ ] 写竞态测试：AI 返回后出现同名笔记，返回 AlreadyExists 并保留旧文；用户取消后即使假 analyzer 返回也不提交；正式移动成功后到来的取消仍返回 Saved；写盘失败返回 Failed 但 Markdown 完整；生成时使用配置快照；关系解析使用调用结束后的新索引。
-- [ ] `Settings_DoesNotPersistPlaintextKey` 与 `StorageFailure_PreservesGeneratedMarkdown` 包含以下断言：
+- [x] 写设置测试：保存/重读一致；磁盘 JSON 无明文假 Key；密文损坏保留其他设置且给重填提示；文件损坏不崩溃、不悄悄覆盖；保存失败留旧有效配置。使用用户级 DPAPI 及独立临时目录。
+- [x] 写完整流程测试：进度依次 Validating/CallingAi/Saving；输入无效或原句超过 2,000 字符不调用 AI；已有单词返回全部已有路径且 AI 调用次数为 0；无效词/模型错误不调用保存；成功包含真实路径、完整 Markdown 与正确时间。
+- [x] 写竞态测试：AI 返回后出现同名笔记，返回 AlreadyExists 并保留旧文；用户取消后即使假 analyzer 返回也不提交；正式移动成功后到来的取消仍返回 Saved；写盘失败返回 Failed 但 Markdown 完整；生成时使用配置快照；关系解析使用调用结束后的新索引。
+- [x] `Settings_DoesNotPersistPlaintextKey` 与 `StorageFailure_PreservesGeneratedMarkdown` 包含以下断言：
 
 ```csharp
 Assert.DoesNotContain(canaryKey, await File.ReadAllTextAsync(settingsFile));
@@ -166,9 +166,9 @@ Assert.Equal(CaptureStatus.Failed, result.Status);
 Assert.Contains("## 词性与释义", result.Markdown);
 ```
 
-- [ ] 运行 `dotnet test tests/VocabCollector.Tests --filter "FullyQualifiedName~WindowsSettingsStore|FullyQualifiedName~CaptureService"`，期望缺少实现或断言失败。
-- [ ] 实现两个服务。设置 JSON 用临时文件替换旧配置；加密失败不落盘。核心流程不阻塞 UI 线程，文件索引与同步目录检查安排在后台任务并传递取消。
-- [ ] 重跑本任务测试至通过，提交：`feat: orchestrate captures and persist encrypted user settings`。
+- [x] 运行 `dotnet test tests/VocabCollector.Tests --filter "FullyQualifiedName~WindowsSettingsStore|FullyQualifiedName~CaptureService"`，期望缺少实现或断言失败。
+- [x] 实现两个服务。设置 JSON 用临时文件替换旧配置；加密失败不落盘。核心流程不阻塞 UI 线程，文件索引与同步目录检查安排在后台任务并传递取消。
+- [x] 重跑本任务测试至通过，提交：`feat: orchestrate captures and persist encrypted user settings`。
 
 ### Task 5：简洁 WPF 窗口与可测状态
 
