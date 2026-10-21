@@ -110,11 +110,11 @@ Assert.Equal("con", WordInput.FromFileStem("_con"));
 
 **Interfaces:** 消费 Task 1；产出 `VaultIndex(IReadOnlyList<NoteLocation> notes)`、`Find(string word) -> IReadOnlyList<NoteLocation>`、`ResolveRelated(string currentWord, IReadOnlyList<RelatedCandidate> candidates) -> IReadOnlyList<ResolvedRelation>`；`VaultStore : IVocabularyStore`；`NoteRenderer.Render(string word, string context, WordAnalysis analysis, IReadOnlyList<ResolvedRelation> relations, DateTimeOffset created) -> string`。
 
-- [ ] 先写路径测试：中文仓库可用；绝对子目录、驱动器相对路径 `C:words`、根相对路径 `\words`、`..`、兄弟目录前缀伪装、重解析目录越界均拒绝；根目录未存在或为文件给可读错误；词性目录映射覆盖全部 11 值。
-- [ ] 先写索引与关联测试：分类开关不影响跨目录查重；缺少输出目录视为空索引；同名歧义与自链接跳过；缺失候选不生成链接；最多 12 候选取最多 8 唯一目标；保留名单词按 Task 1 规则识别。
-- [ ] 先写渲染断言：固定标题、YAML 可解析、空音标写“未提供”、原句保留、空关联提示；`[[fake]]`、HTML、标题与围栏输入被当作文本；仓库相对路径用 `/`、无 `.md`。输出子目录的路径段除 Windows 非法字符外，还拒绝 `#^[]|`；历史目录含这些字符时保留查重但跳过链接，不猜测 Wikilink 编码。
-- [ ] 先写保存断言：开启/关闭分类路径正确；已存在内容逐字不变；两个独立 store 并发保存同词仅一个成功，包括主要词性不同的情况；取消发生在提交前不产生 `.md`；失败不留半份正式文件；链接目标在渲染前重新核验，删除或越界则排除。
-- [ ] `Find_DoesNotChooseBetweenSameNameNotes` 与 `ResolveRelated_DropsMissingTargets` 使用真实 NoteLocation 数据执行这些断言：
+- [x] 先写路径测试：中文仓库可用；绝对子目录、驱动器相对路径 `C:words`、根相对路径 `\words`、`..`、兄弟目录前缀伪装、重解析目录越界均拒绝；根目录未存在或为文件给可读错误；词性目录映射覆盖全部 11 值。
+- [x] 先写索引与关联测试：分类开关不影响跨目录查重；缺少输出目录视为空索引；同名歧义与自链接跳过；缺失候选不生成链接；最多 12 候选取最多 8 唯一目标；保留名单词按 Task 1 规则识别。
+- [x] 先写渲染断言：固定标题、YAML 可解析、空音标写“未提供”、原句保留、空关联提示；`[[fake]]`、HTML、标题与围栏输入被当作文本；仓库相对路径用 `/`、无 `.md`。输出子目录的路径段除 Windows 非法字符外，还拒绝 `#^[]|`；历史目录含这些字符时保留查重但跳过链接，不猜测 Wikilink 编码。
+- [x] 先写保存断言：开启/关闭分类路径正确；已存在内容逐字不变；两个独立 store 并发保存同词仅一个成功，包括主要词性不同的情况；取消发生在提交前不产生 `.md`；失败不留半份正式文件；链接目标在渲染前重新核验，删除或越界则排除。
+- [x] `Find_DoesNotChooseBetweenSameNameNotes` 与 `ResolveRelated_DropsMissingTargets` 使用真实 NoteLocation 数据执行这些断言：
 
 ```csharp
 Assert.Equal(2, index.Find("record").Count);
@@ -122,10 +122,10 @@ Assert.Empty(index.ResolveRelated("resilient", [new("missing", RelationKind.Syno
 Assert.DoesNotContain("[[fake]]", renderedFromUntrustedText);
 ```
 
-- [ ] 运行 `dotnet test tests/VocabCollector.Tests --filter "FullyQualifiedName~Vault|FullyQualifiedName~NoteRenderer"`，期望缺少实现或断言失败。
-- [ ] 实现索引、渲染与保存。扫描不跟随目录重解析点；危险历史目录不造链接。每次保存获得词库目录内 `.vocabcollector.write.lock` 的独占文件句柄，在锁内重新检查重复词并创建同目录临时文件，最终 `File.Move(..., overwrite: false)`；锁等待支持取消，最多 3 秒并给中文忙碌提示。释放句柄，保留空锁文件，避免删除锁文件的竞争。
-- [ ] 定义 `DuplicateWordException(IReadOnlyList<NoteLocation> notes)` 供应用服务处理。写盘前、获得锁后、提交前都检查取消及目录边界；清理仅涉及本次已知临时文件。
-- [ ] 重跑本任务测试至通过，提交：`feat: persist linked Obsidian vocabulary notes without overwrites`。
+- [x] 运行 `dotnet test tests/VocabCollector.Tests --filter "FullyQualifiedName~Vault|FullyQualifiedName~NoteRenderer"`，期望缺少实现或断言失败。
+- [x] 实现索引、渲染与保存。扫描不跟随目录重解析点；危险历史目录不造链接。每次保存获得词库目录内 `.vocabcollector.write.lock` 的独占文件句柄，在锁内重新检查重复词并创建同目录临时文件，最终 `File.Move(..., overwrite: false)`；锁等待支持取消，最多 3 秒并给中文忙碌提示。释放句柄，保留空锁文件，避免删除锁文件的竞争。
+- [x] 定义 `DuplicateWordException(IReadOnlyList<NoteLocation> notes)` 供应用服务处理。写盘前、获得锁后、提交前都检查取消及目录边界；清理仅涉及本次已知临时文件。
+- [x] 重跑本任务测试至通过，提交：`feat: persist linked Obsidian vocabulary notes without overwrites`。
 
 ### Task 3：可兼容、可取消的 AI 解析
 
