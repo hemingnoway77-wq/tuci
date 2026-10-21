@@ -4,6 +4,7 @@
     <Project Path="src/VocabCollector.Desktop/VocabCollector.Desktop.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/VocabCollector.Desktop.Smoke/VocabCollector.Desktop.Smoke.csproj" />
     <Project Path="tests/VocabCollector.Tests/VocabCollector.Tests.csproj" />
   </Folder>
 </Solution>

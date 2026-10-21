@@ -4,5 +4,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Deterministic>true</Deterministic>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <NuGetLockFilePath Condition="'$(RuntimeIdentifier)' != ''">packages.$(RuntimeIdentifier).lock.json</NuGetLockFilePath>
   </PropertyGroup>
 </Project>

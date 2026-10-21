@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0-windows</TargetFramework><OutputType>Exe</OutputType><UseWPF>true</UseWPF></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/VocabCollector.Desktop/VocabCollector.Desktop.csproj" />
+    <Compile Include="../VocabCollector.Tests/Fakes/RecordingHttpHandler.cs" Link="Fakes/RecordingHttpHandler.cs" />
+  </ItemGroup>
+</Project>

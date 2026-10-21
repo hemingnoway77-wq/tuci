@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "VocabCollector": {
+        "type": "Project",
+        "dependencies": {
+          "VocabCollector.Core": "[1.0.0, )"
+        }
+      },
+      "vocabcollector.core": {
+        "type": "Project"
+      }
+    }
+  }
+}

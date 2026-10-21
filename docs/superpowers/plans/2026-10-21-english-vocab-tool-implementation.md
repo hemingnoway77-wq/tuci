@@ -198,13 +198,13 @@ Assert.True(vm.GenerateCommand.CanExecute(null));
 
 **Interfaces:** Smoke 是独立测试 exe，STA 线程创建真实 WPF MainWindow/SettingsWindow，使用临时配置目录、临时词库、本机 loopback 模拟 HTTP 服务；不在产品增加特殊测试命令。脚本失败时返回非零退出码，成功打印输出目录。
 
-- [ ] 编写独立 smoke runner：通过真实窗口控件/绑定命令填写配置、保存、重载，输入单词与原句，调用本机模拟 Chat Completions 服务，验证分类路径、原句、已有词链接与 Markdown；测试重复词、401、坏 JSON、取消不留下新文件，且旧文件字节不变。
-- [ ] 窗口从真实 App 资源字典加载样式，记录 binding 错误；用 RenderTargetBitmap 输出主窗口和设置窗口 PNG 到 `.artifacts/smoke/`，不读取其他应用屏幕。运行 `dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release`，期望退出码 0、明确 PASS、有效的保存文件与截图。
-- [ ] 查看两张截图，修正截断、按钮不可见、对齐或滚动问题；重跑受影响的 smoke 断言。不通过时不宣称 GUI 验收完成。
-- [ ] 编写 `verify.ps1`，顺序执行 restore（锁文件）、`dotnet test -c Release`、Release build、smoke，任一步失败立即停止；编写 `publish.ps1`，执行校验后发布 `win-x64`，设置 `SelfContained=true`、`PublishSingleFile=true`、`IncludeNativeLibrariesForSelfExtract=true`、`PublishTrimmed=false`，产物命名 `VocabCollector.exe`。
-- [ ] 运行 `pwsh -NoProfile -File scripts/publish.ps1`（无 pwsh 时使用 powershell），确认 `dist/win-x64/VocabCollector.exe` 存在；实际启动发布 exe 验证窗口句柄、标题与可正常关闭，不修改用户现有配置。后台测试启动用 `Start-Process -WindowStyle Hidden`；只关闭本次启动且已核实的进程。
-- [ ] README 写明配置步骤、Base URL 样例、输出模板、保留名文件前缀、历史词按文件名匹配、已有文件不覆盖、关联可能为空、配置存放位置、构建命令、模拟验证范围，以及真实 API 需用户填入配置后验证。记录最终 exe 大小和 SHA-256 到交付说明，不提交二进制到 Git。
-- [ ] 全部验证通过后提交源码、测试、脚本和说明：`build: verify and package the standalone Windows application`。交付本地 exe 链接、源码目录、简短配置说明与已验证/未验证的范围。
+- [x] 编写独立 smoke runner：通过真实窗口控件/绑定命令填写配置、保存、重载，输入单词与原句，调用本机模拟 Chat Completions 服务，验证分类路径、原句、已有词链接与 Markdown；测试重复词、401、坏 JSON、取消不留下新文件，且旧文件字节不变。
+- [x] 窗口从真实 App 资源字典加载样式，记录 binding 错误；用 RenderTargetBitmap 输出主窗口和设置窗口 PNG 到 `.artifacts/smoke/`，不读取其他应用屏幕。运行 `dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release`，期望退出码 0、明确 PASS、有效的保存文件与截图。
+- [x] 查看两张截图，修正截断、按钮不可见、对齐或滚动问题；重跑受影响的 smoke 断言。不通过时不宣称 GUI 验收完成。
+- [x] 编写 `verify.ps1`，顺序执行 restore（锁文件）、`dotnet test -c Release`、Release build、smoke，任一步失败立即停止；编写 `publish.ps1`，执行校验后发布 `win-x64`，设置 `SelfContained=true`、`PublishSingleFile=true`、`IncludeNativeLibrariesForSelfExtract=true`、`PublishTrimmed=false`，产物命名 `VocabCollector.exe`。
+- [x] 运行 `pwsh -NoProfile -File scripts/publish.ps1`（无 pwsh 时使用 powershell），确认 `dist/win-x64/VocabCollector.exe` 存在；实际启动发布 exe 验证窗口句柄、标题与可正常关闭，不修改用户现有配置。后台测试启动用 `Start-Process -WindowStyle Hidden`；只关闭本次启动且已核实的进程。
+- [x] README 写明配置步骤、Base URL 样例、输出模板、保留名文件前缀、历史词按文件名匹配、已有文件不覆盖、关联可能为空、配置存放位置、构建命令、模拟验证范围，以及真实 API 需用户填入配置后验证。记录最终 exe 大小和 SHA-256 到交付说明，不提交二进制到 Git。
+- [x] 全部验证通过后提交源码、测试、脚本和说明：`build: verify and package the standalone Windows application`。交付本地 exe 链接、源码目录、简短配置说明与已验证/未验证的范围。
 
 ## 执行顺序与可并行部分
 
@@ -217,4 +217,4 @@ Task 1 固定共享合约后，Task 2 与 Task 3 可以独立实现；Task 4 依
 - 规格的界面、设置、输入、词性、模板、链接、HTTP、失败、存储、交付要求分别覆盖到 Task 1–6。
 - 五项 Review Focus 均有归属任务及具体断言；保留名安全前缀是对 Windows 文件系统限制的实现细化，不改变词条身份。
 - 共享类型、字段与接口统一列出；无未定义的业务组件。UI 外部打开由导航接口隔离，测试不唤起真实 Obsidian。
-- 尚未进行产品脚手架、依赖安装或编码；等待用户审阅本计划并选择执行方式。
+- 用户已确认本计划并选择直接实现；各任务复选框记录执行结果，最后进行独立分支审查。

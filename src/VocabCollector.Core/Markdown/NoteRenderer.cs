@@ -13,7 +13,7 @@ public sealed class NoteRenderer
         text.AppendLine("---").AppendLine("type: english-word").AppendLine("word: " + JsonSerializer.Serialize(word));
         text.AppendLine("primary_pos: " + analysis.PrimaryPartOfSpeech.ToString().ToLowerInvariant()).AppendLine("parts_of_speech:");
         foreach (var pos in analysis.Meanings.Select(m => m.PartOfSpeech).Distinct()) text.AppendLine("  - " + pos.ToString().ToLowerInvariant());
-        text.AppendLine("created: " + JsonSerializer.Serialize(created.ToString("O"))).AppendLine("tags:\n  - english\n  - vocabulary\n---\n");
+        text.AppendLine("created: '" + created.ToString("O") + "'").AppendLine("tags:\n  - english\n  - vocabulary\n---\n");
         text.AppendLine("# " + Plain(word)).AppendLine("\n## 音标");
         text.AppendLine("- 英：" + Phonetic(analysis.UkPhonetic)).AppendLine("- 美：" + Phonetic(analysis.UsPhonetic));
         text.AppendLine("\n## 词性与释义");
