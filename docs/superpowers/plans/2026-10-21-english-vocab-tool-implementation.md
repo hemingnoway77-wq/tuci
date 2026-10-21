@@ -176,9 +176,9 @@ Assert.Contains("## 词性与释义", result.Markdown);
 
 **Interfaces:** `MainViewModel(ICaptureService service, AppSettings settings)`，公开绑定属性 `Word,Context,Markdown,Message,IsBusy,Notes,SelectedNote`、`GenerateCommand,CancelCommand`、`GenerateAsync() -> Task`、`ApplySettings(AppSettings settings)`；`MainWindow(MainViewModel viewModel,ISettingsStore settingsStore,IAppNavigator navigator)`；`SettingsWindow(AppSettings draft,ISettingsStore store)` 仅保存成功后设置 `SavedSettings` 并关闭；`WindowsNavigator.BuildOpenUri(NoteLocation note) -> Uri`。
 
-- [ ] 写 VM 测试：处理中禁用生成与设置、取消可用；成功/重复/失败/取消均恢复按钮；保留输入；开始新操作清除旧路径；存储失败仍展示 Markdown；服务异常转为通用中文提示且不泄露参数；IsBusy 时拒绝 ApplySettings。
-- [ ] 写 URI 测试：使用 `obsidian://open?path=` 编码完整文件路径，中文、空格、`#`、`&`、`?`、`%` 不串改参数；路径来自 NoteLocation 而不是拼接模型文本。打开文件夹使用 `ProcessStartInfo.ArgumentList`，不拼 shell 命令。生产在操作失败时显示可读提示。
-- [ ] `Generate_RestoresStateAndKeepsInputAfterFailure` 包含以下断言；另测已取消、重复、成功状态：
+- [x] 写 VM 测试：处理中禁用生成与设置、取消可用；成功/重复/失败/取消均恢复按钮；保留输入；开始新操作清除旧路径；存储失败仍展示 Markdown；服务异常转为通用中文提示且不泄露参数；IsBusy 时拒绝 ApplySettings。
+- [x] 写 URI 测试：使用 `obsidian://open?path=` 编码完整文件路径，中文、空格、`#`、`&`、`?`、`%` 不串改参数；路径来自 NoteLocation 而不是拼接模型文本。打开文件夹使用 `ProcessStartInfo.ArgumentList`，不拼 shell 命令。生产在操作失败时显示可读提示。
+- [x] `Generate_RestoresStateAndKeepsInputAfterFailure` 包含以下断言；另测已取消、重复、成功状态：
 
 ```csharp
 Assert.False(vm.IsBusy);
@@ -186,11 +186,11 @@ Assert.Equal("resilient", vm.Word);
 Assert.True(vm.GenerateCommand.CanExecute(null));
 ```
 
-- [ ] 运行 `dotnet test tests/VocabCollector.Tests --filter "FullyQualifiedName~MainViewModel|FullyQualifiedName~WindowsNavigator"`，期望缺少实现或断言失败。
-- [ ] 实现 VM/命令/导航，并完成以下两个窗口。
-- [ ] 主窗口采用系统字体、浅色背景、清晰的输入/结果两区；单词、可选原句、“解析并保存”、取消、设置、状态、只读 Markdown、已有路径选择与两个打开按钮。窗口允许缩放，长内容可滚动，键盘焦点顺序正常，不依赖外部字体或图片。
-- [ ] 设置窗口含规格所有字段；Key 用 PasswordBox；目录用 OpenFolderDialog；在保存时校验路径/API 值，保存失败保持窗口可编辑。启动加载配置，损坏时提示并允许修复。生成期间不能变更配置。
-- [ ] 运行本任务测试并 `dotnet build VocabCollector.slnx -c Release`，全部通过后提交：`feat: add the vocabulary capture desktop interface`。
+- [x] 运行 `dotnet test tests/VocabCollector.Tests --filter "FullyQualifiedName~MainViewModel|FullyQualifiedName~WindowsNavigator"`，期望缺少实现或断言失败。
+- [x] 实现 VM/命令/导航，并完成以下两个窗口。
+- [x] 主窗口采用系统字体、浅色背景、清晰的输入/结果两区；单词、可选原句、“解析并保存”、取消、设置、状态、只读 Markdown、已有路径选择与两个打开按钮。窗口允许缩放，长内容可滚动，键盘焦点顺序正常，不依赖外部字体或图片。
+- [x] 设置窗口含规格所有字段；Key 用 PasswordBox；目录用 OpenFolderDialog；在保存时校验路径/API 值，保存失败保持窗口可编辑。启动加载配置，损坏时提示并允许修复。生成期间不能变更配置。
+- [x] 运行本任务测试并 `dotnet build VocabCollector.slnx -c Release`，全部通过后提交：`feat: add the vocabulary capture desktop interface`。
 
 ### Task 6：真实窗口验收、打包与中文说明
 
