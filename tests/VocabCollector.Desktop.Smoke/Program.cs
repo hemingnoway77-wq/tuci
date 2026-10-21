@@ -67,11 +67,18 @@ public sealed class SmokeRunner(App app)
         Check(note.VaultRelativePath == "英语单词/形容词/resilient.md", "part of speech directory");
         Check(text.Contains("[[英语单词/名词/resilience|resilience]]") && text.Contains("She remained resilient after the setback."), "existing link and source context");
         Check(text == vm.Markdown && !text.Contains('\r'), "displayed note matches UTF-8 LF file");
+        Check(!text.Contains("<!--") && !text.Contains("sha256=") && !text.Contains("vocabcollector:"), "notes and preview contain no program management labels");
         await File.WriteAllTextAsync(Path.Combine(output,"sample.md"), text);
         Check(!text.Contains("[[英语单词/名词/economy|economy]]"), "a missing example-word card is plain text");
         var manualTarget = Path.Combine(vault, "英语单词", "名词", "economy.md");
         await File.WriteAllTextAsync(manualTarget, "manually added target note");
         var beforeRefresh = server.Requests;
+        var legacyPath = Path.Combine(vault, "英语单词", "动词", "introduced.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+        var legacyBody = "#### 例句\n1. A teacher can help.\n   - 老师能帮忙。";
+        var legacyHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(legacyBody)));
+        var legacyOriginal = "---\ntype: english-word\nword: introduced\n---\n# introduced\n" + $"<!-- vocabcollector:links:v1 mode=examples sha256={legacyHash} -->\n{legacyBody}\n<!-- /vocabcollector:links -->\n\n#### 我的笔记\nMy personal note.\n";
+        await File.WriteAllTextAsync(legacyPath, legacyOriginal);
         Invoke(Control<Button>(main,"RefreshLinksButton"));
         await Until(() => !vm.IsBusy && vm.Message.Contains("链接刷新完成"));
         text = await File.ReadAllTextAsync(note.AbsolutePath);
@@ -79,6 +86,9 @@ public sealed class SmokeRunner(App app)
         Check(vm.Markdown == text, "manual refresh reloads the displayed note from disk");
         Check(server.Requests == beforeRefresh, "refresh uses zero model requests");
         Check(await File.ReadAllTextAsync(manualTarget) == "manually added target note", "unmanaged manual note stays unchanged");
+        var migrated = await File.ReadAllTextAsync(legacyPath);
+        Check(!migrated.Contains("vocabcollector:") && migrated.Contains(legacyBody) && migrated.Contains("My personal note."), "old program labels are removed without losing body or personal notes");
+        Check(Directory.GetFiles(Path.Combine(vault, "英语单词", ".vocabcollector", "backups"), "*.bak").Any(path => File.ReadAllText(path) == legacyOriginal), "legacy cleanup preserves an exact original backup");
         await File.WriteAllTextAsync(Path.Combine(output,"sample-refreshed.md"), text);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); Snapshot(main,Path.Combine(output,"main.png"));
         main.Width=main.MinWidth; main.Height=main.MinHeight;
@@ -103,7 +113,7 @@ public sealed class SmokeRunner(App app)
         await Until(() => vm.IsBusy && server.Requests > before); Check(!Control<Button>(main,"SettingsButton").IsEnabled, "settings disabled during request");
         Check(!Control<Button>(main,"RefreshLinksButton").IsEnabled, "link refresh disabled during request");
         Invoke(Control<Button>(main,"CancelButton")); await Until(() => !vm.IsBusy && vm.Message.Contains("取消"));
-        Check(vm.Word == "cancelled" && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == 3, "errors and cancellation create no note");
+        Check(vm.Word == "cancelled" && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == 4, "errors and cancellation create no note");
         Check(await File.ReadAllTextAsync(prior) == "handwritten historical notes", "historical file unchanged");
         Check(bindings.Errors.Count == 0, "no WPF binding errors: " + string.Join(" | ",bindings.Errors));
         await File.WriteAllTextAsync(Path.Combine(output,"result.txt"),$"PASS\nVault: {vault}\nSample: {note.AbsolutePath}\nRequests: {server.Requests}\nBinding errors: 0\n");

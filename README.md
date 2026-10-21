@@ -4,7 +4,7 @@
 
 ## 开始使用
 
-1. 本次模板与自动补链版双击 `dist/win-x64-notes/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
+1. 本次干净笔记修复版双击 `dist/win-x64-clean/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
 2. 点击右上角“设置”，填写 API 地址、API Key、模型名。
 3. 选择 **Obsidian 仓库根目录**，填写仓库内的单词子目录，默认 `英语单词`。
 4. 按需开启“按主要词性分文件夹”，保存设置。
@@ -37,7 +37,7 @@ API Key：你的服务商提供的 Key
 - 近义词最多 3 个，反义词最多 2 个，逐项解释适用义项、场景和差异；不为数量编造反义词。
 - 句法模式 1–3 条，按词性讲最实用的规则：动词的宾语／介词、名词的可数性／单复数、形容词的修饰／比较形式、副词的位置等。兼容旧响应，未提供语法时明确说明。
 
-模板及本地补链的实现规则见[本次实施计划](docs/superpowers/plans/2026-10-21-template-and-local-links.md)，初版设计文档保留为历史记录。
+模板内容规则见[模板实施计划](docs/superpowers/plans/2026-10-21-template-and-local-links.md)，当前不含程序标签的补链机制见[干净笔记修复验收](docs/verification/2026-10-21-clean-notes.md)。原设计和内嵌注释方案保留为历史记录，不作为当前输出要求。
 
 完整排版预览见 [introduced.md](docs/examples/introduced.md)。此示例由实际渲染器在隔离词库生成，未覆盖用户原文件；音标、词形和主要用法核对 [Oxford introduce](https://www.oxfordlearnersdictionaries.com/us/definition/english/introduce)，例句自拟。内部跳转及反向关联使用 [Obsidian 内部链接](https://obsidian.md/help/links)。
 
@@ -59,8 +59,10 @@ API Key：你的服务商提供的 Key
 - 例句只链接实际存在且唯一匹配的完整单词，忽略大小写。每句最多 3 个不同目标，跳过当前词及常见功能词，同一目标在一句内只链接一次。
 - 内部链接示例：`[[英语单词/名词/policy|policy]]`，可供 Obsidian 显示反向链接及图谱。同名多份笔记时不猜目标。
 - 保存新词后，自动为相关旧例句、近反义词等补链；启动工具或点击右上角“刷新词条链接”，也可处理在 Obsidian 中另行新增的卡片。删除、移动、出现同名歧义时，刷新会移除旧链接或使用新的唯一实际路径。工具关闭时不在后台改写文件，下次启动或刷新再处理。
-- 自动补链只处理本版本新笔记中带隐藏标记且校验有效的例句／语义关系区域。旧版或手工笔记保持原样；人工改过的管理块跳过，个人笔记区可自由补充。没有卡片时显示普通文字，不预建空白卡片。
-- 更新历史笔记前保存原文备份到单词目录下 `.vocabcollector/backups/`（`.bak` 文件）。该目录中的 `link-index.json` 缓存文件时间和引用关系，首次建立后只重算受影响笔记；缓存损坏或丢失会本地重建，不影响笔记内容。
+- 自动补链只处理程序已登记的例句／语义关系区域，校验记录保存在单词目录下 `.vocabcollector/`，不在 Markdown 正文中放程序标记或校验码。人工改过的区域跳过，个人笔记区可自由补充。没有卡片时显示普通文字，不预建空白卡片。
+- 刷新时自动迁移上一版带 `vocabcollector` 管理注释的笔记：先备份和登记补链记录，再去除这些程序注释，保留原有正文和链接。旧的人工笔记不会被自动接管。
+- 更新历史笔记前保存原文备份到 `.vocabcollector/backups/`（`.bak` 文件）。`note-state.json` 持久保存自动补链的区域记录，请随词库保留；`link-index.json` 只缓存时间和引用关系，损坏或丢失可重建。持久记录丢失时，干净的 Markdown 仍可正常阅读，但未登记旧笔记不会被擅自改写。
+- 手动移动一份已登记笔记后，它仍可作为链接目标，但当前版本暂停自动改写这份笔记本身，防止把相同文件名的私人笔记误认成原文件。
 - 单词输出子目录避开 `# ^ [ ] |` 等 Wikilink 保留字符；旧子目录包含这些字符时仍查重，但跳过关联。仓库根目录可以包含 Windows 允许的特殊字符，打开时会编码。
 - 为防止写到仓库外，不跟随目录链接、junction 或文件 symlink。请选择普通本地文件夹；首次使用请确认路径。
 
@@ -81,7 +83,7 @@ pwsh -NoProfile -File scripts/verify.ps1
 pwsh -NoProfile -File scripts/publish.ps1
 ```
 
-当前升级版可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory dist/win-x64-notes` 单独打包，避免占用正在运行的旧 exe。
+当前修复版可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory dist/win-x64-clean` 单独打包，避免占用正在运行的旧 exe。
 
 没有 `pwsh` 时可使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1`。脚本不修改系统执行策略。
 

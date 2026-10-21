@@ -30,7 +30,7 @@ public sealed class NoteRenderer
             examples.AppendLine($"{i + 1}. {english}");
             examples.AppendLine("   - " + Plain(analysis.Examples[i].Chinese));
         }
-        text.AppendLine().AppendLine(ManagedLinks.Wrap("examples", examples.ToString().TrimEnd()));
+        text.AppendLine().AppendLine(examples.ToString().TrimEnd());
         text.AppendLine("\n#### 常见搭配");
         foreach (var item in analysis.Collocations) text.AppendLine("- " + Plain(item.English) + "：" + Plain(item.Chinese));
         var semantic = new StringBuilder("#### 语义关系\n");
@@ -38,7 +38,7 @@ public sealed class NoteRenderer
         AppendRelations(semantic, analysis.Related, RelationKind.Antonym, "反义词", "无常用直接反义词。", 2);
         foreach (var (kind, title) in new[] { (RelationKind.SameRoot, "同根词"), (RelationKind.Confusable, "易混词") })
             if (analysis.Related.Any(r => r.Kind == kind)) AppendRelations(semantic, analysis.Related, kind, title, "", 4);
-        text.AppendLine().AppendLine(ManagedLinks.Wrap("relations", semantic.ToString().TrimEnd()));
+        text.AppendLine().AppendLine(semantic.ToString().TrimEnd());
         text.AppendLine("\n#### 语法信息\n##### 句法模式");
         if (analysis.Grammar.Count == 0) text.AppendLine("- 暂未提供可靠的句法说明。");
         foreach (var pattern in analysis.Grammar.Take(3))
@@ -51,7 +51,7 @@ public sealed class NoteRenderer
             text.AppendLine("\n#### 遇见时的原句");
             foreach (var line in context.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')) text.AppendLine("> " + Plain(line));
         }
-        return ManagedLinks.Refresh(text.AppendLine("\n#### 我的笔记\n").ToString().Replace("\r\n", "\n"), word, index);
+        return ManagedLinks.RefreshNew(text.AppendLine("\n#### 我的笔记\n").ToString().Replace("\r\n", "\n"), word, index);
     }
     private static void AppendRelations(StringBuilder text, IReadOnlyList<RelatedCandidate> related, RelationKind kind, string title, string empty, int limit)
     {

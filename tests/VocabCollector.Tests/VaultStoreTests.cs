@@ -4,6 +4,31 @@ using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Tests;
 public class VaultStoreTests
 {
+    [Fact] public async Task Save_RegistersCleanRegionsForLaterLinks()
+    {
+        using var vault = new TempVault(); var store = new VaultStore();
+        var saved = await store.SaveNewAsync("learn", PartOfSpeech.Verb, _ => "#### 例句\n1. A teacher helps.\n", vault.Options, default);
+        Assert.Empty(saved.Warning);
+        Assert.DoesNotContain("vocabcollector", saved.Markdown);
+        vault.Note("英语单词/teacher.md");
+
+        Assert.Equal(1, (await store.RefreshLinksAsync(vault.Options, default)).Updated);
+        Assert.Contains("[[英语单词/teacher|teacher]]", await File.ReadAllTextAsync(saved.Note.AbsolutePath));
+    }
+
+    [Fact] public async Task Save_MetadataFailureAfterCommitReturnsSavedNoteWithWarning()
+    {
+        using var vault = new TempVault();
+        Directory.CreateDirectory(Path.Combine(vault.Root, "英语单词", ".vocabcollector", "note-state.json"));
+        const string clean = "#### 例句\n1. A teacher helps.\n";
+
+        var saved = await new VaultStore().SaveNewAsync("learn", PartOfSpeech.Verb, _ => clean, vault.Options, default);
+
+        Assert.Equal(clean, await File.ReadAllTextAsync(saved.Note.AbsolutePath));
+        Assert.Contains("已保存", saved.Warning);
+        Assert.Contains("补链记录", saved.Warning);
+    }
+
     [Fact] public async Task Scan_HandlesMissingDirectoryAndReservedNames()
     {
         using var vault = new TempVault(); var store = new VaultStore();

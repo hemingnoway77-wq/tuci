@@ -4,9 +4,191 @@ using System.Text.RegularExpressions;
 using VocabCollector.Core.Storage;
 namespace VocabCollector.Core.Markdown;
 
+public sealed record LinkRegionState(string Mode, string BodyHash);
+public sealed record LegacyLinkImport(string Markdown, IReadOnlyList<LinkRegionState> Regions);
+
 public static class ManagedLinks
 {
-    private static readonly Regex Blocks = new(@"^<!-- vocabcollector:links:v1 mode=(?<mode>examples|relations) sha256=(?<hash>[0-9a-fA-F]{64}) -->\r?\n(?<body>.*?)\r?\n<!-- /vocabcollector:links -->", RegexOptions.Multiline | RegexOptions.Singleline | RegexOptions.CultureInvariant);
+    public static IReadOnlyList<LinkRegionState> CaptureState(string cleanDocument) => Sections(cleanDocument)
+        .Select(section => new LinkRegionState(section.Mode, BodyHash(section.Text))).ToArray();
+
+    public static string RefreshNew(string cleanDocument, string currentWord, VaultIndex index) =>
+        Refresh(cleanDocument, currentWord, index, CaptureState(cleanDocument));
+
+    /// <summary>Only sections matching separately stored checksums are eligible for automatic linking.</summary>
+    public static string Refresh(string document, string currentWord, VaultIndex index, IReadOnlyList<LinkRegionState> state)
+    {
+        var result = document;
+        foreach (var section in Sections(document).OrderByDescending(section => section.Start))
+        {
+            if (!Matches(section, state)) continue;
+            var updated = RefreshBody(section.Text, section.Mode, currentWord, index);
+            if (updated != section.Text) result = result[..section.Start] + updated + result[(section.Start + section.Length)..];
+        }
+        return result;
+    }
+
+    /// <summary>Unverified regions retain their old checksums so a refresh cannot adopt a personal edit.</summary>
+    public static IReadOnlyList<LinkRegionState> AdvanceState(string original, string updated, IReadOnlyList<LinkRegionState> previous)
+    {
+        var before = Sections(original);
+        var after = Sections(updated);
+        return previous.Select(region =>
+        {
+            var prior = before.SingleOrDefault(section => section.Mode == region.Mode);
+            var next = after.SingleOrDefault(section => section.Mode == region.Mode);
+            return prior is not null && next is not null && Matches(prior, previous)
+                ? region with { BodyHash = BodyHash(next.Text) } : region;
+        }).ToArray();
+    }
+
+    /// <summary>Removes only paired v1 marker lines outside code fences, retaining their original edit protection.</summary>
+    public static LegacyLinkImport? ImportLegacy(string document)
+    {
+        var lines = Lines(document);
+        List<(Line Start, Line End, LinkRegionState Region)> pairs = [];
+        (Line Line, Match Match)? pending = null;
+        foreach (var line in lines.Where(line => line.Visible))
+        {
+            var start = LegacyStart.Match(line.Text);
+            if (start.Success)
+            {
+                if (pending is not null) return null;
+                pending = (line, start);
+            }
+            else if (line.Text == "<!-- /vocabcollector:links -->")
+            {
+                if (pending is null) return null;
+                pairs.Add((pending.Value.Line, line, new(pending.Value.Match.Groups["mode"].Value,
+                    pending.Value.Match.Groups["hash"].Value.ToLowerInvariant())));
+                pending = null;
+            }
+            else if (line.Text.StartsWith("<!-- vocabcollector:links:v1 ", StringComparison.Ordinal)) return null;
+        }
+        if (pending is not null || pairs.Count == 0 || pairs.Select(pair => pair.Region.Mode).Distinct(StringComparer.Ordinal).Count() != pairs.Count) return null;
+
+        var clean = document;
+        foreach (var pair in pairs.OrderByDescending(pair => pair.Start.Start))
+        {
+            // Consume each marker's own line ending; all body and surrounding bytes stay unchanged.
+            clean = clean.Remove(pair.End.Start, pair.End.Length);
+            clean = clean.Remove(pair.Start.Start, pair.Start.Length);
+        }
+        return new(clean, pairs.Select(pair => pair.Region).ToArray());
+    }
+
+    internal static IReadOnlyList<string> CandidateWords(string document, IReadOnlyList<LinkRegionState> state)
+    {
+        HashSet<string> words = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in Sections(document).Where(section => Matches(section, state)))
+        {
+            foreach (var line in Lines(section.Text).Where(line => line.Visible))
+            {
+                var plain = StripOldLinks(line.Text);
+                if (section.Mode == "examples")
+                    foreach (Match example in ExampleLines.Matches(plain))
+                        foreach (Match word in Words.Matches(example.Groups["sentence"].Value)) words.Add(NormalizeWord(word.Value));
+                else
+                    foreach (Match relation in RelationLines.Matches(plain)) words.Add(NormalizeWord(relation.Groups["word"].Value));
+            }
+        }
+        return words.Order(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    internal static bool HasEditedBlocks(string document, IReadOnlyList<LinkRegionState> state)
+    {
+        var sections = Sections(document);
+        return state.Any(region => !sections.Any(section => section.Mode == region.Mode && Matches(section, state)));
+    }
+
+    private static readonly Regex LegacyStart = new(@"^<!-- vocabcollector:links:v1 mode=(?<mode>examples|relations) sha256=(?<hash>[0-9a-fA-F]{64}) -->$", RegexOptions.CultureInvariant);
+    private static readonly Regex Heading = new(@"^(?<level>#{1,6})[ \t]+(?<title>[^\r\n]*?)[ \t]*$", RegexOptions.CultureInvariant);
+    private static readonly Regex Fence = new(@"^ {0,3}(?<fence>`{3,}|~{3,})(?<tail>.*)$", RegexOptions.CultureInvariant);
+
+    private sealed record Section(string Mode, int Start, int Length, string Text);
+    private sealed record Line(int Start, int Length, string Text, bool Visible);
+
+    private static IReadOnlyList<Section> Sections(string document)
+    {
+        var headings = Lines(document).Where(line => line.Visible).Select(line => (Line: line, Match: Heading.Match(line.Text)))
+            .Where(item => item.Match.Success).ToArray();
+        List<Section> sections = [];
+        foreach (var mode in new[] { "examples", "relations" })
+        {
+            var title = mode == "examples" ? "例句" : "语义关系";
+            var candidates = headings.Where(item => item.Match.Groups["level"].Length == 4 && item.Match.Groups["title"].Value == title).ToArray();
+            if (candidates.Length != 1) continue;
+            var heading = candidates[0].Line;
+            var next = headings.FirstOrDefault(item => item.Line.Start > heading.Start && item.Match.Groups["level"].Length <= 4).Line;
+            var end = next?.Start ?? document.Length;
+            sections.Add(new(mode, heading.Start, end - heading.Start, document[heading.Start..end]));
+        }
+        return sections;
+    }
+
+    private static IReadOnlyList<Line> Lines(string document)
+    {
+        List<Line> lines = [];
+        char fenceCharacter = '\0';
+        var fenceLength = 0;
+        var inComment = false;
+        for (var start = 0; start < document.Length;)
+        {
+            var end = start;
+            while (end < document.Length && document[end] is not ('\r' or '\n')) end++;
+            var text = document[start..end];
+            var next = end;
+            if (next < document.Length && document[next] == '\r') next++;
+            if (next < document.Length && document[next] == '\n') next++;
+            var fence = Fence.Match(text);
+            var visible = fenceCharacter == '\0' && !inComment && !fence.Success;
+            if (fenceCharacter != '\0')
+            {
+                if (fence.Success && fence.Groups["fence"].Value[0] == fenceCharacter &&
+                    fence.Groups["fence"].Length >= fenceLength && string.IsNullOrWhiteSpace(fence.Groups["tail"].Value)) fenceCharacter = '\0';
+            }
+            else if (!inComment && fence.Success)
+            {
+                fenceCharacter = fence.Groups["fence"].Value[0];
+                fenceLength = fence.Groups["fence"].Length;
+            }
+            else
+            {
+                for (var position = 0; position < text.Length;)
+                {
+                    var marker = text.IndexOf(inComment ? "-->" : "<!--", position, StringComparison.Ordinal);
+                    if (marker < 0) break;
+                    position = marker + (inComment ? 3 : 4);
+                    inComment = !inComment;
+                }
+            }
+            lines.Add(new(start, next - start, text, visible));
+            start = next;
+        }
+        return lines;
+    }
+
+    private static bool Matches(Section section, IReadOnlyList<LinkRegionState> state)
+    {
+        var candidates = state.Where(region => region.Mode == section.Mode).ToArray();
+        return candidates.Length == 1 && BodyHash(section.Text).Equals(candidates[0].BodyHash, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BodyHash(string body) => Hash(Normalize(body).TrimEnd('\n'));
+
+    private static string RefreshBody(string body, string mode, string currentWord, VaultIndex index)
+    {
+        var updated = body;
+        foreach (var line in Lines(body).Where(line => line.Visible).Reverse())
+        {
+            var plain = StripOldLinks(line.Text);
+            var replacement = mode == "examples"
+                ? ExampleLines.Replace(plain, match => match.Groups["prefix"].Value + LinkSentence(match.Groups["sentence"].Value, currentWord, index))
+                : RelationLines.Replace(plain, match => match.Groups["prefix"].Value + LinkWord(match.Groups["word"].Value, currentWord, index) + match.Groups["suffix"].Value);
+            if (replacement != line.Text) updated = updated[..line.Start] + replacement + updated[(line.Start + line.Text.Length)..];
+        }
+        return updated;
+    }
     private static readonly Regex Words = new(@"(?<![A-Za-z0-9_])[A-Za-z]+(?:[-'’][A-Za-z]+)*(?![A-Za-z0-9_])", RegexOptions.CultureInvariant);
     private static readonly Regex ExampleLines = new(@"^(?<prefix>\s*\d+\.\s+)(?<sentence>[^\r\n]*)", RegexOptions.Multiline | RegexOptions.CultureInvariant);
     private static readonly Regex RelationLines = new(@"^(?<prefix>[ \t]*-[ \t]+)(?<word>[A-Za-z]+(?:[-'’][A-Za-z]+)*)(?<suffix>[ \t]*[：:][^\r\n]*)", RegexOptions.Multiline | RegexOptions.CultureInvariant);
@@ -17,52 +199,6 @@ public static class ManagedLinks
         "i me my mine we us our ours you your yours he him his she her hers it its they them their theirs this that these those " +
         "not no yes very too also just then than there here who what which where why how all any each every some such own same " +
         "up down out off again only even still more most much many few less other another both either neither").Split(' '), StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>The checksum protects user edits: only exactly matching generated blocks can be refreshed.</summary>
-    public static string Wrap(string mode, string body)
-    {
-        if (mode is not ("examples" or "relations")) throw new ArgumentException("不支持的自动链接区域。", nameof(mode));
-        var normalized = Normalize(body).TrimEnd('\n');
-        return $"<!-- vocabcollector:links:v1 mode={mode} sha256={Hash(normalized)} -->\n{normalized}\n<!-- /vocabcollector:links -->";
-    }
-
-    public static string Refresh(string document, string currentWord, VaultIndex index) => Blocks.Replace(document, block =>
-    {
-        var body = Normalize(block.Groups["body"].Value);
-        if (!Hash(body).Equals(block.Groups["hash"].Value, StringComparison.OrdinalIgnoreCase)) return block.Value;
-        var plain = StripOldLinks(body);
-        var mode = block.Groups["mode"].Value;
-        var updated = mode == "examples"
-            ? ExampleLines.Replace(plain, line => line.Groups["prefix"].Value + LinkSentence(line.Groups["sentence"].Value, currentWord, index))
-            : RelationLines.Replace(plain, line => line.Groups["prefix"].Value + LinkWord(line.Groups["word"].Value, currentWord, index) + line.Groups["suffix"].Value);
-        return updated == body ? block.Value : Wrap(mode, updated);
-    });
-
-    internal static bool HasBlocks(string document) => document.Contains("<!-- vocabcollector:links:v1 ", StringComparison.Ordinal);
-
-    internal static bool HasEditedBlocks(string document)
-    {
-        var blocks = Blocks.Matches(document).Cast<Match>().ToArray();
-        var starts = Regex.Matches(document, @"^<!-- vocabcollector:links:v1 ", RegexOptions.Multiline | RegexOptions.CultureInvariant).Count;
-        return starts != blocks.Length || blocks.Any(block => !Hash(Normalize(block.Groups["body"].Value)).Equals(block.Groups["hash"].Value, StringComparison.OrdinalIgnoreCase));
-    }
-
-    internal static IReadOnlyList<string> CandidateWords(string document)
-    {
-        HashSet<string> words = new(StringComparer.OrdinalIgnoreCase);
-        foreach (Match block in Blocks.Matches(document))
-        {
-            var body = Normalize(block.Groups["body"].Value);
-            if (!Hash(body).Equals(block.Groups["hash"].Value, StringComparison.OrdinalIgnoreCase)) continue;
-            var plain = StripOldLinks(body);
-            if (block.Groups["mode"].Value == "examples")
-                foreach (Match line in ExampleLines.Matches(plain))
-                    foreach (Match word in Words.Matches(line.Groups["sentence"].Value)) words.Add(NormalizeWord(word.Value));
-            else
-                foreach (Match line in RelationLines.Matches(plain)) words.Add(NormalizeWord(line.Groups["word"].Value));
-        }
-        return words.Order(StringComparer.OrdinalIgnoreCase).ToArray();
-    }
 
     private static string LinkSentence(string sentence, string currentWord, VaultIndex index)
     {

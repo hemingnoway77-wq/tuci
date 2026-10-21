@@ -34,6 +34,7 @@ public sealed class CaptureService(IWordAnalyzer analyzer, IVocabularyStore stor
             ct.ThrowIfCancellationRequested(); progress?.Report(CaptureStage.Saving);
             var saved = await store.SaveNewAsync(word, analysis.PrimaryPartOfSpeech, Render, settings.Vault, ct);
             var message = "已保存，可以在 Obsidian 中复习。";
+            if (saved.Warning.Length > 0) message += " " + saved.Warning;
             // A successful commit remains saved even if the optional local maintenance is cancelled or fails.
             if (store is ILinkMaintenance maintenance)
             {

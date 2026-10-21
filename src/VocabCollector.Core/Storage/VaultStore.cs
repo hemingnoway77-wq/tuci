@@ -86,7 +86,16 @@ public sealed class VaultStore : IVocabularyStore, ILinkMaintenance
             VaultPaths.EnsureInside(options.RootPath, path);
             File.Move(temporary, path, false);
             // The atomic move is the commit point: later cancellation must not report an unsaved result.
-            return new(new(word, path, Path.GetRelativePath(options.RootPath, path).Replace('\\', '/')), markdown);
+            NoteLocation note = new(word, path, Path.GetRelativePath(options.RootPath, path).Replace('\\', '/'));
+            try
+            {
+                await _links.RegisterAsync(options, note, markdown, CancellationToken.None);
+                return new(note, markdown);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                return new(note, markdown) { Warning = "笔记已保存，但本笔记的自动补链记录未能保存。请检查目录权限。" };
+            }
         }
         finally
         {
