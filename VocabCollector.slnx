@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VocabCollector.Core/VocabCollector.Core.csproj" />
+    <Project Path="src/VocabCollector.Desktop/VocabCollector.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VocabCollector.Tests/VocabCollector.Tests.csproj" />
+  </Folder>
+</Solution>

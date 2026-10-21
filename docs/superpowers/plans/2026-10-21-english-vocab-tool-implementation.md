@@ -88,10 +88,10 @@ README.md
 
 **Interfaces:** 产出上述共享合约、`WordInput.Normalize(string raw) -> string`、`ToFileName(string normalized) -> string`、`FromFileStem(string stem) -> string`。校验失败使用 `ArgumentException` 的明确中文说明；下游不直接展示 .NET 原始异常。
 
-- [ ] 建立最小项目骨架：Core `net10.0`，Desktop WPF 与 Tests `net10.0-windows`；Tests 引用 Core/Desktop。启用 nullable 与 NuGet 锁文件，不编写业务实现。
-- [ ] 写 `WordInputTests`：`" Resilient " -> "resilient"`；`"can’t" -> "can't"`；连字符合法；空值、句子、`../word`、控制字符与 65 字符拒绝；`running` 与 `run`、`saw` 与 `see` 不同身份。
-- [ ] 写保留名回归：`ToFileName("con") == "_con.md"`，`FromFileStem("_con") == "con"`；`aux/prn/nul` 同样映射。普通文件名保持原词。只有明确保留名映射前缀，其余历史文件名不随意剥离 `_`。
-- [ ] `Normalize_PreservesInflections` 和 `FileName_ReservedNamesRoundTrip` 至少包含这些断言：
+- [x] 建立最小项目骨架：Core `net10.0`，Desktop WPF 与 Tests `net10.0-windows`；Tests 引用 Core/Desktop。启用 nullable 与 NuGet 锁文件，不编写业务实现。
+- [x] 写 `WordInputTests`：`" Resilient " -> "resilient"`；`"can’t" -> "can't"`；连字符合法；空值、句子、`../word`、控制字符与 65 字符拒绝；`running` 与 `run`、`saw` 与 `see` 不同身份。
+- [x] 写保留名回归：`ToFileName("con") == "_con.md"`，`FromFileStem("_con") == "con"`；`aux/prn/nul` 同样映射。普通文件名保持原词。只有明确保留名映射前缀，其余历史文件名不随意剥离 `_`。
+- [x] `Normalize_PreservesInflections` 和 `FileName_ReservedNamesRoundTrip` 至少包含这些断言：
 
 ```csharp
 Assert.Equal("resilient", WordInput.Normalize(" Resilient "));
@@ -100,9 +100,9 @@ Assert.Equal("_con.md", WordInput.ToFileName("con"));
 Assert.Equal("con", WordInput.FromFileStem("_con"));
 ```
 
-- [ ] 运行 `dotnet test tests/VocabCollector.Tests --filter FullyQualifiedName~WordInputTests`，期望缺少类型/方法或行为断言失败，保留红灯证据。
-- [ ] 实现共享合约与输入方法，重跑相同命令，期望全部通过。
-- [ ] 提交：`feat: establish vocabulary contracts and safe word identities`。
+- [x] 运行 `dotnet test tests/VocabCollector.Tests --filter FullyQualifiedName~WordInputTests`，期望缺少类型/方法或行为断言失败，保留红灯证据。
+- [x] 实现共享合约与输入方法，重跑相同命令，期望全部通过。
+- [x] 提交：`feat: establish vocabulary contracts and safe word identities`。
 
 ### Task 2：词库、关联与固定 Markdown 安全保存
 

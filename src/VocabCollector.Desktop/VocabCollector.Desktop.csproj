@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>VocabCollector</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../VocabCollector.Core/VocabCollector.Core.csproj" /></ItemGroup>
+</Project>
