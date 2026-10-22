@@ -4,6 +4,56 @@ using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Tests;
 public class VaultPathsTests
 {
+    [Fact] public void ObsidianRoot_ChoosesNearestOrdinaryMarkerWithinConfiguredRoot()
+    {
+        using var vault = new TempVault();
+        var options = vault.Options with { OutputSubfolder = "English/words" };
+        var intermediate = Path.Combine(vault.Root, "English");
+        var wordRoot = VaultPaths.WordRoot(options);
+        Assert.Equal(vault.Root, VaultPaths.ObsidianRoot(options));
+        Directory.CreateDirectory(Path.Combine(vault.Root, ".obsidian"));
+        Assert.Equal(vault.Root, VaultPaths.ObsidianRoot(options));
+        Directory.CreateDirectory(Path.Combine(intermediate, ".obsidian"));
+        Assert.Equal(intermediate, VaultPaths.ObsidianRoot(options));
+        Directory.CreateDirectory(Path.Combine(wordRoot, ".obsidian"));
+        Assert.Equal(wordRoot, VaultPaths.ObsidianRoot(options));
+    }
+    [Fact] public void ObsidianRoot_DoesNotSearchAboveConfiguredRootOrCreateMarkers()
+    {
+        using var vault = new TempVault();
+        Directory.CreateDirectory(Path.Combine(vault.Root, ".obsidian"));
+        var configuredRoot = Path.Combine(vault.Root, "child");
+        Directory.CreateDirectory(configuredRoot);
+        var options = vault.Options with { RootPath = configuredRoot };
+
+        Assert.Equal(configuredRoot, VaultPaths.ObsidianRoot(options));
+        Assert.False(Directory.Exists(VaultPaths.WordRoot(options)));
+        Assert.False(Directory.Exists(Path.Combine(configuredRoot, ".obsidian")));
+    }
+    [Fact] public void ObsidianRoot_IgnoresJunctionMarker()
+    {
+        using var vault = new TempVault(); using var outside = new TempVault();
+        var wordRoot = VaultPaths.WordRoot(vault.Options);
+        Directory.CreateDirectory(wordRoot);
+        var marker = Path.Combine(wordRoot, ".obsidian");
+        var start = new System.Diagnostics.ProcessStartInfo("cmd.exe") { RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        foreach (var argument in new[] { "/c", "mklink", "/J", marker, outside.Root }) start.ArgumentList.Add(argument);
+        using var process = System.Diagnostics.Process.Start(start)!; process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
+        try { Assert.Equal(vault.Root, VaultPaths.ObsidianRoot(vault.Options)); }
+        finally { Directory.Delete(marker); }
+    }
+    [Fact] public void IsLinkable_ChecksEffectiveObsidianTargetRatherThanStorageIdentity()
+    {
+        using var vault = new TempVault();
+        var note = vault.Note("old#vault/teacher.md");
+        Assert.False(VaultPaths.IsLinkable(note));
+        Assert.True(VaultPaths.IsLinkable(note with { ObsidianRelativePath = "teacher.md" }));
+        var ordinary = vault.Note("英语单词/teacher.md");
+        Assert.False(VaultPaths.IsLinkable(ordinary with { ObsidianRelativePath = "bad#target/teacher.md" }));
+        Assert.False(VaultPaths.IsLinkable(ordinary with { ObsidianRelativePath = "../teacher.md" }));
+        Assert.Equal(ordinary.VaultRelativePath, VaultPaths.LinkTarget(ordinary));
+    }
     [Theory][InlineData("../escape")][InlineData("C:words")][InlineData("C:\\words")][InlineData("\\words")]
     [InlineData("英语#词库")][InlineData("notes[old]")][InlineData("notes^")]
     public void Root_RejectsUnsafeSubfolder(string subfolder)

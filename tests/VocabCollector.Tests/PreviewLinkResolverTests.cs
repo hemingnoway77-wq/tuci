@@ -24,5 +24,17 @@ public sealed class PreviewLinkResolverTests : IDisposable
     {
         Assert.Null(PreviewLinkResolver.Resolve(target, new(vault, "单词", true), null));
     }
+    [Fact]
+    public void ResolvesPathsRelativeToTheActualNestedObsidianVault()
+    {
+        Directory.CreateDirectory(Path.Combine(vault, "单词", ".obsidian"));
+        Directory.CreateDirectory(Path.Combine(vault, "单词", "动词"));
+        var path = Path.Combine(vault, "单词", "动词", "introduce.md");
+        File.WriteAllText(path, "# introduce");
+        var options = new VaultOptions(vault, "单词", true);
+        Assert.Equal(path, PreviewLinkResolver.Resolve("动词/introduce", options, null)?.AbsolutePath);
+        Assert.Equal(path, PreviewLinkResolver.Resolve("单词/动词/introduce", options, null)?.AbsolutePath);
+        Assert.Null(PreviewLinkResolver.Resolve("动词/missing", options, null));
+    }
     public void Dispose() => Directory.Delete(vault, true);
 }

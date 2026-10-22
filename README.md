@@ -4,7 +4,7 @@
 
 ## 开始使用
 
-1. 本次粉色界面版双击 `dist/win-x64-pink/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
+1. 本次关联修复版双击 `dist/win-x64-links/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
 2. 点击右上角“设置”，填写 API 地址、API Key、模型名。
 3. 选择 **Obsidian 仓库根目录**，填写仓库内的单词子目录，默认 `英语单词`。
 4. 按需开启“按主要词性分文件夹”，保存设置。
@@ -70,9 +70,11 @@ API Key：你的服务商提供的 Key
 - AI 给出近义词、反义词及可选的同根词／易混词，未收录的候选仍以普通文字显示，保留学习内容。
 - 例句只链接实际存在且唯一匹配的完整单词，忽略大小写。每句最多 3 个不同目标，跳过当前词及常见功能词，同一目标在一句内只链接一次。
 - 内部链接示例：`[[英语单词/名词/policy|policy]]`，可供 Obsidian 显示反向链接及图谱。同名多份笔记时不猜目标。
+- “词形”段落中的已收录原形和其他词形也会自动链接，例如 `introduced是[[动词/introduce|introduce]]的过去式和过去分词`，中英文紧邻不影响识别。这里只匹配文中实际出现的完整单词，不依靠去掉 `ed` 等方式猜原形；`be`、`have` 等在词形说明中可以链接。
+- 程序自动检查单词目录到配置根目录之间最近的 `.obsidian` 仓库标记，生成相对于实际 Obsidian 仓库的路径。例如把“英语单词”本身作为 Obsidian 仓库打开时，使用 `[[动词/introduce|introduce]]`，不重复添加“英语单词”。原来的保存位置及保护记录身份保持稳定。
 - 词根卡片单独放在**单词目录内的 `词根` 文件夹**，以单个词根命名，如 `duc.md` 或 `-duc-.md`。`duc / duct（引导）` 这一组的任一变体有唯一卡片时，整组显示成 `[[英语单词/词根/duc|duc / duct]]（引导）`。该组匹配多份不同卡片时保留普通文字；普通单词目录的同名词不会被当成词根。卡片内容可以自由撰写，程序只识别文件名。
 - 保存新词后，自动为相关旧例句、近反义词等补链；启动工具或点击右上角“刷新词条链接”，也可处理在 Obsidian 中另行新增的卡片。删除、移动、出现同名歧义时，刷新会移除旧链接或使用新的唯一实际路径。工具关闭时不在后台改写文件，下次启动或刷新再处理。
-- 自动补链只处理程序已登记的例句／语义关系／词根区域，校验记录保存在单词目录下 `.vocabcollector/`，不在 Markdown 正文中放程序标记或校验码。人工改过的区域跳过，个人笔记区可自由补充。没有卡片时显示普通文字，不预建空白卡片。以后新增词根卡片，同样可通过启动、保存新词或“刷新词条链接”给已有词根段落补链。
+- 自动补链只处理程序已登记的例句／语义关系／词根／词形区域，校验记录保存在单词目录下 `.vocabcollector/`，不在 Markdown 正文中放程序标记或校验码。人工改过的区域跳过，个人笔记区可自由补充。没有卡片时显示普通文字，不预建空白卡片。以后新增词根卡片，同样可通过启动、保存新词或“刷新词条链接”给已有词根段落补链。较旧笔记没有登记词形区域时，刷新不会擅自接管；本次用户明确指出的 `introduced` 已单独备份、补链并登记，其他段落保持原校验记录。
 - 刷新时自动迁移上一版带 `vocabcollector` 管理注释的笔记：先备份和登记补链记录，再去除这些程序注释，保留原有正文和链接。旧的人工笔记不会被自动接管。
 - 更新历史笔记前保存原文备份到 `.vocabcollector/backups/`（`.bak` 文件）。`note-state.json` 持久保存自动补链的区域记录，请随词库保留；`link-index.json` 只缓存时间和引用关系，损坏或丢失可重建。持久记录丢失时，干净的 Markdown 仍可正常阅读，但未登记旧笔记不会被擅自改写。
 - 手动移动一份已登记笔记后，它仍可作为链接目标，但当前版本暂停自动改写这份笔记本身，防止把相同文件名的私人笔记误认成原文件。
@@ -98,7 +100,7 @@ pwsh -NoProfile -File scripts/verify.ps1
 pwsh -NoProfile -File scripts/publish.ps1
 ```
 
-当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory dist/win-x64-pink` 单独打包，避免占用正在运行的旧 exe。
+当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory dist/win-x64-links` 单独打包，避免占用正在运行的旧 exe。
 
 没有 `pwsh` 时可使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1`。脚本不修改系统执行策略。
 

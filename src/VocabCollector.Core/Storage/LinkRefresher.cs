@@ -127,7 +127,8 @@ public sealed class LinkRefresher
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
         }
         return valid.GroupBy(item => item.Key, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key,
-            group => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', group.Select(item => item.Note.VaultRelativePath).Order(StringComparer.OrdinalIgnoreCase))))), StringComparer.OrdinalIgnoreCase);
+            group => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', group.Select(item =>
+                item.Note.VaultRelativePath + "\t" + VaultPaths.LinkTarget(item.Note)).Order(StringComparer.OrdinalIgnoreCase))))), StringComparer.OrdinalIgnoreCase);
     }
 
     private static void ValidateNote(string root, string wordRoot, NoteLocation note)
@@ -194,7 +195,7 @@ public sealed class LinkRefresher
             VaultPaths.EnsureInside(root, path);
             if (!File.Exists(path)) return new();
             var state = JsonSerializer.Deserialize<CacheState>(await File.ReadAllTextAsync(path, Utf8, ct));
-            if (state is null || state.Version != 2 || state.Notes is null || state.Targets is null ||
+            if (state is null || state.Version != 3 || state.Notes is null || state.Targets is null ||
                 state.Notes.Values.Any(entry => entry is null || entry.References is null)) return new();
             // JSON dictionaries do not retain their original comparer after deserialization.
             state.Targets = new(state.Targets, StringComparer.OrdinalIgnoreCase);
@@ -259,9 +260,9 @@ public sealed class LinkRefresher
             var state = JsonSerializer.Deserialize<OwnershipState>(await File.ReadAllTextAsync(path, Utf8, ct));
             if (state is null || state.Version != 1 || state.Notes is null || state.Notes.Any(pair =>
                     string.IsNullOrWhiteSpace(pair.Key) || pair.Value is null || string.IsNullOrWhiteSpace(pair.Value.Word) ||
-                    pair.Value.Regions is null || pair.Value.Regions.Length > 3 ||
+                    pair.Value.Regions is null || pair.Value.Regions.Length > 4 ||
                     pair.Value.Regions.Select(region => region?.Mode).Distinct().Count() != pair.Value.Regions.Length ||
-                    pair.Value.Regions.Any(region => region is null || region.Mode is not ("examples" or "relations" or "roots") ||
+                    pair.Value.Regions.Any(region => region is null || region.Mode is not ("examples" or "relations" or "roots" or "forms") ||
                         region.BodyHash is null || region.BodyHash.Length != 64 || !region.BodyHash.All(Uri.IsHexDigit))))
                 throw new IOException("自动补链记录格式无效，已保留笔记内容。");
             state.Notes = new(state.Notes, StringComparer.OrdinalIgnoreCase);
@@ -273,7 +274,7 @@ public sealed class LinkRefresher
     private sealed record FileStamp(long LastWriteUtcTicks, long Length);
     private sealed class CacheState
     {
-        public int Version { get; set; } = 2;
+        public int Version { get; set; } = 3;
         public Dictionary<string, string> Targets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, CacheEntry> Notes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }

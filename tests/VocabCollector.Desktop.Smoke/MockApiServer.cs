@@ -58,6 +58,8 @@ public sealed class MockApiServer : IAsyncDisposable
                 var analysis = JsonNode.Parse(RecordingHttpHandler.ValidJson)!;
                 analysis["roots"] = JsonSerializer.SerializeToNode(new[] { new { root = "sal", meaning = "跳跃，源自拉丁语 salire", variants = new[] { "sult" } } });
                 analysis["meanings"]!.AsArray().Add(JsonSerializer.SerializeToNode(new { part_of_speech = "adjective", definition = "能迅速恢复的" }));
+                analysis["lemma"] = "resilient";
+                analysis["form_note"] = "resilient的副词是resiliently。";
                 var body = mode switch
                 {
                     ApiMode.Unauthorized => "echo sk-smoke-canary-secret",

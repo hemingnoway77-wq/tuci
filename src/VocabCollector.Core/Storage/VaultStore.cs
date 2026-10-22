@@ -25,6 +25,7 @@ public sealed class VaultStore : IVocabularyStore, ILinkMaintenance
     public Task<VaultIndex> ScanAsync(VaultOptions options, CancellationToken ct) => Task.Run(() =>
     {
         var wordRoot = VaultPaths.WordRoot(options);
+        var obsidianRoot = VaultPaths.ObsidianRoot(options);
         List<NoteLocation> notes = [];
         List<NoteLocation> rootNotes = [];
         if (!Directory.Exists(wordRoot)) return new VaultIndex(notes);
@@ -45,7 +46,7 @@ public sealed class VaultStore : IVocabularyStore, ILinkMaintenance
                     word = current.IsRoot ? RootInput.Normalize(stem) : WordInput.Normalize(WordInput.FromFileStem(stem));
                 }
                 catch (ArgumentException) { continue; }
-                (current.IsRoot ? rootNotes : notes).Add(new(word, path, Path.GetRelativePath(options.RootPath, path).Replace('\\', '/')));
+                (current.IsRoot ? rootNotes : notes).Add(Location(word, path, options, obsidianRoot));
             }
             foreach (var child in Directory.EnumerateDirectories(directory))
             {
@@ -97,9 +98,9 @@ public sealed class VaultStore : IVocabularyStore, ILinkMaintenance
             }
             ct.ThrowIfCancellationRequested();
             VaultPaths.EnsureInside(options.RootPath, path);
+            var note = Location(word, path, options, VaultPaths.ObsidianRoot(options));
             File.Move(temporary, path, false);
             // The atomic move is the commit point: later cancellation must not report an unsaved result.
-            NoteLocation note = new(word, path, Path.GetRelativePath(options.RootPath, path).Replace('\\', '/'));
             try
             {
                 await _links.RegisterAsync(options, note, markdown, CancellationToken.None);
@@ -116,6 +117,12 @@ public sealed class VaultStore : IVocabularyStore, ILinkMaintenance
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { }
         }
     }
+    private static NoteLocation Location(string word, string path, VaultOptions options, string obsidianRoot) =>
+        new(word, path, Path.GetRelativePath(options.RootPath, path).Replace('\\', '/'))
+        {
+            ObsidianRelativePath = obsidianRoot.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.RootPath)), StringComparison.OrdinalIgnoreCase)
+                ? null : Path.GetRelativePath(obsidianRoot, path).Replace('\\', '/')
+        };
     private static async Task<FileStream> AcquireLockAsync(string path, CancellationToken ct)
     {
         var elapsed = Stopwatch.StartNew();

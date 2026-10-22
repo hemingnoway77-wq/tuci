@@ -13,7 +13,10 @@ public sealed record BilingualText(string English, string Chinese);
 public sealed record RelatedCandidate(string Word, RelationKind Kind, string Explanation = "");
 public sealed record GrammarPattern(string Pattern, string Explanation);
 public sealed record RootPart(string Root, string Meaning, IReadOnlyList<string> Variants);
-public sealed record NoteLocation(string Word, string AbsolutePath, string VaultRelativePath);
+public sealed record NoteLocation(string Word, string AbsolutePath, string VaultRelativePath)
+{
+    public string? ObsidianRelativePath { get; init; }
+}
 public sealed record SavedNote(NoteLocation Note, string Markdown)
 {
     public string Warning { get; init; } = "";

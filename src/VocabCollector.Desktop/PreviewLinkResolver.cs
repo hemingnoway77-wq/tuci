@@ -15,7 +15,8 @@ public static class PreviewLinkResolver
         if (!Path.GetExtension(value).Equals(".md", StringComparison.OrdinalIgnoreCase)) return null;
         var root = Path.GetFullPath(options.RootPath);
         var wordRoot = VaultPaths.WordRoot(options);
-        List<string> candidates = [Path.Combine(root, value.Replace('/', Path.DirectorySeparatorChar))];
+        var relative = value.Replace('/', Path.DirectorySeparatorChar);
+        List<string> candidates = [Path.Combine(VaultPaths.ObsidianRoot(options), relative), Path.Combine(root, relative)];
         if (source is not null && !value.Contains('/')) candidates.Add(Path.Combine(Path.GetDirectoryName(source.AbsolutePath)!, value));
         foreach (var path in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
         {

@@ -5,6 +5,20 @@ public static class VaultPaths
     private static readonly char[] LinkReserved = ['#', '^', '[', ']', '|'];
     private static readonly string[] Folders = ["名词", "动词", "形容词", "副词", "代词", "介词", "连词", "感叹词", "限定词", "数词", "其他"];
     public static string PartFolder(PartOfSpeech part) => Enum.IsDefined(part) ? Folders[(int)part] : throw new ArgumentException("词性无效。");
+    public static string LinkTarget(NoteLocation note) => note.ObsidianRelativePath ?? note.VaultRelativePath;
+    public static string ObsidianRoot(VaultOptions options)
+    {
+        var wordRoot = WordRoot(options);
+        var configuredRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.RootPath));
+        for (string? current = wordRoot; current is not null; current = Path.GetDirectoryName(current))
+        {
+            var marker = Path.Combine(current, ".obsidian");
+            if (Directory.Exists(marker) && (File.GetAttributes(marker) & FileAttributes.ReparsePoint) == 0)
+                return current;
+            if (current.Equals(configuredRoot, StringComparison.OrdinalIgnoreCase)) break;
+        }
+        return configuredRoot;
+    }
     public static string WordRoot(VaultOptions options)
     {
         if (string.IsNullOrWhiteSpace(options.RootPath) || !Path.IsPathFullyQualified(options.RootPath) || !Directory.Exists(options.RootPath))
@@ -45,7 +59,10 @@ public static class VaultPaths
     {
         try
         {
-            if (!File.Exists(note.AbsolutePath) || note.VaultRelativePath.IndexOfAny(LinkReserved) >= 0) return false;
+            var target = LinkTarget(note).Replace('\\', '/');
+            if (!File.Exists(note.AbsolutePath) || string.IsNullOrWhiteSpace(target) || Path.IsPathRooted(target) ||
+                target.IndexOfAny(LinkReserved) >= 0 || target.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || target.Contains(':') ||
+                target.Split('/').Any(part => part is "" or "." or "..")) return false;
             EnsureNoReparse(note.AbsolutePath);
             return true;
         }
