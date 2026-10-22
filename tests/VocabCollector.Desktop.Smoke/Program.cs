@@ -4,24 +4,27 @@ using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using VocabCollector.Core;
 using VocabCollector.Core.Ai;
 using VocabCollector.Core.Storage;
+using VocabCollector.Desktop.Preview;
 namespace VocabCollector.Desktop.Smoke;
 
 public static class Program
 {
     [STAThread] public static int Main()
     {
-        var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var app = new App(false) { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.InitializeComponent();
         var exitCode = 1;
         app.Dispatcher.BeginInvoke(new Action(async () =>
         {
-            try { await new SmokeRunner(app).RunChecksAsync(); Console.WriteLine("PASS: real WPF controls, encrypted settings, HTTP capture, local link refresh without API, duplicate, 401, malformed JSON, cancellation and screenshots"); exitCode = 0; }
+            try { await new SmokeRunner(app).RunChecksAsync(); Console.WriteLine("PASS: real WPF controls, rendered note preview, local preview links, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, duplicate, 401, malformed JSON, cancellation and screenshots"); exitCode = 0; }
             catch (Exception error) { Console.Error.WriteLine(error); }
             finally { app.Shutdown(); app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.ApplicationIdle); }
         }));
@@ -42,9 +45,16 @@ public sealed class SmokeRunner(App app)
         var vaultStore = new VaultStore();
         var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(client), vaultStore, TimeProvider.System), AppSettings.Default, vaultStore);
         var navigator = new RecordingNavigator(); var main = new MainWindow(vm, settingsStore, navigator); app.MainWindow = main; main.Show();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Check(main.Icon != null, "main window has the application icon");
+        Check(Control<FrameworkElement>(main,"PreviewEmptyState").IsVisible, "empty preview explains what to do before a word is generated");
+        var preview = Control<MarkdownPreview>(main,"NotePreview");
+        Check(string.IsNullOrWhiteSpace(preview.RenderedText), "empty preview contains no raw template or placeholder code");
+        Snapshot(main,Path.Combine(output,"main-empty.png"));
         Invoke(Control<Button>(main, "SettingsButton"));
         await Until(() => app.Windows.OfType<SettingsWindow>().Any(w => w.IsVisible));
         var dialog = app.Windows.OfType<SettingsWindow>().Single(w => w.IsVisible);
+        Check(dialog.Icon != null, "settings window uses the same application icon");
         Control<TextBox>(dialog,"BaseUrlBox").Text = server.BaseUrl;
         Control<PasswordBox>(dialog,"KeyBox").Password = "sk-smoke-canary-secret";
         Control<TextBox>(dialog,"ModelBox").Text = "mock-model";
@@ -71,6 +81,15 @@ public sealed class SmokeRunner(App app)
         Check(text.Contains("**词根**：sal / sult（跳跃，源自拉丁语 salire）"), "root group is shown below pronunciation");
         Check(text.Contains("**释义**：\n\n> adj. 有韧性的  \n> adj. 能迅速恢复的"), "definitions use separate quoted lines");
         Check(!text.Contains("<!--") && !text.Contains("sha256=") && !text.Contains("vocabcollector:"), "notes and preview contain no program management labels");
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Check(!Control<FrameworkElement>(main,"PreviewEmptyState").IsVisible, "completed note replaces the empty preview");
+        Check(preview.Markdown == text, "rendered preview receives the exact saved note");
+        Check(preview.RenderedText.Contains("resilient") && preview.RenderedText.Contains("有韧性的") && preview.RenderedText.Contains("能迅速恢复的") && preview.RenderedText.Contains("sal / sult"), "preview renders the word, stacked meanings and root group");
+        Check(!preview.RenderedText.Contains("type: english-word") && !preview.RenderedText.Contains("primary_pos:") && !preview.RenderedText.Contains("created:") && !preview.RenderedText.Contains("**") && !preview.RenderedText.Contains("[[") && !preview.RenderedText.Contains("####") && !preview.RenderedText.Contains("sha256="), "preview hides front matter, formatting delimiters, wiki syntax and technical metadata");
+        var relationLink = Links(preview.Document).Single(link => link.Tag is PreviewLink target && target.Target.EndsWith("/resilience", StringComparison.Ordinal));
+        relationLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent,relationLink));
+        await Until(() => navigator.Opened == prior);
+        Check(server.Requests == 1, "clicking an existing note in the preview opens locally without another API request");
         await File.WriteAllTextAsync(Path.Combine(output,"sample.md"), text);
         Check(!text.Contains("[[英语单词/名词/economy|economy]]"), "a missing example-word card is plain text");
         var manualTarget = Path.Combine(vault, "英语单词", "名词", "economy.md");
@@ -92,12 +111,32 @@ public sealed class SmokeRunner(App app)
         Check(text.Contains("**词根**：[[英语单词/词根/sal|sal / sult]]（跳跃，源自拉丁语 salire）"), "future root card backfills the root group");
         Check(await File.ReadAllTextAsync(rootTarget) == "manually added root card", "root card stays unchanged");
         Check(vm.Markdown == text, "manual refresh reloads the displayed note from disk");
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Check(preview.Markdown == text && !preview.RenderedText.Contains("[["), "link refresh also updates the rendered reading preview");
+        var rootLink = Links(preview.Document).Single(link => new TextRange(link.ContentStart,link.ContentEnd).Text == "sal / sult");
+        rootLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent,rootLink));
+        await Until(() => navigator.Opened == rootTarget);
         Check(server.Requests == beforeRefresh, "refresh uses zero model requests");
         Check(await File.ReadAllTextAsync(manualTarget) == "manually added target note", "unmanaged manual note stays unchanged");
         var migrated = await File.ReadAllTextAsync(legacyPath);
         Check(!migrated.Contains("vocabcollector:") && migrated.Contains(legacyBody) && migrated.Contains("My personal note."), "old program labels are removed without losing body or personal notes");
         Check(Directory.GetFiles(Path.Combine(vault, "英语单词", ".vocabcollector", "backups"), "*.bak").Any(path => File.ReadAllText(path) == legacyOriginal), "legacy cleanup preserves an exact original backup");
         await File.WriteAllTextAsync(Path.Combine(output,"sample-refreshed.md"), text);
+        var previewScroll = Descendants<ScrollViewer>(preview).Single();
+        Check(AutoHideScrollbars.GetIsEnabled(previewScroll), "reading preview enables the shared scrollbar behavior");
+        Check(previewScroll.ScrollableHeight > 0, "full rendered note remains scrollable");
+        var previewBar = Descendants<ScrollBar>(previewScroll).Single(bar => bar.Orientation == Orientation.Vertical);
+        await Until(() => !AutoHideScrollbars.GetIsActive(previewScroll));
+        Check(previewBar.Opacity == 0 || previewBar.IsMouseOver || previewBar.IsMouseCaptureWithin, "preview scrollbar is hidden while idle");
+        previewScroll.ScrollToEnd();
+        await Until(() => previewScroll.VerticalOffset > 0 && AutoHideScrollbars.GetIsActive(previewScroll));
+        Check(previewBar.Opacity == 1, "scrolling reveals the preview scrollbar");
+        Snapshot(main,Path.Combine(output,"main-scrolled.png"));
+        await Until(() => !AutoHideScrollbars.GetIsActive(previewScroll));
+        Check(previewBar.Opacity == 0 || previewBar.IsMouseOver || previewBar.IsMouseCaptureWithin, "preview scrollbar hides again after scrolling stops");
+        previewScroll.ScrollToTop();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        await Until(() => !AutoHideScrollbars.GetIsActive(previewScroll));
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); Snapshot(main,Path.Combine(output,"main.png"));
         main.Width=main.MinWidth; main.Height=main.MinHeight;
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -139,6 +178,43 @@ public sealed class SmokeRunner(App app)
         while (!condition()) { if (watch.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException("Timed out waiting for UI state"); await Task.Delay(20); }
     }
     private static void Check(bool valid,string message) { if (!valid) throw new InvalidOperationException(message); }
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var index=0; index<VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child=VisualTreeHelper.GetChild(root,index);
+            if (child is T item) yield return item;
+            foreach (var nested in Descendants<T>(child)) yield return nested;
+        }
+    }
+    private static IEnumerable<Hyperlink> Links(FlowDocument document) => Links(document.Blocks);
+    private static IEnumerable<Hyperlink> Links(BlockCollection blocks)
+    {
+        foreach (var block in blocks)
+        {
+            if (block is Paragraph paragraph)
+                foreach (var link in Links(paragraph.Inlines)) yield return link;
+            if (block is Section section)
+                foreach (var link in Links(section.Blocks)) yield return link;
+            if (block is System.Windows.Documents.List list)
+                foreach (var item in list.ListItems)
+                    foreach (var link in Links(item.Blocks)) yield return link;
+            if (block is Table table)
+                foreach (var group in table.RowGroups)
+                    foreach (var row in group.Rows)
+                        foreach (var cell in row.Cells)
+                            foreach (var link in Links(cell.Blocks)) yield return link;
+        }
+    }
+    private static IEnumerable<Hyperlink> Links(InlineCollection inlines)
+    {
+        foreach (var inline in inlines)
+        {
+            if (inline is Hyperlink link) yield return link;
+            if (inline is Span span)
+                foreach (var nested in Links(span.Inlines)) yield return nested;
+        }
+    }
     private static Rect VisibleBounds(FrameworkElement element,Window root)
     {
         var result=element.TransformToAncestor(root).TransformBounds(new Rect(0,0,element.ActualWidth,element.ActualHeight));
@@ -159,7 +235,8 @@ public sealed class SmokeRunner(App app)
         using(var context=drawing.RenderOpen())
         {
             context.DrawRectangle(window.Background ?? Brushes.White,null,new Rect(0,0,width,height));
-            context.DrawRectangle(new VisualBrush(visual),null,new Rect(margin.Left,margin.Top,visual.ActualWidth,visual.ActualHeight));
+            var brush = new VisualBrush(visual) { ViewboxUnits=BrushMappingMode.Absolute, Viewbox=new Rect(margin.Left,margin.Top,visual.ActualWidth,visual.ActualHeight), Stretch=Stretch.Fill };
+            context.DrawRectangle(brush,null,new Rect(margin.Left,margin.Top,visual.ActualWidth,visual.ActualHeight));
         }
         var bitmap=new RenderTargetBitmap((int)Math.Ceiling(width),(int)Math.Ceiling(height),96,96,PixelFormats.Pbgra32); bitmap.Render(drawing);
         var encoder=new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var stream=File.Create(path); encoder.Save(stream);

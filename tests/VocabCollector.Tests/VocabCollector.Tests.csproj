@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
@@ -11,5 +12,7 @@
     <ProjectReference Include="../../src/VocabCollector.Core/VocabCollector.Core.csproj" />
     <ProjectReference Include="../../src/VocabCollector.Desktop/VocabCollector.Desktop.csproj" />
     <Using Include="Xunit" />
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
   </ItemGroup>
 </Project>

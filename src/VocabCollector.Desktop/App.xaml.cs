@@ -7,10 +7,14 @@ using VocabCollector.Core.Storage;
 namespace VocabCollector.Desktop;
 public partial class App : Application
 {
+    private readonly bool _runProductionStartup;
+    public App() : this(true) { }
+    public App(bool runProductionStartup) => _runProductionStartup = runProductionStartup;
     private HttpClient? _client;
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (!_runProductionStartup) return;
         var store = new WindowsSettingsStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VocabCollector"));
         var loaded = await store.LoadAsync(CancellationToken.None);
         _client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(90) };

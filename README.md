@@ -4,12 +4,22 @@
 
 ## 开始使用
 
-1. 本次词根与速度优化版双击 `dist/win-x64-roots/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
+1. 本次粉色界面版双击 `dist/win-x64-pink/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
 2. 点击右上角“设置”，填写 API 地址、API Key、模型名。
 3. 选择 **Obsidian 仓库根目录**，填写仓库内的单词子目录，默认 `英语单词`。
 4. 按需开启“按主要词性分文件夹”，保存设置。
 5. 粘贴一个单词；可附上遇见它时的原句。点击“解析并保存”。
-6. 完成后可点击“在 Obsidian 中打开”，也可打开文件夹。笔记展示区支持选择和复制文本。
+6. 完成后直接阅读排版好的笔记预览，可选择复制文字、点击词条和词根链接，或点击“在 Obsidian 中打开”。
+
+## 界面与阅读预览
+
+主窗口和设置页采用浅粉背景、奶油白卡片、玫瑰色按钮和少量柔黄色点缀。图标为原创词卡图形，已嵌入 exe 和窗口，提供 16–256 像素的多尺寸版本。
+
+预览使用本地原生文档排版：隐藏 YAML 属性、Markdown 格式符号和程序注释，展示标题、分行释义、加粗、引用、列表及词条关联。选择复制获得阅读文字；磁盘保存的文件仍是原来的 Markdown。历史词条和词根链接可点击在 Obsidian 中打开，普通 HTTP/HTTPS 链接使用默认浏览器。
+
+滚动条闲置时隐藏，滚动、拖动或鼠标移到滚动条区域时显示；停止后约一秒隐藏。原句、设置、预览和词条列表使用同一套滚动样式。窗口最小为 900×640，较小窗口内可滚动查看输入与笔记。
+
+阅读预览不需要 WebView 或浏览器组件，也不加载笔记中的远程图片。Markdown 解析使用 Markdig，许可证随发布附带并嵌入程序。实现与验收见[粉色界面验证记录](docs/verification/2026-10-22-pink-interface.md)。
 
 可执行文件可以单独复制到别处运行。设置位于 `%LOCALAPPDATA%\VocabCollector\settings.json`，API Key 使用当前 Windows 用户的 DPAPI 加密，不以明文保存。把此配置文件复制到其他电脑或其他 Windows 账户后，需要重新填写 Key。
 
@@ -88,7 +98,7 @@ pwsh -NoProfile -File scripts/verify.ps1
 pwsh -NoProfile -File scripts/publish.ps1
 ```
 
-当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory dist/win-x64-roots` 单独打包，避免占用正在运行的旧 exe。
+当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory dist/win-x64-pink` 单独打包，避免占用正在运行的旧 exe。
 
 没有 `pwsh` 时可使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1`。脚本不修改系统执行策略。
 

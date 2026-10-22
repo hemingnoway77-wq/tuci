@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Diagnostics;
 using VocabCollector.Core;
+using VocabCollector.Desktop.Preview;
 namespace VocabCollector.Desktop;
 public partial class MainWindow : Window
 {
@@ -22,6 +24,22 @@ public partial class MainWindow : Window
     }
     private void OpenNote_Click(object sender, RoutedEventArgs e) => Open(true);
     private void OpenFolder_Click(object sender, RoutedEventArgs e) => Open(false);
+    private void Preview_LinkRequested(object? sender, PreviewLinkEventArgs e)
+    {
+        if (_viewModel.IsBusy) return;
+        try
+        {
+            if (!e.IsWikiLink && Uri.TryCreate(e.Target, UriKind.Absolute, out var web) && web.Scheme is "https" or "http")
+            {
+                Process.Start(new ProcessStartInfo(web.AbsoluteUri) { UseShellExecute = true });
+                return;
+            }
+            var note = PreviewLinkResolver.Resolve(e.Target, _viewModel.Settings.Vault, _viewModel.SelectedNote);
+            if (note is null) { _viewModel.Message = "这张关联词卡暂时无法打开，可以在 Obsidian 中查看。"; return; }
+            _navigator.OpenNote(note);
+        }
+        catch (Exception) { _viewModel.Message = "无法打开这个链接，请确认目标笔记仍在词库中。"; }
+    }
     private void Open(bool note)
     {
         if (_viewModel.SelectedNote == null) return;
