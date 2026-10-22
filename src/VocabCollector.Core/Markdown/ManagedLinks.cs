@@ -82,6 +82,12 @@ public static class ManagedLinks
         HashSet<string> words = new(StringComparer.OrdinalIgnoreCase);
         foreach (var section in Sections(document).Where(section => Matches(section, state)))
         {
+            if (section.Mode == "roots")
+            {
+                foreach (var group in RootGroups(section.Text))
+                    foreach (var root in group.Display.Split('/')) words.Add("root:" + root.Trim().ToLowerInvariant());
+                continue;
+            }
             foreach (var line in Lines(section.Text).Where(line => line.Visible))
             {
                 var plain = StripOldLinks(line.Text);
@@ -104,13 +110,19 @@ public static class ManagedLinks
     private static readonly Regex LegacyStart = new(@"^<!-- vocabcollector:links:v1 mode=(?<mode>examples|relations) sha256=(?<hash>[0-9a-fA-F]{64}) -->$", RegexOptions.CultureInvariant);
     private static readonly Regex Heading = new(@"^(?<level>#{1,6})[ \t]+(?<title>[^\r\n]*?)[ \t]*$", RegexOptions.CultureInvariant);
     private static readonly Regex Fence = new(@"^ {0,3}(?<fence>`{3,}|~{3,})(?<tail>.*)$", RegexOptions.CultureInvariant);
+    private static readonly Regex RootLabel = new(@"^\*\*词根\*\*[：:][ \t]*", RegexOptions.CultureInvariant);
+    private const string RootDisplayPattern = @"[A-Za-z]{1,32}(?:[ \t]*/[ \t]*[A-Za-z]{1,32})*";
+    private static readonly Regex RootDisplay = new(RootDisplayPattern, RegexOptions.CultureInvariant);
+    private static readonly Regex RootGroupLink = new(@"\[\[(?<target>[^\[\]\r\n|]+)\|(?<display>" + RootDisplayPattern + @")\]\]", RegexOptions.CultureInvariant);
 
     private sealed record Section(string Mode, int Start, int Length, string Text);
     private sealed record Line(int Start, int Length, string Text, bool Visible);
+    private sealed record RootGroup(int Start, int Length, string Display);
 
     private static IReadOnlyList<Section> Sections(string document)
     {
-        var headings = Lines(document).Where(line => line.Visible).Select(line => (Line: line, Match: Heading.Match(line.Text)))
+        var lines = Lines(document);
+        var headings = lines.Where(line => line.Visible).Select(line => (Line: line, Match: Heading.Match(line.Text)))
             .Where(item => item.Match.Success).ToArray();
         List<Section> sections = [];
         foreach (var mode in new[] { "examples", "relations" })
@@ -122,6 +134,14 @@ public static class ManagedLinks
             var next = headings.FirstOrDefault(item => item.Line.Start > heading.Start && item.Match.Groups["level"].Length <= 4).Line;
             var end = next?.Start ?? document.Length;
             sections.Add(new(mode, heading.Start, end - heading.Start, document[heading.Start..end]));
+        }
+        var roots = lines.Where(line => line.Visible && RootLabel.IsMatch(line.Text)).ToArray();
+        if (roots.Length == 1)
+        {
+            var root = roots[0];
+            var blank = lines.FirstOrDefault(line => line.Start > root.Start && string.IsNullOrWhiteSpace(line.Text));
+            var end = blank?.Start ?? document.Length;
+            sections.Add(new("roots", root.Start, end - root.Start, document[root.Start..end]));
         }
         return sections;
     }
@@ -178,6 +198,7 @@ public static class ManagedLinks
 
     private static string RefreshBody(string body, string mode, string currentWord, VaultIndex index)
     {
+        if (mode == "roots") return RefreshRoots(body, index);
         var updated = body;
         foreach (var line in Lines(body).Where(line => line.Visible).Reverse())
         {
@@ -188,6 +209,63 @@ public static class ManagedLinks
             if (replacement != line.Text) updated = updated[..line.Start] + replacement + updated[(line.Start + line.Text.Length)..];
         }
         return updated;
+    }
+
+    private static string RefreshRoots(string body, VaultIndex index)
+    {
+        var updated = body;
+        foreach (var group in RootGroups(body).Reverse())
+        {
+            var matches = group.Display.Split('/').SelectMany(root => index.FindRoot(root.Trim()))
+                .Where(note => File.Exists(note.AbsolutePath)).DistinctBy(note => note.AbsolutePath, StringComparer.OrdinalIgnoreCase).ToArray();
+            var target = matches.Length == 1 && IsSafeTarget(matches[0]) ? matches[0] : null;
+            var replacement = target is null ? group.Display : WikiLink(target, group.Display);
+            updated = updated[..group.Start] + replacement + updated[(group.Start + group.Length)..];
+        }
+        return updated;
+    }
+
+    // Parse only generated group positions. A link or root-looking word inside a meaning is personal text.
+    private static IReadOnlyList<RootGroup> RootGroups(string body)
+    {
+        var label = RootLabel.Match(body);
+        if (!label.Success) return [];
+        List<RootGroup> groups = [];
+        var position = label.Length;
+        while (position < body.Length)
+        {
+            var start = position;
+            var link = RootGroupLink.Match(body, position);
+            var display = RootDisplay.Match(body, position);
+            string plain;
+            int length;
+            if (link.Success && link.Index == position && link.Groups["target"].Value.Contains('/'))
+            {
+                plain = link.Groups["display"].Value;
+                length = link.Length;
+            }
+            else if (display.Success && display.Index == position)
+            {
+                plain = display.Value;
+                length = display.Length;
+            }
+            else break;
+            position += length;
+            if (position >= body.Length || body[position] != '（') break;
+            groups.Add(new(start, length, plain));
+            var depth = 0;
+            do
+            {
+                if (body[position] == '（') depth++;
+                else if (body[position] == '）') depth--;
+                position++;
+            }
+            while (position < body.Length && body[position] is not ('\r' or '\n') && depth != 0);
+            if (depth != 0 || position >= body.Length || body[position] != '；') break;
+            position++;
+            while (position < body.Length && body[position] is ' ' or '\t') position++;
+        }
+        return groups;
     }
     private static readonly Regex Words = new(@"(?<![A-Za-z0-9_])[A-Za-z]+(?:[-'’][A-Za-z]+)*(?![A-Za-z0-9_])", RegexOptions.CultureInvariant);
     private static readonly Regex ExampleLines = new(@"^(?<prefix>\s*\d+\.\s+)(?<sentence>[^\r\n]*)", RegexOptions.Multiline | RegexOptions.CultureInvariant);
@@ -225,12 +303,16 @@ public static class ManagedLinks
         var normalized = NormalizeWord(word);
         if (normalized.Equals(NormalizeWord(currentWord), StringComparison.OrdinalIgnoreCase)) return null;
         var matches = index.Find(normalized);
-        if (matches.Count != 1 || !VaultPaths.IsLinkable(matches[0])) return null;
-        var note = matches[0];
+        return matches.Count == 1 && IsSafeTarget(matches[0]) ? matches[0] : null;
+    }
+
+    private static bool IsSafeTarget(NoteLocation note)
+    {
+        if (!VaultPaths.IsLinkable(note)) return false;
         var relative = note.VaultRelativePath.Replace('\\', '/');
         if (Path.IsPathRooted(relative) || relative.Contains(':') || relative.IndexOfAny(['\r', '\n']) >= 0 ||
-            relative.Split('/').Any(part => part is "" or "." or "..")) return null;
-        return note;
+            relative.Split('/').Any(part => part is "" or "." or "..")) return false;
+        return true;
     }
 
     private static string WikiLink(NoteLocation note, string display)

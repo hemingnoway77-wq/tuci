@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.png binary
 *.exe binary
+# Markdown examples use two trailing spaces for visible definition line breaks.
+docs/examples/*.md whitespace=-blank-at-eol

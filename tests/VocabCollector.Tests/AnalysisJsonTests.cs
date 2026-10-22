@@ -40,6 +40,7 @@ public class AnalysisJsonTests
         Assert.Equal("", analysis.Lemma);
         Assert.Equal("", analysis.FormNote);
         Assert.Empty(analysis.Grammar);
+        Assert.Empty(analysis.Roots);
         Assert.Equal("", Assert.Single(analysis.Related).Explanation);
     }
     [Theory]
@@ -95,6 +96,40 @@ public class AnalysisJsonTests
     {
         var json = RichResponse(); json["examples"]![0]!["english"] = string.Join(' ', Enumerable.Repeat("word",21));
         Assert.Throws<AnalysisException>(() => AnalysisJson.Parse(json.ToJsonString()));
+    }
+    [Fact] public void Parse_PreservesNormalizedRootsAndVariants()
+    {
+        var json = RichResponse();
+        json["roots"] = JsonNode.Parse("[{\"root\":\" DUC \",\"variants\":[\"DUCT\"],\"meaning\":\" 引导 \"}]");
+        var root = Assert.Single(AnalysisJson.Parse(json.ToJsonString()).Roots);
+        Assert.Equal("duc", root.Root); Assert.Equal("引导", root.Meaning); Assert.Equal(new[] { "duct" }, root.Variants);
+    }
+    [Theory]
+    [InlineData("null")][InlineData("{}")][InlineData("[{}]")]
+    [InlineData("[{\"root\":\"duc\",\"variants\":null,\"meaning\":\"引导\"}]")]
+    [InlineData("[{\"root\":42,\"variants\":[],\"meaning\":\"引导\"}]")]
+    [InlineData("[{\"root\":\"../duc\",\"variants\":[],\"meaning\":\"引导\"}]")]
+    [InlineData("[{\"root\":\"duc\",\"variants\":[\"[[duc]]\"],\"meaning\":\"引导\"}]")]
+    [InlineData("[{\"root\":\"duc\",\"variants\":[1],\"meaning\":\"引导\"}]")]
+    [InlineData("[{\"root\":\"duc\",\"variants\":[],\"meaning\":\"\"}]")]
+    [InlineData("[{\"root\":\"duc\",\"variants\":[],\"meaning\":null}]")]
+    public void Parse_RejectsMalformedRootFields(string roots)
+    {
+        var json = RichResponse(); json["roots"] = JsonNode.Parse(roots);
+        Assert.Throws<AnalysisException>(() => AnalysisJson.Parse(json.ToJsonString()));
+    }
+    [Fact] public void Parse_RejectsRootCountMeaningAndVariantLimits()
+    {
+        foreach (var roots in new JsonNode[]
+        {
+            new JsonArray(Enumerable.Range(0, 4).Select(_ => JsonNode.Parse("{\"root\":\"duc\",\"variants\":[],\"meaning\":\"引导\"}")).ToArray()),
+            JsonNode.Parse("[{\"root\":\"duc\",\"variants\":[\"duct\",\"du\",\"dou\",\"doc\"],\"meaning\":\"引导\"}]")!,
+            new JsonArray(new JsonObject { ["root"] = "duc", ["variants"] = new JsonArray(), ["meaning"] = new string('长', 81) })
+        })
+        {
+            var json = RichResponse(); json["roots"] = roots;
+            Assert.Throws<AnalysisException>(() => AnalysisJson.Parse(json.ToJsonString()));
+        }
     }
     private static JsonObject RichResponse()
     {

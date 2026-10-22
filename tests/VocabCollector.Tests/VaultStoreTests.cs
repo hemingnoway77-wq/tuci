@@ -4,6 +4,46 @@ using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Tests;
 public class VaultStoreTests
 {
+    [Fact] public async Task Scan_SeparatesRecursiveRootCardsAndIgnoresInternalDirectories()
+    {
+        using var vault = new TempVault(); var store = new VaultStore();
+        var word = vault.Note("英语单词/动词/act.md");
+        var root = vault.Note("英语单词/词根/act.md");
+        var variant = vault.Note("英语单词/词根/拉丁/-DUC-.md");
+        vault.Note("英语单词/词根/not-a-root.md");
+        vault.Note("英语单词/词根/中文.md");
+        vault.Note("英语单词/.vocabcollector/backups/teacher.md");
+        vault.Note("英语单词/名词/.obsidian/teacher.md");
+        vault.Note("英语单词/词根/.vocabcollector/duc.md");
+        vault.Note("英语单词/词根/.obsidian/act.md");
+
+        var index = await store.ScanAsync(vault.Options, default);
+
+        Assert.Equal(word, Assert.Single(index.Notes));
+        Assert.Equal(root, Assert.Single(index.FindRoot("act")));
+        var actualVariant = Assert.Single(index.FindRoot("duc"));
+        Assert.Equal("duc", actualVariant.Word);
+        Assert.Equal(variant.AbsolutePath, actualVariant.AbsolutePath);
+        Assert.Equal("英语单词/词根/拉丁/-DUC-.md", actualVariant.VaultRelativePath);
+        Assert.Equal(2, index.RootNotes.Count);
+        Assert.Empty(index.Find("duc"));
+        Assert.Empty(index.Find("teacher"));
+    }
+
+    [Fact] public async Task Save_OrdinaryWordCanShareSpellingWithRootCard()
+    {
+        using var vault = new TempVault(); var store = new VaultStore();
+        var root = vault.Note("英语单词/词根/act.md");
+
+        var saved = await store.SaveNewAsync("act", PartOfSpeech.Verb, _ => "word card", vault.Options, default);
+
+        Assert.Equal("英语单词/动词/act.md", saved.Note.VaultRelativePath);
+        Assert.Equal("historical personal notes", await File.ReadAllTextAsync(root.AbsolutePath));
+        var index = await store.ScanAsync(vault.Options, default);
+        Assert.Single(index.Find("act"));
+        Assert.Single(index.FindRoot("act"));
+    }
+
     [Fact] public async Task Save_RegistersCleanRegionsForLaterLinks()
     {
         using var vault = new TempVault(); var store = new VaultStore();

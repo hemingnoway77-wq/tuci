@@ -96,7 +96,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsBusy = true; Markdown = ""; Notes.Clear(); SelectedNote = null; Message = "正在检查输入与词库…";
         var progress = new Progress<CaptureStage>(stage =>
         {
-            if (IsBusy) Message = stage switch { CaptureStage.CallingAi => "AI 正在解析，请稍候…", CaptureStage.Saving => "正在保存笔记…", _ => "正在检查输入与词库…" };
+            if (IsBusy) Message = stage switch { CaptureStage.CallingAi => "AI 正在解析，请稍候…", CaptureStage.ReceivingAi => "AI 正在生成笔记内容…", CaptureStage.Saving => "正在保存笔记…", _ => "正在检查输入与词库…" };
         });
         try
         {

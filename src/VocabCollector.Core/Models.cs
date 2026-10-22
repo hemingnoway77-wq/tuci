@@ -12,6 +12,7 @@ public sealed record Meaning(PartOfSpeech PartOfSpeech, string Definition);
 public sealed record BilingualText(string English, string Chinese);
 public sealed record RelatedCandidate(string Word, RelationKind Kind, string Explanation = "");
 public sealed record GrammarPattern(string Pattern, string Explanation);
+public sealed record RootPart(string Root, string Meaning, IReadOnlyList<string> Variants);
 public sealed record NoteLocation(string Word, string AbsolutePath, string VaultRelativePath);
 public sealed record SavedNote(NoteLocation Note, string Markdown)
 {
@@ -25,4 +26,5 @@ public sealed record WordAnalysis(bool IsValidWord, string Error, string UkPhone
     public string Lemma { get; init; } = "";
     public string FormNote { get; init; } = "";
     public IReadOnlyList<GrammarPattern> Grammar { get; init; } = [];
+    public IReadOnlyList<RootPart> Roots { get; init; } = [];
 }

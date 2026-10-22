@@ -20,7 +20,16 @@ public sealed class NoteRenderer
         text.AppendLine("created: '" + created.ToString("O") + "'").AppendLine("tags:\n  - english\n  - vocabulary\n---\n");
         text.AppendLine("# " + Plain(word)).AppendLine("---\n");
         text.AppendLine("**发音**：UK " + Phonetic(analysis.UkPhonetic) + " · US " + Phonetic(analysis.UsPhonetic));
-        text.AppendLine("\n**释义**：" + string.Join("；", analysis.Meanings.Select(m => Abbreviation(m.PartOfSpeech) + " " + Plain(m.Definition))));
+        var rootParts = analysis.Roots.Take(3).Select(root => string.Join(" / ", new[] { root.Root }.Concat(root.Variants).Distinct(StringComparer.OrdinalIgnoreCase).Select(Plain)) + "（" + Plain(root.Meaning) + "）").ToArray();
+        text.AppendLine("\n**词根**：" + (rootParts.Length == 0 ? "暂无可靠词根信息。" : string.Join("；", rootParts)));
+        text.AppendLine("\n**释义**：\n");
+        for (var i = 0; i < analysis.Meanings.Count; i++)
+        {
+            var meaning = analysis.Meanings[i];
+            text.Append("> " + Abbreviation(meaning.PartOfSpeech) + " " + Plain(meaning.Definition));
+            if (i < analysis.Meanings.Count - 1) text.Append("  ");
+            text.AppendLine();
+        }
         if (!string.IsNullOrWhiteSpace(analysis.FormNote)) text.AppendLine("\n**词形**：" + Plain(analysis.FormNote));
         var examples = new StringBuilder("#### 例句\n");
         for (var i = 0; i < analysis.Examples.Count; i++)

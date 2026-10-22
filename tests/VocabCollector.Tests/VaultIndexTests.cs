@@ -4,6 +4,21 @@ using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Tests;
 public class VaultIndexTests
 {
+    [Fact] public void Roots_AreSeparateFromWordsAndPreserveAmbiguity()
+    {
+        using var vault = new TempVault();
+        var word = vault.Note("英语单词/动词/act.md");
+        var root = vault.Note("英语单词/词根/act.md");
+        var duplicateRoot = vault.Note("英语单词/词根/拉丁/act.md");
+        var index = new VaultIndex([word], [root, duplicateRoot]);
+
+        Assert.Equal(word, Assert.Single(index.Find("ACT")));
+        Assert.Equal(2, index.FindRoot("-ACT-").Count);
+        Assert.Empty(index.FindRoot("act|alias"));
+        Assert.Equal(2, index.RootNotes.Count);
+        Assert.Single(index.Notes);
+    }
+
     [Fact] public void ResolveRelated_DropsMissingAmbiguousSelfAndRemovedTargets()
     {
         using var vault = new TempVault();

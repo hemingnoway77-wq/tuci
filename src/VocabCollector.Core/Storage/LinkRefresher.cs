@@ -113,19 +113,21 @@ public sealed class LinkRefresher
 
     private static Dictionary<string, string> TargetFingerprints(string root, string wordRoot, VaultIndex index)
     {
-        List<NoteLocation> valid = [];
-        foreach (var note in index.Notes)
+        List<(string Key, NoteLocation Note)> valid = [];
+        foreach (var item in index.Notes.Select(note => (Key: note.Word, Note: note))
+            .Concat(index.RootNotes.Select(note => (Key: "root:" + note.Word, Note: note))))
         {
             try
             {
+                var note = item.Note;
                 ValidateNote(root, wordRoot, note);
                 // Even an un-linkable duplicate makes a formerly unique word ambiguous.
-                if (File.Exists(note.AbsolutePath)) valid.Add(note);
+                if (File.Exists(note.AbsolutePath)) valid.Add(item);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
         }
-        return valid.GroupBy(n => n.Word, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key,
-            group => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', group.Select(n => n.VaultRelativePath).Order(StringComparer.OrdinalIgnoreCase))))), StringComparer.OrdinalIgnoreCase);
+        return valid.GroupBy(item => item.Key, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key,
+            group => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', group.Select(item => item.Note.VaultRelativePath).Order(StringComparer.OrdinalIgnoreCase))))), StringComparer.OrdinalIgnoreCase);
     }
 
     private static void ValidateNote(string root, string wordRoot, NoteLocation note)
@@ -257,9 +259,9 @@ public sealed class LinkRefresher
             var state = JsonSerializer.Deserialize<OwnershipState>(await File.ReadAllTextAsync(path, Utf8, ct));
             if (state is null || state.Version != 1 || state.Notes is null || state.Notes.Any(pair =>
                     string.IsNullOrWhiteSpace(pair.Key) || pair.Value is null || string.IsNullOrWhiteSpace(pair.Value.Word) ||
-                    pair.Value.Regions is null || pair.Value.Regions.Length > 2 ||
+                    pair.Value.Regions is null || pair.Value.Regions.Length > 3 ||
                     pair.Value.Regions.Select(region => region?.Mode).Distinct().Count() != pair.Value.Regions.Length ||
-                    pair.Value.Regions.Any(region => region is null || region.Mode is not ("examples" or "relations") ||
+                    pair.Value.Regions.Any(region => region is null || region.Mode is not ("examples" or "relations" or "roots") ||
                         region.BodyHash is null || region.BodyHash.Length != 64 || !region.BodyHash.All(Uri.IsHexDigit))))
                 throw new IOException("自动补链记录格式无效，已保留笔记内容。");
             state.Notes = new(state.Notes, StringComparer.OrdinalIgnoreCase);

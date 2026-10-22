@@ -35,6 +35,11 @@ public static class AnalysisJson
             var collocations = Bilingual(root, "collocations", 2, 4);
             var lemma = root.TryGetProperty("lemma", out _) ? WordInput.Normalize(Text(root, "lemma", maxLength: 64)) : "";
             var formNote = OptionalText(root, "form_note", 200);
+            var roots = root.TryGetProperty("roots", out _)
+                ? Array(root, "roots", 0, 3).Select(x => new RootPart(
+                    RootInput.Normalize(Text(x, "root", maxLength: 32)), Text(x, "meaning", maxLength: 80),
+                    Array(x, "variants", 0, 3).Select(v => RootInput.Normalize(v.GetString() ?? throw new JsonException())).ToArray())).ToArray()
+                : [];
             var grammar = root.TryGetProperty("grammar", out _)
                 ? Array(root, "grammar", 0, 3).Select(x => new GrammarPattern(Text(x, "pattern", maxLength: 120), Text(x, "explanation", maxLength: 200))).ToArray()
                 : [];
@@ -49,7 +54,7 @@ public static class AnalysisJson
                 try { related.Add(new(WordInput.Normalize(word), relation, explanation)); } catch (ArgumentException) { }
             }
             return new(true, error, Text(phonetics, "uk", true), Text(phonetics, "us", true), primary, meanings, examples, collocations, related)
-            { Lemma = lemma, FormNote = formNote, Grammar = grammar };
+            { Lemma = lemma, FormNote = formNote, Grammar = grammar, Roots = roots };
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or ArgumentException)
         { throw new AnalysisException("AI 返回的解析内容不完整或格式不合规，请重试或更换模型。"); }

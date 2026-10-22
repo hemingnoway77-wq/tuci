@@ -26,25 +26,38 @@ public sealed class VaultStore : IVocabularyStore, ILinkMaintenance
     {
         var wordRoot = VaultPaths.WordRoot(options);
         List<NoteLocation> notes = [];
+        List<NoteLocation> rootNotes = [];
         if (!Directory.Exists(wordRoot)) return new VaultIndex(notes);
-        Stack<string> pending = new(); pending.Push(wordRoot);
-        while (pending.TryPop(out var directory))
+        Stack<(string Path, bool IsRoot)> pending = new(); pending.Push((wordRoot, false));
+        while (pending.TryPop(out var current))
         {
             ct.ThrowIfCancellationRequested();
+            var directory = current.Path;
             VaultPaths.EnsureInside(options.RootPath, directory);
             foreach (var path in Directory.EnumerateFiles(directory, "*.md"))
             {
                 ct.ThrowIfCancellationRequested();
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) continue;
                 string word;
-                try { word = WordInput.Normalize(WordInput.FromFileStem(Path.GetFileNameWithoutExtension(path))); }
+                try
+                {
+                    var stem = Path.GetFileNameWithoutExtension(path);
+                    word = current.IsRoot ? RootInput.Normalize(stem) : WordInput.Normalize(WordInput.FromFileStem(stem));
+                }
                 catch (ArgumentException) { continue; }
-                notes.Add(new(word, path, Path.GetRelativePath(options.RootPath, path).Replace('\\', '/')));
+                (current.IsRoot ? rootNotes : notes).Add(new(word, path, Path.GetRelativePath(options.RootPath, path).Replace('\\', '/')));
             }
             foreach (var child in Directory.EnumerateDirectories(directory))
-                if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0) pending.Push(child);
+            {
+                ct.ThrowIfCancellationRequested();
+                var name = Path.GetFileName(child);
+                if (name.Equals(".obsidian", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals(".vocabcollector", StringComparison.OrdinalIgnoreCase)) continue;
+                if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0)
+                    pending.Push((child, current.IsRoot || (directory == wordRoot && name == "词根")));
+            }
         }
-        return new VaultIndex(notes);
+        return new VaultIndex(notes, rootNotes);
     }, ct);
 
     public async Task<SavedNote> SaveNewAsync(string word, PartOfSpeech primaryPos, Func<VaultIndex, string> render, VaultOptions options, CancellationToken ct)

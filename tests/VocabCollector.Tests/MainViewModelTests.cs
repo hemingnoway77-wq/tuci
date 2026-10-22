@@ -138,6 +138,24 @@ public class MainViewModelTests
         await vm.InitializeAsync();
         Assert.Equal(0, refreshes); Assert.Contains("粘贴", vm.Message); Assert.False(vm.IsBusy);
     }
+    [Fact] public async Task Generate_ShowsReceivingStatusBeforeFinalResultWithoutRawContent()
+    {
+        var service = new StageService();
+        var vm = new MainViewModel(service, AppSettings.Default) { Word = "word" };
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.Message) && vm.Message == "AI 正在生成笔记内容…") received.TrySetResult(); };
+        var running = vm.GenerateAsync();
+        await received.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.True(vm.IsBusy); Assert.Empty(vm.Markdown);
+        service.Complete.SetResult(new(CaptureStatus.Saved, "word", "final note", [], "done"));
+        await running; Assert.Equal("final note", vm.Markdown); Assert.Equal("done", vm.Message);
+    }
+    private sealed class StageService : ICaptureService
+    {
+        public TaskCompletionSource<CaptureResult> Complete { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<CaptureResult> CaptureAsync(CaptureRequest request, AppSettings settings, IProgress<CaptureStage>? progress, CancellationToken ct)
+        { progress?.Report(CaptureStage.ReceivingAi); return Complete.Task; }
+    }
     private sealed class TestMaintenance(Func<VaultOptions,CancellationToken,Task<LinkRefreshResult>> action):ILinkMaintenance
     { public Task<LinkRefreshResult> RefreshLinksAsync(VaultOptions options, CancellationToken ct) => action(options, ct); }
     private sealed class TestService(Func<CaptureRequest,CancellationToken,Task<CaptureResult>> action):ICaptureService

@@ -1,6 +1,7 @@
 using VocabCollector.Core.Ai;
 using VocabCollector.Core.Markdown;
 using VocabCollector.Core.Storage;
+using System.Diagnostics;
 namespace VocabCollector.Core;
 
 public sealed class CaptureService(IWordAnalyzer analyzer, IVocabularyStore store, TimeProvider timeProvider) : ICaptureService
@@ -22,18 +23,19 @@ public sealed class CaptureService(IWordAnalyzer analyzer, IVocabularyStore stor
             if (existing.Count > 0) return Duplicate(word, existing);
             SettingsValidation.ValidateApi(settings.Api);
             progress?.Report(CaptureStage.CallingAi);
-            var analysis = await analyzer.AnalyzeAsync(word, context, settings.Api, ct);
+            var aiTime = Stopwatch.StartNew();
+            var analysis = analyzer is IProgressWordAnalyzer streaming
+                ? await streaming.AnalyzeAsync(word, context, settings.Api, new ContentProgress(progress), ct)
+                : await analyzer.AnalyzeAsync(word, context, settings.Api, ct);
+            aiTime.Stop();
             ct.ThrowIfCancellationRequested();
             if (!analysis.IsValidWord) return new(CaptureStatus.InvalidInput, word, "", [], "模型未将输入识别为有效英文单词，请检查拼写或补充原句。");
-            index = await store.ScanAsync(settings.Vault, ct);
-            existing = index.Find(word);
-            if (existing.Count > 0) return Duplicate(word, existing);
             var renderer = new NoteRenderer(); var created = timeProvider.GetLocalNow();
             string Render(VaultIndex current) => markdown = renderer.Render(word, context, analysis, current, created);
             markdown = Render(index);
             ct.ThrowIfCancellationRequested(); progress?.Report(CaptureStage.Saving);
             var saved = await store.SaveNewAsync(word, analysis.PrimaryPartOfSpeech, Render, settings.Vault, ct);
-            var message = "已保存，可以在 Obsidian 中复习。";
+            var message = $"已保存，可以在 Obsidian 中复习。AI 解析用时 {aiTime.Elapsed.TotalSeconds:F1} 秒。";
             if (saved.Warning.Length > 0) message += " " + saved.Warning;
             // A successful commit remains saved even if the optional local maintenance is cancelled or fails.
             if (store is ILinkMaintenance maintenance)
@@ -58,4 +60,12 @@ public sealed class CaptureService(IWordAnalyzer analyzer, IVocabularyStore stor
     }
     private static CaptureResult Duplicate(string word, IReadOnlyList<NoteLocation> notes) =>
         new(CaptureStatus.AlreadyExists, word, "", notes, notes.Count > 1 ? "发现多个已有词条，请选择要打开的笔记。本次没有覆盖或新增文件。" : "这个单词已经收录，可直接打开已有笔记。");
+    private sealed class ContentProgress(IProgress<CaptureStage>? progress) : IProgress<int>
+    {
+        private int reported;
+        public void Report(int value)
+        {
+            if (value > 0 && Interlocked.Exchange(ref reported, 1) == 0) progress?.Report(CaptureStage.ReceivingAi);
+        }
+    }
 }

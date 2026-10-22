@@ -71,6 +71,29 @@ public class CaptureServiceTests
         Assert.Contains("- resilience：",saved);
         Assert.Equal(saved,result.Markdown);
     }
+    [Fact] public async Task Capture_ReportsFirstContentOnceWithoutExtraPostAiScan()
+    {
+        using var vault = new TempVault(); var store = new CountingStore();
+        List<CaptureStage> stages = [];
+        var result = await new CaptureService(new ProgressAnalyzer(), store, TimeProvider.System)
+            .CaptureAsync(new("resilient", ""), Settings(vault), new InlineProgress<CaptureStage>(stages.Add), default);
+        Assert.Equal(CaptureStatus.Saved, result.Status);
+        Assert.Equal(new[] { CaptureStage.Validating, CaptureStage.CallingAi, CaptureStage.ReceivingAi, CaptureStage.Saving }, stages);
+        Assert.Equal(1, store.Scans);
+    }
+    private sealed class ProgressAnalyzer : IProgressWordAnalyzer
+    {
+        public Task<WordAnalysis> AnalyzeAsync(string word, string context, ApiOptions options, CancellationToken ct) => throw new InvalidOperationException("Use progress API");
+        public Task<WordAnalysis> AnalyzeAsync(string word, string context, ApiOptions options, IProgress<int>? receivedCharacters, CancellationToken ct)
+        { receivedCharacters?.Report(0); receivedCharacters?.Report(5); receivedCharacters?.Report(50); return Task.FromResult(TestData.Analysis); }
+    }
+    private sealed class CountingStore : IVocabularyStore
+    {
+        private readonly VaultStore real = new();
+        public int Scans { get; private set; }
+        public Task<VaultIndex> ScanAsync(VaultOptions options, CancellationToken ct) { Scans++; return real.ScanAsync(options, ct); }
+        public Task<SavedNote> SaveNewAsync(string word, PartOfSpeech pos, Func<VaultIndex,string> render, VaultOptions options, CancellationToken ct) => real.SaveNewAsync(word, pos, render, options, ct);
+    }
     private sealed class CancelAfterCommitStore(CancellationTokenSource cts) : IVocabularyStore
     {
         private readonly VaultStore real=new();

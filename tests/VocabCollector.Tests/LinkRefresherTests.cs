@@ -7,6 +7,108 @@ namespace VocabCollector.Tests;
 
 public class LinkRefresherTests
 {
+    [Fact]
+    public async Task Refresh_LaterRootVariantCreationMoveDuplicateAndDeletionRevisitUnchangedSource()
+    {
+        using var vault = new TempVault(); var store = new VaultStore();
+        const string clean = "# conduct\n\n英 /kənˈdʌkt/\n\n**词根**：duc / duct（引导）\n\n#### 例句\n1. We conduct a study.\n\n#### 我的笔记\nKeep my duc notes.\n";
+        var source = await store.SaveNewAsync("conduct", PartOfSpeech.Verb, _ => clean, vault.Options, default);
+        Assert.Equal(new LinkRefreshResult(0, 0, 0), await store.RefreshLinksAsync(vault.Options, default));
+        vault.Note("英语单词/duc.md");
+        Assert.Equal(new LinkRefreshResult(0, 0, 0), await store.RefreshLinksAsync(vault.Options, default));
+        Assert.Equal(clean, await File.ReadAllTextAsync(source.Note.AbsolutePath));
+        var variant = vault.Note("英语单词/词根/duct.md");
+
+        Assert.Equal(new LinkRefreshResult(1, 0, 0), await store.RefreshLinksAsync(vault.Options, default));
+        Assert.Contains("[[英语单词/词根/duct|", await File.ReadAllTextAsync(source.Note.AbsolutePath));
+        var cache = await File.ReadAllTextAsync(Path.Combine(vault.Root, "英语单词", ".vocabcollector", "link-index.json"));
+        Assert.Contains("root:duct", cache);
+        var moved = Path.Combine(vault.Root, "英语单词", "词根", "拉丁", "duct.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(moved)!);
+        File.Move(variant.AbsolutePath, moved);
+
+        Assert.Equal(new LinkRefreshResult(1, 0, 0), await store.RefreshLinksAsync(vault.Options, default));
+        Assert.Contains("[[英语单词/词根/拉丁/duct|", await File.ReadAllTextAsync(source.Note.AbsolutePath));
+        var duplicate = vault.Note("英语单词/词根/old#notes/duct.md");
+        Assert.Equal(new LinkRefreshResult(1, 0, 0), await store.RefreshLinksAsync(vault.Options, default));
+        Assert.Equal(clean, await File.ReadAllTextAsync(source.Note.AbsolutePath));
+        File.Delete(duplicate.AbsolutePath);
+
+        Assert.Equal(new LinkRefreshResult(1, 0, 0), await store.RefreshLinksAsync(vault.Options, default));
+        Assert.Contains("[[英语单词/词根/拉丁/duct|", await File.ReadAllTextAsync(source.Note.AbsolutePath));
+        File.Delete(moved);
+        Assert.Equal(new LinkRefreshResult(1, 0, 0), await store.RefreshLinksAsync(vault.Options, default));
+        Assert.Equal(clean, await File.ReadAllTextAsync(source.Note.AbsolutePath));
+        Assert.DoesNotContain("vocabcollector", await File.ReadAllTextAsync(source.Note.AbsolutePath));
+        Assert.Equal(5, Directory.GetFiles(Path.Combine(vault.Root, "英语单词", ".vocabcollector", "backups"), "*.bak").Length);
+    }
+
+    [Fact]
+    public async Task Refresh_EditedRootParagraphStaysProtectedWhileExampleLinksAdvance()
+    {
+        using var vault = new TempVault(); var store = new VaultStore();
+        const string clean = "**词根**：duc / duct（引导）\n\n#### 例句\n1. A teacher sees a bird.\n\n#### 语义关系\n##### 近义词\n- study：学习。\n\n#### 我的笔记\n";
+        var source = await store.SaveNewAsync("conduct", PartOfSpeech.Verb, _ => clean, vault.Options, default);
+        var edited = clean.Replace("（引导）", "（我的词根解释）");
+        await File.WriteAllTextAsync(source.Note.AbsolutePath, edited);
+        vault.Note("英语单词/词根/duc.md");
+        vault.Note("英语单词/teacher.md");
+
+        Assert.Equal(new LinkRefreshResult(1, 1, 0), await store.RefreshLinksAsync(vault.Options, default));
+        var changed = await File.ReadAllTextAsync(source.Note.AbsolutePath);
+        Assert.Contains("**词根**：duc / duct（我的词根解释）", changed);
+        Assert.Contains("[[英语单词/teacher|teacher]]", changed);
+        Assert.DoesNotContain("[[英语单词/词根", changed);
+        vault.Note("英语单词/bird.md");
+
+        Assert.Equal(new LinkRefreshResult(1, 1, 0), await new VaultStore().RefreshLinksAsync(vault.Options, default));
+        changed = await File.ReadAllTextAsync(source.Note.AbsolutePath);
+        Assert.Contains("**词根**：duc / duct（我的词根解释）", changed);
+        Assert.Contains("[[英语单词/bird|bird]]", changed);
+    }
+
+    [Fact]
+    public async Task Refresh_V1OwnershipWithoutRootsRemainsReadableAndNeverAdoptsRootParagraph()
+    {
+        using var vault = new TempVault();
+        const string oldClean = "#### 例句\n1. A teacher helps.\n\n#### 语义关系\n##### 近义词\n- study：学习。\n";
+        var source = vault.Note("英语单词/learn.md", oldClean);
+        var refresher = new LinkRefresher();
+        await refresher.RegisterAsync(vault.Options, source, oldClean, default);
+        var metadataPath = Path.Combine(vault.Root, "英语单词", ".vocabcollector", "note-state.json");
+        using (var metadata = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(metadataPath)))
+        {
+            Assert.Equal(1, metadata.RootElement.GetProperty("Version").GetInt32());
+            Assert.Equal(2, metadata.RootElement.GetProperty("Notes").GetProperty(source.VaultRelativePath).GetProperty("Regions").GetArrayLength());
+        }
+        const string userRoot = "**词根**：duc / duct（用户添加）\n\n";
+        await File.WriteAllTextAsync(source.AbsolutePath, userRoot + oldClean);
+        var teacher = vault.Note("英语单词/teacher.md");
+        var root = vault.Note("英语单词/词根/duc.md");
+
+        Assert.Equal(new LinkRefreshResult(1, 0, 0), await new LinkRefresher().RefreshAsync(vault.Options, new([source, teacher], [root]), default));
+
+        var markdown = await File.ReadAllTextAsync(source.AbsolutePath);
+        Assert.StartsWith(userRoot, markdown);
+        Assert.Contains("[[英语单词/teacher|teacher]]", markdown);
+        Assert.DoesNotContain("[[英语单词/词根", markdown);
+    }
+
+    [Fact]
+    public async Task Refresh_UnrelatedRootCreationDoesNotReadUnchangedCachedSource()
+    {
+        using var vault = new TempVault();
+        const string clean = "**词根**：duc / duct（引导）\n\n#### 例句\n1. A teacher helps.\n";
+        var source = vault.Note("英语单词/conduct.md", clean);
+        var refresher = new LinkRefresher();
+        await refresher.RegisterAsync(vault.Options, source, clean, default);
+        await refresher.RefreshAsync(vault.Options, new([source]), default);
+        var unrelated = vault.Note("英语单词/词根/mit.md");
+        await using var locked = new FileStream(source.AbsolutePath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        Assert.Equal(new LinkRefreshResult(0, 0, 0), await new LinkRefresher().RefreshAsync(vault.Options, new([source], [unrelated]), default));
+    }
+
     private static string LegacyWrap(string mode, string body)
     {
         var normalized = body.Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd('\n');

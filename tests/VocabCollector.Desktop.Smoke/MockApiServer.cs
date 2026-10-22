@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Desktop.Smoke;
 public enum ApiMode { Normal, Unauthorized, Malformed, Slow }
@@ -54,12 +55,29 @@ public sealed class MockApiServer : IAsyncDisposable
                 using var requestJson = JsonDocument.Parse(requestBytes);
                 var mode = Mode; Interlocked.Increment(ref _requests);
                 if (mode == ApiMode.Slow) await Task.Delay(3000, _stop.Token);
+                var analysis = JsonNode.Parse(RecordingHttpHandler.ValidJson)!;
+                analysis["roots"] = JsonSerializer.SerializeToNode(new[] { new { root = "sal", meaning = "跳跃，源自拉丁语 salire", variants = new[] { "sult" } } });
+                analysis["meanings"]!.AsArray().Add(JsonSerializer.SerializeToNode(new { part_of_speech = "adjective", definition = "能迅速恢复的" }));
                 var body = mode switch
                 {
                     ApiMode.Unauthorized => "echo sk-smoke-canary-secret",
                     ApiMode.Malformed => "not JSON",
-                    _ => JsonSerializer.Serialize(new { choices = new[] { new { message = new { content = RecordingHttpHandler.ValidJson }, finish_reason = "stop" } } })
+                    _ => analysis.ToJsonString()
                 };
+                if (mode == ApiMode.Normal)
+                {
+                    await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"), _stop.Token);
+                    for (var offset = 0; offset < body.Length; offset += 60)
+                    {
+                        var fragment = body.Substring(offset, Math.Min(60, body.Length - offset));
+                        var chunk = JsonSerializer.Serialize(new { choices = new[] { new { delta = new { content = fragment }, finish_reason = (string?)null } } });
+                        await stream.WriteAsync(Encoding.UTF8.GetBytes("data: " + chunk + "\n\n"), _stop.Token);
+                        await Task.Delay(20, _stop.Token);
+                    }
+                    var finish = JsonSerializer.Serialize(new { choices = new[] { new { delta = new { }, finish_reason = "stop" } } });
+                    await stream.WriteAsync(Encoding.UTF8.GetBytes("data: " + finish + "\n\ndata: [DONE]\n\n"), _stop.Token);
+                    return;
+                }
                 var payload = Encoding.UTF8.GetBytes(body);
                 var status = mode == ApiMode.Unauthorized ? "401 Unauthorized" : "200 OK";
                 await stream.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {payload.Length}\r\nConnection: close\r\n\r\n"), _stop.Token);

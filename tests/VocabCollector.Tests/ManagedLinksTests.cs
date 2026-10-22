@@ -190,6 +190,159 @@ public class ManagedLinksTests
         Assert.Contains(@"`[[英语单词/teacher|teacher]]` \[\[teacher\]\] [[英语单词/teacher|teacher]].", actual);
     }
 
+    [Fact]
+    public void Roots_AddFutureCardWithoutAbsorbingPhoneticsOrDefinitions()
+    {
+        using var vault = new TempVault();
+        const string source = "# conduct\n\n**音标**：/kənˈdʌkt/\n\n**词根**：duc / duct（引导）；mit / miss（送出）\n\n#### 释义\n- duc：这里仍是释义。\n";
+        var initial = ManagedLinks.RefreshNew(source, "conduct", new([]));
+        var state = ManagedLinks.CaptureState(initial);
+        var root = vault.Note("英语词根/古典/duc.md");
+
+        var actual = ManagedLinks.Refresh(initial, "conduct", new([], [root]), state);
+
+        Assert.Equal(source, initial);
+        Assert.Equal("roots", Assert.Single(state).Mode);
+        Assert.Equal(source.Replace("duc / duct（引导）", "[[英语词根/古典/duc|duc / duct]]（引导）"), actual);
+        Assert.DoesNotContain("vocabcollector", actual);
+    }
+
+    [Fact]
+    public void Roots_OnlyUseSeparateRootIndexAndPreserveGroupCase()
+    {
+        using var vault = new TempVault();
+        const string source = "**词根**：Duc / Duct（引导）\n";
+        var word = vault.Note("英语单词/duc.md");
+        var root = vault.Note("英语词根/duct.md");
+
+        Assert.Equal(source, ManagedLinks.RefreshNew(source, "conduct", new([word])));
+        Assert.Equal("**词根**：[[英语词根/duct|Duc / Duct]]（引导）\n",
+            ManagedLinks.RefreshNew(source, "conduct", new([word], [root])));
+    }
+
+    [Fact]
+    public void Roots_ResolveAllVariantsAsOneUniqueCardAndRemainIdempotent()
+    {
+        using var vault = new TempVault();
+        var root = vault.Note("英语词根/duc.md");
+        var variantAlias = root with { Word = "duct" };
+        const string source = "**词根**：duc / duct（引导）；mit / miss（送出）\n";
+
+        var actual = ManagedLinks.RefreshNew(source, "conduct", new([], [root, variantAlias]));
+        var state = ManagedLinks.CaptureState(actual);
+
+        Assert.Equal("**词根**：[[英语词根/duc|duc / duct]]（引导）；mit / miss（送出）\n", actual);
+        Assert.Equal(actual, ManagedLinks.Refresh(actual, "conduct", new([], [root, variantAlias]), state));
+    }
+
+    [Fact]
+    public void Roots_AmbiguousCanonicalAndVariantCardsReturnWholeGroupToPlainText()
+    {
+        using var vault = new TempVault();
+        var canonical = vault.Note("英语词根/duc.md");
+        var variant = vault.Note("英语词根/duct.md");
+        const string source = "**词根**：duc / duct（引导）\n";
+        var linked = ManagedLinks.RefreshNew(source, "conduct", new([], [canonical]));
+
+        var actual = ManagedLinks.Refresh(linked, "conduct", new([], [canonical, variant]), ManagedLinks.CaptureState(linked));
+
+        Assert.Equal("**词根**：[[英语词根/duc|duc / duct]]（引导）\n", linked);
+        Assert.Equal(source, actual);
+    }
+
+    [Fact]
+    public void Roots_DeletedTargetReturnsWholeGroupToPlainText()
+    {
+        using var vault = new TempVault();
+        var root = vault.Note("英语词根/duc.md");
+        const string source = "**词根**：duc / duct（引导）\n";
+        var linked = ManagedLinks.RefreshNew(source, "conduct", new([], [root]));
+        var state = ManagedLinks.CaptureState(linked);
+        File.Delete(root.AbsolutePath);
+
+        Assert.Equal("**词根**：[[英语词根/duc|duc / duct]]（引导）\n", linked);
+        Assert.Equal(source, ManagedLinks.Refresh(linked, "conduct", new([], [root]), state));
+    }
+
+    [Fact]
+    public void Roots_ManualEditIsProtectedWhileExamplesAdvance()
+    {
+        using var vault = new TempVault();
+        const string source = "**词根**：duc / duct（引导）\n\n#### 例句\n1. A teacher helps.\n";
+        var state = ManagedLinks.CaptureState(source);
+        var edited = source.Replace("（引导）", "（我的说明）");
+        var teacher = vault.Note("英语单词/teacher.md");
+        var root = vault.Note("英语词根/duc.md");
+        var linked = ManagedLinks.Refresh(edited, "conduct", new([teacher], [root]), state);
+        var advanced = ManagedLinks.AdvanceState(edited, linked, state);
+
+        var again = ManagedLinks.Refresh(linked, "conduct", new([teacher], [root]), advanced);
+
+        Assert.Equal(2, state.Count);
+        Assert.Contains("**词根**：duc / duct（我的说明）", again);
+        Assert.Contains("1. A [[英语单词/teacher|teacher]] helps.", again);
+        Assert.Equal(linked, again);
+        Assert.Equal(state.Single(region => region.Mode == "roots"), advanced.Single(region => region.Mode == "roots"));
+    }
+
+    [Fact]
+    public void Roots_CaptureIgnoresFencedLabelsAndRejectsVisibleDuplicates()
+    {
+        using var vault = new TempVault();
+        var root = vault.Note("英语词根/duc.md");
+        const string prefix = "```md\n**词根**：duc / duct（代码示例）\n```\n<!-- 私人注释\n**词根**：duc（注释）\n-->\n\n";
+        const string visible = "**词根**：duc / duct（引导）\n";
+        var single = prefix + visible;
+        var duplicate = single + "\n**词根**：duc（个人记录）\n";
+
+        Assert.Equal("roots", Assert.Single(ManagedLinks.CaptureState(single)).Mode);
+        Assert.Equal(prefix + "**词根**：[[英语词根/duc|duc / duct]]（引导）\n",
+            ManagedLinks.RefreshNew(single, "conduct", new([], [root])));
+        Assert.Empty(ManagedLinks.CaptureState(duplicate));
+        Assert.Equal(duplicate, ManagedLinks.RefreshNew(duplicate, "conduct", new([], [root])));
+    }
+
+    [Fact]
+    public void Roots_NormalizedStateDoesNotIncludeFollowingParagraph()
+    {
+        using var vault = new TempVault();
+        var root = vault.Note("英语词根/duc.md");
+        const string source = "**词根**:duc / duct（引导）\r\n\r\n个人补充 duc。\r\n";
+        var state = ManagedLinks.CaptureState(source.Replace("\r\n", "\n"));
+        var edited = source.Replace("个人补充", "已经修改的个人补充");
+
+        var actual = ManagedLinks.Refresh(edited, "conduct", new([], [root]), state);
+
+        Assert.Equal("roots", Assert.Single(state).Mode);
+        Assert.Equal(edited.Replace("duc / duct（引导）", "[[英语词根/duc|duc / duct]]（引导）"), actual);
+    }
+
+    [Fact]
+    public void Roots_RebuildOnlyGeneratedGroupLinksAndPreserveOtherMarkdownSyntax()
+    {
+        using var vault = new TempVault();
+        var root = vault.Note("英语词根/duc.md");
+        const string source = "**词根**：duc / duct（`[[英语词根/old|old]]`、[duc](https://example.test)、[[私人/alias|my alias]]）\n";
+
+        var linked = ManagedLinks.RefreshNew(source, "conduct", new([], [root]));
+        var actual = ManagedLinks.Refresh(linked, "conduct", new([]), ManagedLinks.CaptureState(linked));
+
+        Assert.Equal("**词根**：[[英语词根/duc|duc / duct]]（`[[英语词根/old|old]]`、[duc](https://example.test)、[[私人/alias|my alias]]）\n", linked);
+        Assert.Equal(source, actual);
+    }
+
+    [Fact]
+    public void LegacyImport_DoesNotInventRootOwnership()
+    {
+        var source = "**词根**：duc / duct（引导）\n\n" + LegacyWrap("examples", "#### 例句\n1. A teacher.");
+
+        var imported = ManagedLinks.ImportLegacy(source);
+
+        Assert.NotNull(imported);
+        Assert.Equal("examples", Assert.Single(imported.Regions).Mode);
+        Assert.Null(ManagedLinks.ImportLegacy(LegacyWrap("roots", "**词根**：duc / duct（引导）")));
+    }
+
     private static VaultIndex Index(TempVault vault, params string[] words) => new(words.Select(w => vault.Note("英语单词/" + w + ".md")).ToArray());
 
     private static string Section(string mode, string body) => $"#### {(mode == "examples" ? "例句" : "语义关系")}\n{body}\n";

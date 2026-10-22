@@ -1,11 +1,20 @@
 namespace VocabCollector.Core.Storage;
-public sealed class VaultIndex(IReadOnlyList<NoteLocation> notes)
+public sealed class VaultIndex(IReadOnlyList<NoteLocation> notes, IReadOnlyList<NoteLocation>? rootNotes = null)
 {
     public IReadOnlyList<NoteLocation> Notes { get; } = Array.AsReadOnly(notes.ToArray());
+    public IReadOnlyList<NoteLocation> RootNotes { get; } = Array.AsReadOnly((rootNotes ?? []).ToArray());
+    private readonly Dictionary<string, IReadOnlyList<NoteLocation>> _byRoot = (rootNotes ?? [])
+        .GroupBy(n => n.Word, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(g => g.Key, g => (IReadOnlyList<NoteLocation>)Array.AsReadOnly(g.ToArray()), StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IReadOnlyList<NoteLocation>> _byWord = notes
         .GroupBy(n => n.Word, StringComparer.OrdinalIgnoreCase)
         .ToDictionary(g => g.Key, g => (IReadOnlyList<NoteLocation>)Array.AsReadOnly(g.ToArray()), StringComparer.OrdinalIgnoreCase);
     public IReadOnlyList<NoteLocation> Find(string word) => _byWord.TryGetValue(word, out var matches) ? matches : [];
+    public IReadOnlyList<NoteLocation> FindRoot(string root)
+    {
+        try { root = RootInput.Normalize(root); } catch (ArgumentException) { return []; }
+        return _byRoot.TryGetValue(root, out var matches) ? matches : [];
+    }
     public IReadOnlyList<ResolvedRelation> ResolveRelated(string currentWord, IReadOnlyList<RelatedCandidate> candidates)
     {
         List<ResolvedRelation> result = [];

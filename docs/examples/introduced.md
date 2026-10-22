@@ -5,7 +5,7 @@ lemma: "introduce"
 primary_pos: verb
 parts_of_speech:
   - verb
-created: '2026-10-21T12:48:13.5625160+08:00'
+created: '2026-10-22T09:06:44.6864924+08:00'
 tags:
   - english
   - vocabulary
@@ -16,7 +16,12 @@ tags:
 
 **发音**：UK /ˌɪntrəˈdjuːst/ · US /ˌɪntrəˈduːst/
 
-**释义**：v. 介绍某人；首次推出或引入某事物。
+**词根**：duc / duct（引导；源自拉丁语 ducere）
+
+**释义**：
+
+> v. 介绍；把某人介绍给某人认识。  
+> v. 引进；推行；采用（新事物、政策等）。
 
 **词形**：introduce 的过去式和过去分词。搭配和句法模式用原形展示。
 
