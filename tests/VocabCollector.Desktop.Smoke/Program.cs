@@ -43,7 +43,8 @@ public sealed partial class SmokeRunner(App app)
         await using var server = new MockApiServer();
         using var client = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(90) };
         var vaultStore = new VaultStore();
-        var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(client), vaultStore, TimeProvider.System), AppSettings.Default, vaultStore);
+        var diagnosticsDirectory = Path.Combine(configDir, "logs");
+        var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(client, new FileAnalysisDiagnostics(diagnosticsDirectory)), vaultStore, TimeProvider.System), AppSettings.Default, vaultStore);
         var reading = new RecordingReadingService();
         var themes = new ThemeManager(app.Resources, new AppearanceSettingsStore(configDir));
         await themes.LoadAsync();
@@ -219,6 +220,13 @@ public sealed partial class SmokeRunner(App app)
         await Until(() => server.Requests > before && !vm.IsBusy);
         Check(server.Requests == before + 1 && vm.Word == "metadatafree" && vm.Notes.Count == 0 && vm.Markdown.Length == 0, "a response without mandatory spelling metadata is rejected with input retained");
         Check(Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == baselineNoteCount + 1, "missing spelling metadata cannot save a note");
+        server.Mode = ApiMode.FormatViolation; Control<TextBox>(main,"WordBox").Text = "credit"; before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
+        await Until(() => !vm.IsBusy && vm.Message.Contains("英式音标应为文本"));
+        Check(server.Requests == before + 1 && vm.Word == "credit" && vm.Notes.Count == 0, "specific format failure preserves input and does not automatically retry");
+        Check(!vm.Message.Contains("sk-smoke-canary-secret"), "field-specific UI error does not echo model secrets");
+        var diagnosticText = string.Join("\n", Directory.GetFiles(diagnosticsDirectory, "*.jsonl").Select(File.ReadAllText));
+        Check(diagnosticText.Contains("phonetics.uk") && diagnosticText.Contains("credit") && !diagnosticText.Contains("sk-smoke-canary-secret"), "format failure records only safe field metadata in local diagnostics");
+        Snapshot(main, Path.Combine(output,"analysis-format-error.png"));
         server.Mode = ApiMode.Unauthorized; Control<TextBox>(main,"WordBox").Text = "denied"; Invoke(Control<Button>(main,"GenerateButton"));
         await Until(() => !vm.IsBusy && vm.Message.Contains("鉴权")); Check(!vm.Message.Contains("sk-smoke-canary-secret") && vm.Word == "denied", "401 redacts the secret and retains input");
         server.Mode = ApiMode.Malformed; Control<TextBox>(main,"WordBox").Text = "malformed"; Invoke(Control<Button>(main,"GenerateButton"));

@@ -6,7 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Desktop.Smoke;
-public enum ApiMode { Normal, SpellingCorrected, SpellingUncertain, SpellingInvalid, MissingSpelling, Unauthorized, Malformed, Slow }
+public enum ApiMode { Normal, SpellingCorrected, SpellingUncertain, SpellingInvalid, MissingSpelling, FormatViolation, Unauthorized, Malformed, Slow }
 public sealed class MockApiServer : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
@@ -65,7 +65,7 @@ public sealed class MockApiServer : IAsyncDisposable
                     ApiMode.Malformed => "not JSON",
                     _ => Analysis(mode, requestWord).ToJsonString()
                 };
-                if (mode is ApiMode.Normal or ApiMode.SpellingCorrected or ApiMode.SpellingUncertain or ApiMode.SpellingInvalid or ApiMode.MissingSpelling)
+                if (mode is ApiMode.Normal or ApiMode.SpellingCorrected or ApiMode.SpellingUncertain or ApiMode.SpellingInvalid or ApiMode.MissingSpelling or ApiMode.FormatViolation)
                 {
                     await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"), _stop.Token);
                     for (var offset = 0; offset < body.Length; offset += 60)
@@ -89,6 +89,12 @@ public sealed class MockApiServer : IAsyncDisposable
     }
     private static JsonNode Analysis(ApiMode mode, string requestWord)
     {
+        if (mode == ApiMode.FormatViolation)
+        {
+            var invalid = JsonNode.Parse(RecordingHttpHandler.ValidJson.Replace("resilient", requestWord))!;
+            invalid["phonetics"]!["uk"] = new JsonArray("sk-smoke-canary-secret");
+            return invalid;
+        }
         if (mode is ApiMode.SpellingUncertain or ApiMode.SpellingInvalid)
             return JsonSerializer.SerializeToNode(new
             {

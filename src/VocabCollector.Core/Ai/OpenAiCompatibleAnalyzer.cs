@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace VocabCollector.Core.Ai;
 
-public sealed class OpenAiCompatibleAnalyzer(HttpClient client) : IProgressWordAnalyzer
+public sealed class OpenAiCompatibleAnalyzer(HttpClient client, IAnalysisDiagnostics? diagnostics = null) : IProgressWordAnalyzer
 {
     private const int ResponseLimit = 1024 * 1024;
     private static readonly Encoding Utf8 = new UTF8Encoding(false, true);
@@ -29,6 +29,27 @@ public sealed class OpenAiCompatibleAnalyzer(HttpClient client) : IProgressWordA
         AnalyzeAsync(word, context, options, null, ct);
 
     public async Task<WordAnalysis> AnalyzeAsync(string word, string context, ApiOptions options, IProgress<int>? receivedCharacters, CancellationToken ct)
+    {
+        try { return await AnalyzeCoreAsync(word, context, options, receivedCharacters, ct); }
+        catch (AnalysisException error)
+        {
+            if (diagnostics is not null)
+            {
+                try
+                {
+                    var safeWord = WordInput.Normalize(word);
+                    var key = options.ApiKey.Trim();
+                    if (key.Length > 0) safeWord = safeWord.Replace(key, "[redacted]", StringComparison.OrdinalIgnoreCase);
+                    await diagnostics.RecordAsync(new(DateTimeOffset.UtcNow, safeWord, error.DiagnosticCode,
+                        error.FieldPath, error.Rule, error.ActualCount), CancellationToken.None);
+                }
+                catch (Exception) { /* Local diagnostics must never replace the original error. */ }
+            }
+            throw;
+        }
+    }
+
+    private async Task<WordAnalysis> AnalyzeCoreAsync(string word, string context, ApiOptions options, IProgress<int>? receivedCharacters, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         var endpoint = ChatEndpoint.Resolve(options.BaseUrl);

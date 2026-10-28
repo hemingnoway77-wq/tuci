@@ -37,10 +37,19 @@ public sealed class NoteRenderer
         }
         if (!string.IsNullOrWhiteSpace(analysis.FormNote)) text.AppendLine("\n**词形**：" + Plain(analysis.FormNote));
         var examples = new StringBuilder("#### 例句\n");
+        var exampleForms = WordForms.ForExamples(word, analysis);
         for (var i = 0; i < analysis.Examples.Count; i++)
         {
-            var english = Plain(analysis.Examples[i].English);
-            english = Regex.Replace(english, @"(?<![A-Za-z'-])" + Regex.Escape(Plain(word)) + @"(?![A-Za-z'-])", m => "**" + m.Value + "**", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            var source = analysis.Examples[i].English;
+            var english = new StringBuilder();
+            var offset = 0;
+            foreach (var match in WordForms.FindMatches(source, exampleForms))
+            {
+                english.Append(Plain(source[offset..match.Index]));
+                english.Append("**").Append(Plain(match.Value)).Append("**");
+                offset = match.Index + match.Length;
+            }
+            english.Append(Plain(source[offset..]));
             examples.AppendLine($"{i + 1}. {english}");
             examples.AppendLine("   - " + Plain(analysis.Examples[i].Chinese));
         }

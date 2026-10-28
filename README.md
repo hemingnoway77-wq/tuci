@@ -4,7 +4,7 @@
 
 ## 开始使用
 
-1. 最新双主题版双击 `dist/兔词-双主题版/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
+1. 最新生成修复版双击 `dist/兔词-生成修复版/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
 2. 点击右上角“设置”，填写 API 地址、API Key、模型名。
 3. 选择 **Obsidian 仓库根目录**，填写仓库内的单词子目录，默认 `英语单词`。
 4. 按需开启“按主要词性分文件夹”，保存设置。
@@ -48,6 +48,16 @@
 模型负责拼写判断，本地检查输入回显、修正幅度、词形关系、例句中的目标词及文件名一致性；没有新增联网词典、第二次模型调用或自动纠错重试。当前配置单次对比中，旧版约 2.49 秒，新版正常词约 2.29 秒，新版纠错加整理约 2.51 秒；这是定点样本，实际受服务端与网络影响。完整验收见[拼写修正验证记录](docs/verification/2026-10-28-spelling-correction.md)。
 
 已有词条仍直接打开，不重新调用 AI；本功能不会批量改写、重命名或重新解析历史笔记。旧接口若拒绝无效词仍可安全提示，但成功响应必须返回新增的拼写判断字段，缺失时停止保存。
+
+## 生成失败与本地诊断
+
+已修复原形动词例句使用正常第三人称时被误拒的问题，例如 `produce` 的例句出现 `produces`、`credit` 的动词义项例句出现 `credits`。卡片标题、文件名和输入词不变，例句保留原文并正确加粗实际出现的词形。仅在输入词等于可靠原形且解析含动词义项时接受保守三单；正确的 `introduced` 等词形仍单独保存，不将派生词或复合词视作当前词。
+
+格式校验失败会说明具体字段及要求，例如“释义需为1–3项（本次4项）”或“英式音标应为文本”。词性、数量、拼写身份、截断和安全路径要求仍保持，不用增加模型请求或自动重试掩盖问题。
+
+新版会将失败的安全诊断信息保存到 `%LOCALAPPDATA%\VocabCollector\logs\analysis-日期.jsonl`：时间、输入单词、错误代码、字段、约束和可用的数量。不会记录 API Key、请求头、原句或模型全文；成功解析不写日志。日志按日保存，单文件达到256 KiB后轮转，并清理较旧的本工具日志。日志不可写时仍保留原错误和输入。
+
+旧版没有保存失败响应，无法追溯旧提示对应的具体字段。本次用真实返回确认并修复了 `produce/produces` 误拒；`credit` 当次受控请求通过，不能据此推断用户之前失败的具体原因。记录与回放验收见[生成修复验证记录](docs/verification/2026-10-28-analysis-failures.md)。
 
 ## API 配置
 
@@ -126,7 +136,7 @@ pwsh -NoProfile -File scripts/verify.ps1
 pwsh -NoProfile -File scripts/publish.ps1
 ```
 
-当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory 'dist/兔词-双主题版'` 单独打包，避免占用正在运行的旧 exe。
+当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory 'dist/兔词-生成修复版'` 单独打包，避免占用正在运行的旧 exe。
 
 没有 `pwsh` 时可使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1`。脚本不修改系统执行策略。
 

@@ -1,10 +1,7 @@
-using System.Text.RegularExpressions;
 namespace VocabCollector.Core.Ai;
 
 public static class SpellingValidator
 {
-    private static readonly Regex Words = new("[a-z0-9]+(?:[-'][a-z0-9]+)*", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
-
     public static string ResolveWord(string input, WordAnalysis analysis)
     {
         try
@@ -40,8 +37,9 @@ public static class SpellingValidator
                 default:
                     throw Invalid();
             }
+            var exampleForms = WordForms.ForExamples(word, analysis);
             if (analysis.Examples.Count != 2 || analysis.Examples.Any(example =>
-                !Words.Matches(example.English.Replace('’', '\'').Replace('‘', '\'').ToLowerInvariant()).Any(token => token.Value == word))) throw Invalid();
+                !WordForms.FindMatches(example.English, exampleForms).Any())) throw Invalid();
             return word;
         }
         catch (ArgumentException) { throw Invalid(); }

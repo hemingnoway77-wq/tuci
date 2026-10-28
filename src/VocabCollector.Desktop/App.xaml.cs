@@ -22,7 +22,8 @@ public partial class App : Application
         var loaded = await store.LoadAsync(CancellationToken.None);
         _client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(90) };
         var vaultStore = new VaultStore();
-        var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(_client), vaultStore, TimeProvider.System), loaded.Settings, vaultStore);
+        var diagnostics = new FileAnalysisDiagnostics(Path.Combine(settingsDirectory, "logs"));
+        var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(_client, diagnostics), vaultStore, TimeProvider.System), loaded.Settings, vaultStore);
         if (loaded.Warning.Length > 0) vm.Message = loaded.Warning;
         MainWindow = new MainWindow(vm, store, new WindowsNavigator(), themeManager: themes); MainWindow.Show();
         await vm.InitializeAsync(loaded.Warning);
