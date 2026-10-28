@@ -1,7 +1,10 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Diagnostics;
+using System.IO;
+using System.Net.Http;
 using VocabCollector.Core;
+using VocabCollector.Core.Reading;
 using VocabCollector.Desktop.Preview;
 namespace VocabCollector.Desktop;
 public partial class MainWindow : Window
@@ -9,11 +12,33 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly ISettingsStore _store;
     private readonly IAppNavigator _navigator;
-    public MainWindow(MainViewModel viewModel, ISettingsStore settingsStore, IAppNavigator navigator)
+    private readonly IDailyReadingService? _readingService;
+    private readonly Action<string>? _openArticle;
+    private HttpClient? _readingClient;
+    private DailyReadingWindow? _readingWindow;
+    public MainWindow(MainViewModel viewModel, ISettingsStore settingsStore, IAppNavigator navigator,
+        IDailyReadingService? readingService = null, Action<string>? openArticle = null)
     {
         InitializeComponent(); _viewModel = viewModel; _store = settingsStore; _navigator = navigator; DataContext = viewModel;
+        _readingService = readingService; _openArticle = openArticle;
         Loaded += (_, _) => WordBox.Focus();
         Closing += OnClosing;
+        Closed += (_, _) => { _readingWindow?.Close(); _readingClient?.Dispose(); };
+    }
+    private void DailyReading_Click(object sender, RoutedEventArgs e)
+    {
+        if (_readingWindow is { IsVisible: true }) { _readingWindow.Activate(); return; }
+        // Keep article networking separate from the model client and its credentials.
+        var service = _readingService;
+        if (service is null)
+        {
+            _readingClient ??= new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+            var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VocabCollector", "reading");
+            service = new DailyReadingService(_readingClient, cache);
+        }
+        _readingWindow = new DailyReadingWindow(new DailyReadingViewModel(service), _openArticle) { Owner = this };
+        _readingWindow.Closed += (_, _) => _readingWindow = null;
+        _readingWindow.Show();
     }
     private void Settings_Click(object sender, RoutedEventArgs e)
     {

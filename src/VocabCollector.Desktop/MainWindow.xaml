@@ -9,6 +9,9 @@
     <StackPanel VerticalAlignment="Center"><TextBlock Text="单词收集器" FontSize="25" FontWeight="SemiBold" /><TextBlock Text="把每一次遇见，变成积累。" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0" /></StackPanel>
    </StackPanel>
    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+    <Button x:Name="DailyReadingButton" Click="DailyReading_Click" Margin="0,0,9,0" ToolTip="每日英文文章，免费获取，无需配置 AI">
+     <StackPanel Orientation="Horizontal"><Path Data="M 8,3 C 5,1 2,1 1,2 L 1,14 C 3,13 5,13 8,15 C 11,13 13,13 15,14 L 15,2 C 13,1 11,1 8,3 L 8,15" Stroke="#965A73" StrokeThickness="1.4" Width="17" Height="17" Stretch="Uniform" Margin="0,0,7,0" /><TextBlock Text="每日阅读" /></StackPanel>
+    </Button>
     <Button x:Name="RefreshLinksButton" Command="{Binding RefreshLinksCommand}" Margin="0,0,9,0" ToolTip="本地刷新单词与词根的关联，不调用 AI">
      <StackPanel Orientation="Horizontal"><Path Data="M 14,5 A 6,6 0 1 0 14,11 M 10,5 L 14,5 L 14,1" Stroke="#965A73" StrokeThickness="1.5" Width="16" Height="16" Stretch="Uniform" Margin="0,0,7,0" /><TextBlock Text="刷新关联" /></StackPanel>
     </Button>

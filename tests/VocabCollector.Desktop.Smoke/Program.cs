@@ -32,7 +32,7 @@ public static class Program
         Dispatcher.Run(); return exitCode;
     }
 }
-public sealed class SmokeRunner(App app)
+public sealed partial class SmokeRunner(App app)
 {
     public async Task RunChecksAsync()
     {
@@ -44,8 +44,11 @@ public sealed class SmokeRunner(App app)
         using var client = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(90) };
         var vaultStore = new VaultStore();
         var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(client), vaultStore, TimeProvider.System), AppSettings.Default, vaultStore);
-        var navigator = new RecordingNavigator(); var main = new MainWindow(vm, settingsStore, navigator); app.MainWindow = main; main.Show();
+        var reading = new RecordingReadingService();
+        string? openedArticle = null;
+        var navigator = new RecordingNavigator(); var main = new MainWindow(vm, settingsStore, navigator, reading, url => openedArticle = url); app.MainWindow = main; main.Show();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        await CheckDailyReadingAsync(main, reading, () => openedArticle, output, () => server.Requests);
         Check(main.Icon != null, "main window has the application icon");
         Check(Control<FrameworkElement>(main,"PreviewEmptyState").IsVisible, "empty preview explains what to do before a word is generated");
         var preview = Control<MarkdownPreview>(main,"NotePreview");
@@ -152,6 +155,7 @@ public sealed class SmokeRunner(App app)
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         main.UpdateLayout(); Snapshot(main,Path.Combine(output,"main-minimum-before-scroll.png"));
         Check(!VisibleBounds(Control<Button>(main,"RefreshLinksButton"),main).IntersectsWith(VisibleBounds(Control<Button>(main,"SettingsButton"),main)),"minimum-size refresh and settings buttons do not overlap");
+        Check(!VisibleBounds(Control<Button>(main,"DailyReadingButton"),main).IntersectsWith(VisibleBounds(Control<Button>(main,"RefreshLinksButton"),main)),"minimum-size daily reading and refresh buttons do not overlap");
         Check(!VisibleBounds(Control<TextBox>(main,"ContextBox"),main).IntersectsWith(VisibleBounds(Control<Button>(main,"GenerateButton"),main)),"minimum-size input must not overlap generate button");
         var inputs=Control<ScrollViewer>(main,"InputScroll"); inputs.ScrollToBottom();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
@@ -218,6 +222,7 @@ public sealed class SmokeRunner(App app)
         server.Mode = ApiMode.Slow; Control<TextBox>(main,"WordBox").Text = "cancelled"; before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
         await Until(() => vm.IsBusy && server.Requests > before); Check(!Control<Button>(main,"SettingsButton").IsEnabled, "settings disabled during request");
         Check(!Control<Button>(main,"RefreshLinksButton").IsEnabled, "link refresh disabled during request");
+        Check(Control<Button>(main,"DailyReadingButton").IsEnabled, "daily reading stays independent during model generation");
         Invoke(Control<Button>(main,"CancelButton")); await Until(() => !vm.IsBusy && vm.Message.Contains("取消"));
         Check(vm.Word == "cancelled" && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == baselineNoteCount + 1, "errors and cancellation create no note");
         Check(await File.ReadAllTextAsync(correctedNote.AbsolutePath) == correctedWithPersonalNote, "subsequent errors and cancellation leave the corrected card unchanged");
