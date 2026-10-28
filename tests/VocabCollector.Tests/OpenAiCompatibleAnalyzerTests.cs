@@ -33,13 +33,14 @@ public class OpenAiCompatibleAnalyzerTests
     }
     [Fact] public async Task Request_DescribesLearningFieldsAndSendsOnlyWordAndContextAsData()
     {
-        using var handler = new RecordingHttpHandler(); using var client = new HttpClient(handler);
+        using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(RecordingHttpHandler.JsonReply(RecordingHttpHandler.ValidJson.Replace("resilient", "introduced"))) };
+        using var client = new HttpClient(handler);
         await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("introduced", "The team introduced a new policy.", Options, default);
         using var body = JsonDocument.Parse(handler.Body);
         var messages = body.RootElement.GetProperty("messages");
         Assert.Equal(2, messages.GetArrayLength());
         var instructions = messages[0].GetProperty("content").GetString()!;
-        Assert.True(instructions.Length <= 1300, $"Prompt length was {instructions.Length}");
+        Assert.True(instructions.Length <= 1600, $"Prompt length was {instructions.Length}");
         var schemaLine = instructions.Split('\n').Single(x => x.TrimStart().StartsWith("{\"is_valid_word\":true", StringComparison.Ordinal));
         using var schema = JsonDocument.Parse(schemaLine);
         Assert.True(schema.RootElement.TryGetProperty("lemma", out _));
@@ -49,10 +50,44 @@ public class OpenAiCompatibleAnalyzerTests
         Assert.True(grammar[0].TryGetProperty("explanation", out _));
         Assert.True(schema.RootElement.GetProperty("related")[0].TryGetProperty("explanation", out _));
         Assert.True(schema.RootElement.TryGetProperty("roots", out _));
+        var spelling = schema.RootElement.GetProperty("spelling");
+        Assert.Equal(new[] { "input_word", "word", "status", "suggestions" }, spelling.EnumerateObject().Select(x => x.Name));
         using var data = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
         Assert.Equal(new[] { "word", "context" }, data.RootElement.EnumerateObject().Select(x => x.Name));
         Assert.Equal("introduced", data.RootElement.GetProperty("word").GetString());
         Assert.Equal("The team introduced a new policy.", data.RootElement.GetProperty("context").GetString());
+    }
+    [Fact] public async Task CorrectedResponseReturnsFullAnalysisFromOneRequest()
+    {
+        var json = RecordingHttpHandler.ValidJson.Replace("resilient", "receive")
+            .Replace("\"input_word\":\"receive\"", "\"input_word\":\"recieve\"").Replace("\"status\":\"valid\"", "\"status\":\"corrected\"");
+        using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(RecordingHttpHandler.JsonReply(json)) };
+        using var client = new HttpClient(handler);
+        var result = await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("recieve", "I recieve a letter.", Options, default);
+        Assert.Equal("receive", result.Spelling!.Word); Assert.Equal(SpellingStatus.Corrected, result.Spelling.Status);
+        Assert.Equal(2, result.Examples.Count); Assert.Single(result.Meanings); Assert.Equal(1, handler.RequestCount);
+    }
+    [Fact] public async Task AcceptedResponseWithoutSpellingIsRejectedWithoutRetry()
+    {
+        var json = System.Text.Json.Nodes.JsonNode.Parse(RecordingHttpHandler.ValidJson)!.AsObject(); json.Remove("spelling");
+        using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(RecordingHttpHandler.JsonReply(json.ToJsonString())) };
+        using var client = new HttpClient(handler);
+        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default));
+        Assert.Equal(1, handler.RequestCount);
+    }
+    [Fact] public async Task ResponseForAnotherInputIsRejectedWithoutRetry()
+    {
+        using var handler = new RecordingHttpHandler(); using var client = new HttpClient(handler);
+        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("different", "", Options, default));
+        Assert.Equal(1, handler.RequestCount);
+    }
+    [Fact] public async Task AmbiguousResponseRetainsSuggestionsWithoutExtraRequest()
+    {
+        const string json = "{\"is_valid_word\":false,\"error\":\"可能有多个拼写，请选择。\",\"spelling\":{\"input_word\":\"wier\",\"word\":\"\",\"status\":\"uncertain\",\"suggestions\":[\"wire\",\"weir\"]}}";
+        using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(RecordingHttpHandler.JsonReply(json)) };
+        using var client = new HttpClient(handler);
+        var result = await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("wier", "", Options, default);
+        Assert.False(result.IsValidWord); Assert.Equal(new[] { "wire", "weir" }, result.Spelling!.Suggestions); Assert.Equal(1, handler.RequestCount);
     }
     [Theory]
     [InlineData("https://api.deepseek.com/v1", "deepseek-flash", true)]
@@ -67,7 +102,7 @@ public class OpenAiCompatibleAnalyzerTests
     public async Task Request_UsesDocumentedFastModeOnlyForExactOfficialDeepSeekModels(string url, string model, bool fast)
     {
         using var handler = new RecordingHttpHandler(); using var client = new HttpClient(handler);
-        await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options with { BaseUrl = url, Model = model }, default);
+        await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options with { BaseUrl = url, Model = model }, default);
         using var body = JsonDocument.Parse(handler.Body);
         Assert.Equal(fast, body.RootElement.TryGetProperty("thinking", out var thinking));
         if (fast) Assert.Equal("disabled", thinking.GetProperty("type").GetString());
@@ -117,34 +152,34 @@ public class OpenAiCompatibleAnalyzerTests
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         { Content = new StreamContent(new GatedReadStream(bytes, System.Text.Encoding.UTF8.GetByteCount(first), new TaskCompletionSource().Task)) { Headers = { ContentType = new("text/event-stream") } } }) };
         using var client = new HttpClient(handler);
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, new InlineProgress<int>(_ => cts.Cancel()), cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, new InlineProgress<int>(_ => cts.Cancel()), cts.Token));
     }
     [Theory][InlineData("length", true)][InlineData(null, true)][InlineData("stop", false)]
     public async Task StreamingRequiresStopAndDoneEvenForCompleteContent(string? reason, bool done)
     {
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(StreamReply(Chunk(RecordingHttpHandler.ValidJson, reason) + (done ? "data: [DONE]\n\n" : ""))) };
         using var client = new HttpClient(handler);
-        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default));
+        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default));
     }
     [Fact] public async Task StreamingAcceptsUtf8BomAndCrOnlyLines()
     {
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(StreamReply("\uFEFF" + (Chunk(RecordingHttpHandler.ValidJson, "stop") + "data: [DONE]\n\n").Replace("\n", "\r"))) };
         using var client = new HttpClient(handler);
-        Assert.True((await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default)).IsValidWord);
+        Assert.True((await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default)).IsValidWord);
     }
     [Fact] public async Task StreamingUnknownLengthIsBoundedBeforeAnEventCompletes()
     {
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         { Content = new StreamContent(new UnknownLengthStream(System.Text.Encoding.UTF8.GetBytes("data: " + new string('x', 1048577)))) { Headers = { ContentType = new("text/event-stream") } } }) };
         using var client = new HttpClient(handler);
-        var error = await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default));
+        var error = await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default));
         Assert.Contains("过大", error.Message);
     }
     [Fact] public async Task StreamingDoesNotAcceptSecretEchoesAsNoteContent()
     {
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(StreamReply(Chunk(RecordingHttpHandler.ValidJson.Replace("有韧性的", Canary), "stop") + "data: [DONE]\n\n")) };
         using var client = new HttpClient(handler);
-        var result = await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default);
+        var result = await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default);
         Assert.DoesNotContain(Canary, Assert.Single(result.Meanings).Definition);
     }
     private static string Chunk(string content, string? reason) => "data: " + JsonSerializer.Serialize(new
@@ -158,7 +193,7 @@ public class OpenAiCompatibleAnalyzerTests
     {
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(StreamReply(stream)) };
         using var client = new HttpClient(handler);
-        var error = await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default));
+        var error = await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default));
         Assert.DoesNotContain("secret-key-canary", error.Message); Assert.Equal(1, handler.RequestCount);
     }
     [Theory]
@@ -172,7 +207,7 @@ public class OpenAiCompatibleAnalyzerTests
             ? new HttpResponseMessage((HttpStatusCode)status) { Content = new StringContent(JsonSerializer.Serialize(new { error = new { message } })) }
             : RecordingHttpHandler.JsonReply(RecordingHttpHandler.ValidJson));
         using var client = new HttpClient(handler);
-        Assert.True((await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default)).IsValidWord);
+        Assert.True((await new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default)).IsValidWord);
         Assert.Equal(2, handler.RequestCount);
         using var body = JsonDocument.Parse(handler.Body); Assert.False(body.RootElement.GetProperty("stream").GetBoolean());
     }
@@ -180,7 +215,7 @@ public class OpenAiCompatibleAnalyzerTests
     {
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("invalid model") }) };
         using var client = new HttpClient(handler);
-        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default));
+        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default));
         Assert.Equal(1, handler.RequestCount);
     }
     [Theory]
@@ -192,7 +227,7 @@ public class OpenAiCompatibleAnalyzerTests
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(new HttpResponseMessage((HttpStatusCode)status)
         { Content = new StringContent(JsonSerializer.Serialize(new { error = new { message } })) }) };
         using var client = new HttpClient(handler);
-        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default));
+        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default));
         Assert.Equal(1, handler.RequestCount);
     }
     private static HttpResponseMessage StreamReply(string body) => new(HttpStatusCode.OK)
@@ -219,29 +254,29 @@ public class OpenAiCompatibleAnalyzerTests
     {
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(new HttpResponseMessage((HttpStatusCode)status) { Content = new StringContent("leaked " + Canary) }) };
         using var client = new HttpClient(handler);
-        var error = await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default));
+        var error = await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default));
         Assert.DoesNotContain(Canary,error.Message); Assert.Equal(1,handler.RequestCount);
     }
     [Fact] public async Task MalformedOrTruncatedResponseIsNotAccepted()
     {
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"{}\"},\"finish_reason\":\"length\"}]}") }) };
         using var client = new HttpClient(handler);
-        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default));
+        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default));
     }
     [Fact] public async Task CancellationAndTimeoutAreDistinct()
     {
         using var handler = new RecordingHttpHandler { Reply = async ct => { await Task.Delay(5000, ct); return RecordingHttpHandler.JsonReply(RecordingHttpHandler.ValidJson); } };
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(50) };
         var analyzer = new OpenAiCompatibleAnalyzer(client);
-        var error = await Assert.ThrowsAsync<AnalysisException>(() => analyzer.AnalyzeAsync("word", "", Options, default));
+        var error = await Assert.ThrowsAsync<AnalysisException>(() => analyzer.AnalyzeAsync("resilient", "", Options, default));
         Assert.Contains("超时", error.Message);
         using var cts = new CancellationTokenSource(); cts.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => analyzer.AnalyzeAsync("word", "", Options, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => analyzer.AnalyzeAsync("resilient", "", Options, cts.Token));
     }
     [Fact] public async Task OversizedResponseIsRejected()
     {
         using var handler = new RecordingHttpHandler { Reply = _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(new string('x', 1048577)) }) };
         using var client = new HttpClient(handler);
-        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("word", "", Options, default));
+        await Assert.ThrowsAsync<AnalysisException>(() => new OpenAiCompatibleAnalyzer(client).AnalyzeAsync("resilient", "", Options, default));
     }
 }

@@ -13,12 +13,17 @@ public sealed class NoteRenderer
     public string Render(string word, string context, WordAnalysis analysis, VaultIndex index, DateTimeOffset created)
     {
         var text = new StringBuilder();
+        var correction = analysis.Spelling is { Status: SpellingStatus.Corrected } spelling &&
+            spelling.Word.Equals(word, StringComparison.OrdinalIgnoreCase) && !spelling.InputWord.Equals(word, StringComparison.OrdinalIgnoreCase)
+            ? spelling : null;
         text.AppendLine("---").AppendLine("type: english-word").AppendLine("word: " + JsonSerializer.Serialize(word));
+        if (correction is not null) text.AppendLine("original_input: " + JsonSerializer.Serialize(correction.InputWord));
         if (!string.IsNullOrEmpty(analysis.Lemma)) text.AppendLine("lemma: " + JsonSerializer.Serialize(analysis.Lemma));
         text.AppendLine("primary_pos: " + analysis.PrimaryPartOfSpeech.ToString().ToLowerInvariant()).AppendLine("parts_of_speech:");
         foreach (var pos in analysis.Meanings.Select(m => m.PartOfSpeech).Distinct()) text.AppendLine("  - " + pos.ToString().ToLowerInvariant());
         text.AppendLine("created: '" + created.ToString("O") + "'").AppendLine("tags:\n  - english\n  - vocabulary\n---\n");
         text.AppendLine("# " + Plain(word)).AppendLine("---\n");
+        if (correction is not null) text.AppendLine("**拼写修正**：" + Plain(correction.InputWord) + " → " + Plain(word)).AppendLine();
         text.AppendLine("**发音**：UK " + Phonetic(analysis.UkPhonetic) + " · US " + Phonetic(analysis.UsPhonetic));
         var rootParts = analysis.Roots.Take(3).Select(root => string.Join(" / ", new[] { root.Root }.Concat(root.Variants).Distinct(StringComparer.OrdinalIgnoreCase).Select(Plain)) + "（" + Plain(root.Meaning) + "）").ToArray();
         text.AppendLine("\n**词根**：" + (rootParts.Length == 0 ? "暂无可靠词根信息。" : string.Join("；", rootParts)));

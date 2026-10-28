@@ -38,7 +38,7 @@
        <StackPanel Orientation="Horizontal"><TextBlock Text="解析并保存" /><Path Data="M 1,7 L 13,7 M 8,2 L 13,7 L 8,12" Stroke="White" StrokeThickness="1.6" Width="15" Height="15" Margin="10,0,0,0" VerticalAlignment="Center" /></StackPanel>
       </Button>
       <Button x:Name="CancelButton" Content="取消本次操作" Command="{Binding CancelCommand}" Style="{StaticResource QuietButton}" Margin="0,7,0,0" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" />
-      <TextBlock Text="自动整理 · 保存到你的 Obsidian" Foreground="{StaticResource Muted}" FontSize="11" HorizontalAlignment="Center" Margin="0,12,0,0" />
+      <TextBlock Text="自动纠错 · 保存到你的 Obsidian" Foreground="{StaticResource Muted}" FontSize="11" HorizontalAlignment="Center" Margin="0,12,0,0" />
      </StackPanel>
     </Grid>
    </Border>

@@ -14,6 +14,64 @@ public class AnalysisJsonTests
         Assert.Equal(2, analysis.Examples.Count); Assert.Equal(2, analysis.Collocations.Count);
     }
     [Fact] public void Parse_InvalidWordDoesNotRequireDefinitions() => Assert.False(AnalysisJson.Parse("{\"is_valid_word\":false,\"error\":\"未识别为英文单词\"}").IsValidWord);
+    [Fact] public void Parse_ProductionRequiresSpellingOnAcceptedWord()
+    {
+        var json = JsonNode.Parse(RecordingHttpHandler.ValidJson)!.AsObject(); json.Remove("spelling");
+        Assert.Throws<AnalysisException>(() => AnalysisJson.Parse(json.ToJsonString(), "resilient"));
+        Assert.Null(AnalysisJson.Parse(json.ToJsonString()).Spelling);
+    }
+    [Fact] public void Parse_PreservesNormalizedCorrectionAndFullAnalysis()
+    {
+        var json = JsonNode.Parse(RecordingHttpHandler.ValidJson.Replace("resilient", "receive"))!.AsObject();
+        json["spelling"] = JsonNode.Parse("{\"input_word\":\" RECIEVE \",\"word\":\" RECEIVE \",\"status\":\"corrected\",\"suggestions\":[]}");
+        var analysis = AnalysisJson.Parse(json.ToJsonString(), "recieve");
+        Assert.Equal("recieve", analysis.Spelling!.InputWord); Assert.Equal("receive", analysis.Spelling.Word);
+        Assert.Equal(SpellingStatus.Corrected, analysis.Spelling.Status); Assert.Empty(analysis.Spelling.Suggestions);
+        Assert.Equal(2, analysis.Examples.Count); Assert.Single(analysis.Meanings);
+    }
+    [Theory][InlineData("uncertain")][InlineData("invalid")]
+    public void Parse_RejectionRetainsSafeSuggestionsWithoutDefinitions(string status)
+    {
+        var json = "{\"is_valid_word\":false,\"error\":\"请检查拼写\",\"spelling\":{\"input_word\":\"wier\",\"word\":\"\",\"status\":\"" + status + "\",\"suggestions\":[\" WIRE \",\"weir\"]}}";
+        var analysis = AnalysisJson.Parse(json, "wier");
+        Assert.False(analysis.IsValidWord);
+        Assert.Equal("wier", analysis.Spelling!.InputWord); Assert.Equal("", analysis.Spelling.Word);
+        Assert.Equal(new[] { "wire", "weir" }, analysis.Spelling.Suggestions);
+    }
+    [Theory]
+    [InlineData("null")][InlineData("[]")][InlineData("42")][InlineData("{}")]
+    [InlineData("{\"input_word\":\"resilient\",\"word\":\"resilient\",\"status\":\"made-up\",\"suggestions\":[]}")]
+    [InlineData("{\"input_word\":\"resilient\",\"word\":\"resilient\",\"status\":1,\"suggestions\":[]}")]
+    [InlineData("{\"input_word\":\"resilient\",\"word\":\"resilient\",\"status\":\"valid\",\"suggestions\":null}")]
+    [InlineData("{\"input_word\":null,\"word\":\"resilient\",\"status\":\"valid\",\"suggestions\":[]}")]
+    [InlineData("{\"input_word\":\"../resilient\",\"word\":\"resilient\",\"status\":\"valid\",\"suggestions\":[]}")]
+    [InlineData("{\"input_word\":\"resilient\",\"word\":\"two words\",\"status\":\"valid\",\"suggestions\":[]}")]
+    [InlineData("{\"input_word\":\"resilient\",\"word\":\"resilient\",\"status\":\"valid\",\"suggestions\":[42]}")]
+    [InlineData("{\"input_word\":\"resilient\",\"word\":\"resilient\",\"status\":\"valid\",\"suggestions\":[\"../word\"]}")]
+    [InlineData("{\"input_word\":\"resilient\",\"word\":\"resilient\",\"status\":\"valid\",\"suggestions\":[\"one\",\"two\",\"three\",\"four\"]}")]
+    public void Parse_RejectsMalformedSpellingEvenInArchiveMode(string spelling)
+    {
+        var json = JsonNode.Parse(RecordingHttpHandler.ValidJson)!.AsObject(); json["spelling"] = JsonNode.Parse(spelling);
+        Assert.Throws<AnalysisException>(() => AnalysisJson.Parse(json.ToJsonString()));
+    }
+    [Fact] public void Parse_RejectsMalformedSpellingBeforeInvalidEarlyReturn() =>
+        Assert.Throws<AnalysisException>(() => AnalysisJson.Parse("{\"is_valid_word\":false,\"error\":\"错误\",\"spelling\":{}}", "word"));
+    [Fact] public void Parse_ProductionRejectsUnrelatedInputEcho() =>
+        Assert.Throws<AnalysisException>(() => AnalysisJson.Parse(RecordingHttpHandler.ValidJson, "word"));
+    [Fact] public void Parse_ProductionRejectsExampleForAnotherWord()
+    {
+        var json = JsonNode.Parse(RecordingHttpHandler.ValidJson)!.AsObject();
+        json["examples"]![1]!["english"] = "The economy is strong.";
+        Assert.Throws<AnalysisException>(() => AnalysisJson.Parse(json.ToJsonString(), "resilient"));
+    }
+    [Fact] public void Parse_ProductionRejectsUncertainWordMarkedValid()
+    {
+        var json = JsonNode.Parse(RecordingHttpHandler.ValidJson)!.AsObject();
+        json["spelling"] = JsonNode.Parse("{\"input_word\":\"resilient\",\"word\":\"\",\"status\":\"uncertain\",\"suggestions\":[\"resilient\"]}");
+        Assert.Throws<AnalysisException>(() => AnalysisJson.Parse(json.ToJsonString(), "resilient"));
+    }
+    [Fact] public void Parse_ProductionAcceptsLegacyRejection() =>
+        Assert.False(AnalysisJson.Parse("{\"is_valid_word\":false,\"error\":\"请检查拼写\"}", "word").IsValidWord);
     [Theory][InlineData("adjective", "made-up")][InlineData("same_root", "unknown")]
     [InlineData("有韧性的", "")][InlineData("\"is_valid_word\":true", "\"is_valid_word\":\"true\"")]
     [InlineData("\"primary_pos\":\"adjective\"", "\"primary_pos\":\"noun\"")]

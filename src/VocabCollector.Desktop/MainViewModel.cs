@@ -100,8 +100,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         });
         try
         {
-            var result = await _service.CaptureAsync(new(Word, Context), Settings, progress, _cancellation.Token);
+            var submittedWord = Word;
+            var result = await _service.CaptureAsync(new(submittedWord, Context), Settings, progress, _cancellation.Token);
             Markdown = result.Markdown; Message = result.Message;
+            if (result.Status is CaptureStatus.Saved or CaptureStatus.AlreadyExists && result.CorrectedFrom.Length > 0 && Word == submittedWord)
+                Word = result.Word;
             foreach (var note in result.Notes) Notes.Add(note);
             SelectedNote = Notes.FirstOrDefault();
         }

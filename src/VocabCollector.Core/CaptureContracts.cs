@@ -4,7 +4,10 @@ namespace VocabCollector.Core;
 public sealed record CaptureRequest(string Word, string Context);
 public enum CaptureStage { Validating, CallingAi, ReceivingAi, Saving }
 public enum CaptureStatus { Saved, AlreadyExists, InvalidInput, Failed, Cancelled }
-public sealed record CaptureResult(CaptureStatus Status, string Word, string Markdown, IReadOnlyList<NoteLocation> Notes, string Message);
+public sealed record CaptureResult(CaptureStatus Status, string Word, string Markdown, IReadOnlyList<NoteLocation> Notes, string Message)
+{
+    public string CorrectedFrom { get; init; } = "";
+}
 public sealed record SettingsLoadResult(AppSettings Settings, string Warning);
 public interface ICaptureService
 {

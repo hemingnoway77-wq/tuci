@@ -6,7 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Desktop.Smoke;
-public enum ApiMode { Normal, Unauthorized, Malformed, Slow }
+public enum ApiMode { Normal, SpellingCorrected, SpellingUncertain, SpellingInvalid, MissingSpelling, Unauthorized, Malformed, Slow }
 public sealed class MockApiServer : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
@@ -53,20 +53,19 @@ public sealed class MockApiServer : IAsyncDisposable
                 if (length is < 0 or > 65536) throw new IOException("Request too large");
                 var requestBytes = new byte[length]; await stream.ReadExactlyAsync(requestBytes, _stop.Token);
                 using var requestJson = JsonDocument.Parse(requestBytes);
+                var userContent = requestJson.RootElement.GetProperty("messages").EnumerateArray()
+                    .Single(message => message.GetProperty("role").GetString() == "user").GetProperty("content").GetString()!;
+                using var input = JsonDocument.Parse(userContent);
+                var requestWord = input.RootElement.GetProperty("word").GetString()!;
                 var mode = Mode; Interlocked.Increment(ref _requests);
                 if (mode == ApiMode.Slow) await Task.Delay(3000, _stop.Token);
-                var analysis = JsonNode.Parse(RecordingHttpHandler.ValidJson)!;
-                analysis["roots"] = JsonSerializer.SerializeToNode(new[] { new { root = "sal", meaning = "跳跃，源自拉丁语 salire", variants = new[] { "sult" } } });
-                analysis["meanings"]!.AsArray().Add(JsonSerializer.SerializeToNode(new { part_of_speech = "adjective", definition = "能迅速恢复的" }));
-                analysis["lemma"] = "resilient";
-                analysis["form_note"] = "resilient的副词是resiliently。";
                 var body = mode switch
                 {
                     ApiMode.Unauthorized => "echo sk-smoke-canary-secret",
                     ApiMode.Malformed => "not JSON",
-                    _ => analysis.ToJsonString()
+                    _ => Analysis(mode, requestWord).ToJsonString()
                 };
-                if (mode == ApiMode.Normal)
+                if (mode is ApiMode.Normal or ApiMode.SpellingCorrected or ApiMode.SpellingUncertain or ApiMode.SpellingInvalid or ApiMode.MissingSpelling)
                 {
                     await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"), _stop.Token);
                     for (var offset = 0; offset < body.Length; offset += 60)
@@ -87,6 +86,53 @@ public sealed class MockApiServer : IAsyncDisposable
             }
             catch (Exception e) when (e is IOException or OperationCanceledException or SocketException) { }
         }
+    }
+    private static JsonNode Analysis(ApiMode mode, string requestWord)
+    {
+        if (mode is ApiMode.SpellingUncertain or ApiMode.SpellingInvalid)
+            return JsonSerializer.SerializeToNode(new
+            {
+                is_valid_word = false, error = mode == ApiMode.SpellingUncertain ? "存在多个可能的拼写" : "无法识别为有效英文单词",
+                spelling = new
+                {
+                    input_word = requestWord, word = "", status = mode == ApiMode.SpellingUncertain ? "uncertain" : "invalid",
+                    suggestions = mode == ApiMode.SpellingUncertain ? new[] { "their", "there" } : Array.Empty<string>()
+                }
+            })!;
+        if (mode == ApiMode.SpellingCorrected)
+            return JsonSerializer.SerializeToNode(new
+            {
+                is_valid_word = true, error = "",
+                spelling = new { input_word = requestWord, word = "introduce", status = "corrected", suggestions = Array.Empty<string>() },
+                lemma = "introduce", form_note = "introduce的过去式和过去分词是introduced。",
+                phonetics = new { uk = "/ˌɪntrəˈdjuːs/", us = "/ˌɪntrəˈduːs/" }, primary_pos = "verb",
+                meanings = new[]
+                {
+                    new { part_of_speech = "verb", definition = "介绍某人或某事" },
+                    new { part_of_speech = "verb", definition = "引入新的事物或方法" }
+                },
+                examples = new[]
+                {
+                    new { english = "Let me introduce my friend to you.", chinese = "让我把我的朋友介绍给你。" },
+                    new { english = "Our school will introduce a new rule tomorrow.", chinese = "我们学校明天会推出一条新规定。" }
+                },
+                collocations = new[]
+                {
+                    new { english = "introduce a friend", chinese = "介绍一位朋友" },
+                    new { english = "introduce a new idea", chinese = "引入一个新想法" },
+                    new { english = "introduce someone to a team", chinese = "将某人介绍给团队" }
+                },
+                grammar = new[] { new { pattern = "introduce someone to someone", explanation = "把前一个人介绍给后一个人。" } },
+                related = Array.Empty<object>(), roots = Array.Empty<object>()
+            })!;
+        var analysis = JsonNode.Parse(RecordingHttpHandler.ValidJson)!;
+        analysis["roots"] = JsonSerializer.SerializeToNode(new[] { new { root = "sal", meaning = "跳跃，源自拉丁语 salire", variants = new[] { "sult" } } });
+        analysis["meanings"]!.AsArray().Add(JsonSerializer.SerializeToNode(new { part_of_speech = "adjective", definition = "能迅速恢复的" }));
+        analysis["lemma"] = "resilient";
+        analysis["form_note"] = "resilient的副词是resiliently。";
+        if (mode == ApiMode.MissingSpelling) analysis.AsObject().Remove("spelling");
+        else analysis["spelling"] = JsonSerializer.SerializeToNode(new { input_word = requestWord, word = requestWord, status = "valid", suggestions = Array.Empty<string>() });
+        return analysis;
     }
     public async ValueTask DisposeAsync()
     {

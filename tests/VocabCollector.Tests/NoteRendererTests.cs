@@ -5,6 +5,27 @@ using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Tests;
 public class NoteRendererTests
 {
+    [Fact]
+    public void CorrectionKeepsAnAuditOfOriginalInputAndUsesTheResolvedTitle()
+    {
+        var analysis = TestData.Analysis with { Spelling = new("introdce", "introduce", SpellingStatus.Corrected, []) };
+        var text = new NoteRenderer().Render("introduce", "The original sentence contains introdce.", analysis, [], DateTimeOffset.Now);
+        Assert.Contains("word: \"introduce\"", text);
+        Assert.Contains("original_input: \"introdce\"", text);
+        Assert.Contains("# introduce\n", text);
+        Assert.DoesNotContain("# introdce\n", text);
+        Assert.Contains("**拼写修正**：introdce → introduce", text);
+        Assert.Contains("> The original sentence contains introdce.", text);
+    }
+    [Fact]
+    public void ValidInflectionDoesNotShowASpellingCorrectionOrRenameToItsLemma()
+    {
+        var analysis = TestData.Analysis with { Lemma = "introduce", Spelling = new("introduced", "introduced", SpellingStatus.Valid, []) };
+        var text = new NoteRenderer().Render("introduced", "", analysis, [], DateTimeOffset.Now);
+        Assert.Contains("# introduced\n", text);
+        Assert.DoesNotContain("original_input:", text);
+        Assert.DoesNotContain("**拼写修正**", text);
+    }
     [Fact] public void Render_FixedFormatEscapesUntrustedContent()
     {
         using var vault = new TempVault(); var target = vault.Note("英语单词/名词/resilience.md");

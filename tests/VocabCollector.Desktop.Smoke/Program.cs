@@ -24,7 +24,7 @@ public static class Program
         var exitCode = 1;
         app.Dispatcher.BeginInvoke(new Action(async () =>
         {
-            try { await new SmokeRunner(app).RunChecksAsync(); Console.WriteLine("PASS: real WPF controls, rendered note preview, local preview links, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, duplicate, 401, malformed JSON, cancellation and screenshots"); exitCode = 0; }
+            try { await new SmokeRunner(app).RunChecksAsync(); Console.WriteLine("PASS: real WPF controls, rendered note preview, local preview links, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, spelling correction, corrected duplicate, uncertain and invalid spelling, required spelling metadata, duplicate, 401, malformed JSON, cancellation and screenshots"); exitCode = 0; }
             catch (Exception error) { Console.Error.WriteLine(error); }
             finally { app.Shutdown(); app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.ApplicationIdle); }
         }));
@@ -162,15 +162,65 @@ public sealed class SmokeRunner(App app)
         var before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
         await Until(() => !vm.IsBusy && vm.Message.Contains("已经收录"));
         Check(server.Requests == before && await File.ReadAllTextAsync(note.AbsolutePath) == text, "duplicate avoids API and keeps handwritten content");
+        var baselineNoteCount = Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length;
+        Check(baselineNoteCount == 6, "baseline flow retains all six existing and generated notes");
+        server.Mode = ApiMode.SpellingCorrected;
+        Control<TextBox>(main,"WordBox").Text = "introdce";
+        Control<TextBox>(main,"ContextBox").Text = "Let me introdce my friend to you.";
+        before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
+        await Until(() => server.Requests > before && !vm.IsBusy);
+        Check(server.Requests == before + 1, "spelling correction and analysis use one model request");
+        Check(vm.Notes.Count == 1 && vm.Message.Contains("已保存"), "a clear typo is corrected and saved");
+        var correctedNote = vm.Notes.Single();
+        Check(correctedNote.VaultRelativePath == "英语单词/动词/introduce.md" && File.Exists(correctedNote.AbsolutePath), "corrected surface spelling controls the note filename");
+        Check(!Directory.GetFiles(vault,"introdce.md",SearchOption.AllDirectories).Any(), "the misspelled filename is never created");
+        var correctedText = await File.ReadAllTextAsync(correctedNote.AbsolutePath);
+        Check(correctedText == vm.Markdown && correctedText.Contains("original_input:") && correctedText.Contains("**拼写修正**：introdce → introduce"), "saved note records the original input and visible correction");
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Check(preview.RenderedText.Contains("Let me introduce my friend to you.") && preview.RenderedText.Contains("Our school will introduce a new rule tomorrow."), "corrected reading preview contains examples using the resolved spelling");
+        Check(vm.Word == "introduce" && Control<TextBox>(main,"WordBox").Text == "introduce", "successful correction updates the visible input field");
+        Check(vm.Message.Contains("introdce") && vm.Message.Contains("introduce") && Descendants<TextBlock>(main).Any(block => block.IsVisible && block.Text == vm.Message), "the visible status message explains the spelling correction");
+        Check(preview.Markdown == correctedText && preview.RenderedText.Contains("拼写修正") && preview.RenderedText.Contains("introdce → introduce"), "reading preview displays the correction");
+        Check(!preview.RenderedText.Contains("original_input:") && !preview.RenderedText.Contains("primary_pos:") && !preview.RenderedText.Contains("type: english-word") && !preview.RenderedText.Contains("**") && !preview.RenderedText.Contains("[["), "corrected preview hides YAML and Markdown syntax");
+        Descendants<ScrollViewer>(preview).Single().ScrollToTop();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Snapshot(main,Path.Combine(output,"spelling-corrected.png"));
+        var correctedWithPersonalNote = correctedText + "\n#### 我的笔记\nKeep this handwritten correction note.\n";
+        await File.WriteAllTextAsync(correctedNote.AbsolutePath,correctedWithPersonalNote);
+        Control<TextBox>(main,"WordBox").Text = "introdce";
+        before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
+        await Until(() => server.Requests > before && !vm.IsBusy);
+        Check(vm.Message.Contains("已经收录") && vm.Notes.Single().AbsolutePath == correctedNote.AbsolutePath, "a typo resolving to an existing word opens the corrected duplicate");
+        Check(vm.Word == "introduce" && Control<TextBox>(main,"WordBox").Text == "introduce", "a corrected duplicate also updates the visible input");
+        Check(server.Requests == before + 1 && await File.ReadAllTextAsync(correctedNote.AbsolutePath) == correctedWithPersonalNote, "a repeated typo uses one request and never overwrites the corrected card or handwritten content");
+        Check(Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == baselineNoteCount + 1, "correction and its duplicate create exactly one new note");
+        server.Mode = ApiMode.SpellingUncertain; Control<TextBox>(main,"WordBox").Text = "ther";
+        before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
+        await Until(() => server.Requests > before && !vm.IsBusy);
+        Check(server.Requests == before + 1 && vm.Word == "ther" && Control<TextBox>(main,"WordBox").Text == "ther", "uncertain spelling retains the user's input after one request");
+        Check(vm.Message.Contains("their") && vm.Message.Contains("there"), "uncertain spelling offers candidates for the user to choose");
+        Check(vm.Notes.Count == 0 && vm.Markdown.Length == 0 && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == baselineNoteCount + 1, "uncertain candidates never generate or save a note");
+        server.Mode = ApiMode.SpellingInvalid; Control<TextBox>(main,"WordBox").Text = "zzzxq";
+        before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
+        await Until(() => server.Requests > before && !vm.IsBusy);
+        Check(server.Requests == before + 1 && vm.Word == "zzzxq" && Control<TextBox>(main,"WordBox").Text == "zzzxq" && vm.Message.Length > 0, "invalid spelling retains input and explains the failure");
+        Check(vm.Notes.Count == 0 && vm.Markdown.Length == 0 && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == baselineNoteCount + 1, "invalid spelling never generates or saves a note");
+        server.Mode = ApiMode.MissingSpelling; Control<TextBox>(main,"WordBox").Text = "metadatafree";
+        before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
+        await Until(() => server.Requests > before && !vm.IsBusy);
+        Check(server.Requests == before + 1 && vm.Word == "metadatafree" && vm.Notes.Count == 0 && vm.Markdown.Length == 0, "a response without mandatory spelling metadata is rejected with input retained");
+        Check(Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == baselineNoteCount + 1, "missing spelling metadata cannot save a note");
         server.Mode = ApiMode.Unauthorized; Control<TextBox>(main,"WordBox").Text = "denied"; Invoke(Control<Button>(main,"GenerateButton"));
-        await Until(() => !vm.IsBusy && vm.Message.Contains("鉴权")); Check(!vm.Message.Contains("sk-smoke-canary-secret"), "401 secret redaction");
+        await Until(() => !vm.IsBusy && vm.Message.Contains("鉴权")); Check(!vm.Message.Contains("sk-smoke-canary-secret") && vm.Word == "denied", "401 redacts the secret and retains input");
         server.Mode = ApiMode.Malformed; Control<TextBox>(main,"WordBox").Text = "malformed"; Invoke(Control<Button>(main,"GenerateButton"));
         await Until(() => !vm.IsBusy && vm.Message.Contains("兼容性"));
+        Check(vm.Word == "malformed", "malformed responses retain input");
         server.Mode = ApiMode.Slow; Control<TextBox>(main,"WordBox").Text = "cancelled"; before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
         await Until(() => vm.IsBusy && server.Requests > before); Check(!Control<Button>(main,"SettingsButton").IsEnabled, "settings disabled during request");
         Check(!Control<Button>(main,"RefreshLinksButton").IsEnabled, "link refresh disabled during request");
         Invoke(Control<Button>(main,"CancelButton")); await Until(() => !vm.IsBusy && vm.Message.Contains("取消"));
-        Check(vm.Word == "cancelled" && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == 6, "errors and cancellation create no note");
+        Check(vm.Word == "cancelled" && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == baselineNoteCount + 1, "errors and cancellation create no note");
+        Check(await File.ReadAllTextAsync(correctedNote.AbsolutePath) == correctedWithPersonalNote, "subsequent errors and cancellation leave the corrected card unchanged");
         Check(await File.ReadAllTextAsync(prior) == "handwritten historical notes", "historical file unchanged");
         Check(bindings.Errors.Count == 0, "no WPF binding errors: " + string.Join(" | ",bindings.Errors));
         await File.WriteAllTextAsync(Path.Combine(output,"result.txt"),$"PASS\nVault: {vault}\nSample: {note.AbsolutePath}\nRequests: {server.Requests}\nBinding errors: 0\n");

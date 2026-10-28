@@ -10,7 +10,7 @@ public static class AnalysisJson
     {
         ["same_root"] = RelationKind.SameRoot, ["synonym"] = RelationKind.Synonym, ["antonym"] = RelationKind.Antonym, ["confusable"] = RelationKind.Confusable
     };
-    public static WordAnalysis Parse(string json)
+    public static WordAnalysis Parse(string json, string? expectedInput = null)
     {
         try
         {
@@ -24,7 +24,13 @@ public static class AnalysisJson
             var root = document.RootElement;
             var valid = root.GetProperty("is_valid_word").GetBoolean();
             var error = Text(root, "error", valid);
-            if (!valid) return new(false, error, "", "", PartOfSpeech.Other, [], [], [], []);
+            var spelling = root.TryGetProperty("spelling", out var spellingJson) ? Spelling(spellingJson) : null;
+            if (!valid)
+            {
+                var rejected = new WordAnalysis(false, error, "", "", PartOfSpeech.Other, [], [], [], []) { Spelling = spelling };
+                if (expectedInput is not null) SpellingValidator.ResolveWord(expectedInput, rejected);
+                return rejected;
+            }
             var phonetics = root.GetProperty("phonetics");
             var primary = Parts[Text(root, "primary_pos")];
             var meaningsArray = Array(root, "meanings", 1, 3);
@@ -53,11 +59,28 @@ public static class AnalysisJson
                 var explanation = OptionalText(item, "explanation", 200);
                 try { related.Add(new(WordInput.Normalize(word), relation, explanation)); } catch (ArgumentException) { }
             }
-            return new(true, error, Text(phonetics, "uk", true), Text(phonetics, "us", true), primary, meanings, examples, collocations, related)
-            { Lemma = lemma, FormNote = formNote, Grammar = grammar, Roots = roots };
+            var analysis = new WordAnalysis(true, error, Text(phonetics, "uk", true), Text(phonetics, "us", true), primary, meanings, examples, collocations, related)
+            { Lemma = lemma, FormNote = formNote, Grammar = grammar, Roots = roots, Spelling = spelling };
+            if (expectedInput is not null) SpellingValidator.ResolveWord(expectedInput, analysis);
+            return analysis;
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or ArgumentException)
         { throw new AnalysisException("AI 返回的解析内容不完整或格式不合规，请重试或更换模型。"); }
+    }
+    private static SpellingAssessment Spelling(JsonElement value)
+    {
+        var input = WordInput.Normalize(Text(value, "input_word", maxLength: 64));
+        var target = Text(value, "word", true, 64);
+        var status = Text(value, "status") switch
+        {
+            "valid" => SpellingStatus.Valid,
+            "corrected" => SpellingStatus.Corrected,
+            "uncertain" => SpellingStatus.Uncertain,
+            "invalid" => SpellingStatus.Invalid,
+            _ => throw new JsonException()
+        };
+        var suggestions = Array(value, "suggestions", 0, 3).Select(item => WordInput.Normalize(item.GetString() ?? throw new JsonException())).ToArray();
+        return new(input, target.Length == 0 ? "" : WordInput.Normalize(target), status, suggestions);
     }
     private static string Text(JsonElement obj, string name, bool allowEmpty = false, int maxLength = 2000)
     {

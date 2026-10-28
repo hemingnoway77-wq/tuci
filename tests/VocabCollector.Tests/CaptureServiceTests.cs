@@ -85,7 +85,7 @@ public class CaptureServiceTests
     {
         public Task<WordAnalysis> AnalyzeAsync(string word, string context, ApiOptions options, CancellationToken ct) => throw new InvalidOperationException("Use progress API");
         public Task<WordAnalysis> AnalyzeAsync(string word, string context, ApiOptions options, IProgress<int>? receivedCharacters, CancellationToken ct)
-        { receivedCharacters?.Report(0); receivedCharacters?.Report(5); receivedCharacters?.Report(50); return Task.FromResult(TestData.Analysis); }
+        { receivedCharacters?.Report(0); receivedCharacters?.Report(5); receivedCharacters?.Report(50); return Task.FromResult(TestData.Analysis with { Spelling = new(word, word, SpellingStatus.Valid, []) }); }
     }
     private sealed class CountingStore : IVocabularyStore
     {

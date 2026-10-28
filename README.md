@@ -4,7 +4,7 @@
 
 ## 开始使用
 
-1. 本次关联修复版双击 `dist/win-x64-links/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
+1. 本次拼写修正版双击 `dist/兔词-拼写修正版/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
 2. 点击右上角“设置”，填写 API 地址、API Key、模型名。
 3. 选择 **Obsidian 仓库根目录**，填写仓库内的单词子目录，默认 `英语单词`。
 4. 按需开启“按主要词性分文件夹”，保存设置。
@@ -22,6 +22,16 @@
 阅读预览不需要 WebView 或浏览器组件，也不加载笔记中的远程图片。Markdown 解析使用 Markdig，许可证随发布附带并嵌入程序。实现与验收见[粉色界面验证记录](docs/verification/2026-10-22-pink-interface.md)。
 
 可执行文件可以单独复制到别处运行。设置位于 `%LOCALAPPDATA%\VocabCollector\settings.json`，API Key 使用当前 Windows 用户的 DPAPI 加密，不以明文保存。把此配置文件复制到其他电脑或其他 Windows 账户后，需要重新填写 Key。
+
+## 拼写修正
+
+新收录时，在同一次 AI 请求里检查拼写并生成完整笔记。明确且唯一的错拼会自动修正，例如 `introdce → introduce`，文件名、标题、例句及词条关联统一使用 `introduce`，输入框和状态栏会显示结果。词卡保留简短修正说明，原输入写在 `original_input` 属性中；遇见时的原句保留原文。
+
+`introduced`、`running`、`smaller` 等正确词形继续单独收录，原形写在词形说明中。候选不确定时提示最多三个候选并保留输入，不生成任何候选笔记。修正后的词已收录时打开已有词条，不覆盖内容，也不创建错拼文件。取消、保存失败和不一致的模型返回均保留输入。
+
+模型负责拼写判断，本地检查输入回显、修正幅度、词形关系、例句中的目标词及文件名一致性；没有新增联网词典、第二次模型调用或自动纠错重试。当前配置单次对比中，旧版约 2.49 秒，新版正常词约 2.29 秒，新版纠错加整理约 2.51 秒；这是定点样本，实际受服务端与网络影响。完整验收见[拼写修正验证记录](docs/verification/2026-10-28-spelling-correction.md)。
+
+已有词条仍直接打开，不重新调用 AI；本功能不会批量改写、重命名或重新解析历史笔记。旧接口若拒绝无效词仍可安全提示，但成功响应必须返回新增的拼写判断字段，缺失时停止保存。
 
 ## API 配置
 
@@ -100,7 +110,7 @@ pwsh -NoProfile -File scripts/verify.ps1
 pwsh -NoProfile -File scripts/publish.ps1
 ```
 
-当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory dist/win-x64-links` 单独打包，避免占用正在运行的旧 exe。
+当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory 'dist/兔词-拼写修正版'` 单独打包，避免占用正在运行的旧 exe。
 
 没有 `pwsh` 时可使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1`。脚本不修改系统执行策略。
 

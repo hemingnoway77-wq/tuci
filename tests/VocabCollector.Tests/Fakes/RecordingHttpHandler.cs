@@ -11,7 +11,7 @@ public sealed class RecordingHttpHandler : HttpMessageHandler
     public Uri? Address { get; private set; }
     public Func<CancellationToken, Task<HttpResponseMessage>> Reply { get; set; } = _ => Task.FromResult(JsonReply(ValidJson));
     public const string ValidJson = """
-    {"is_valid_word":true,"error":"","phonetics":{"uk":"/rɪˈzɪliənt/","us":""},"primary_pos":"adjective","meanings":[{"part_of_speech":"adjective","definition":"有韧性的"}],"examples":[{"english":"She remained resilient.","chinese":"她依然坚韧。"},{"english":"The economy is resilient.","chinese":"经济具有韧性。"}],"collocations":[{"english":"a resilient economy","chinese":"韧性强的经济体"},{"english":"resilient communities","chinese":"具有韧性的社区"}],"related":[{"word":"resilience","relation":"same_root"}]}
+    {"is_valid_word":true,"error":"","spelling":{"input_word":"resilient","word":"resilient","status":"valid","suggestions":[]},"phonetics":{"uk":"/rɪˈzɪliənt/","us":""},"primary_pos":"adjective","meanings":[{"part_of_speech":"adjective","definition":"有韧性的"}],"examples":[{"english":"She remained resilient.","chinese":"她依然坚韧。"},{"english":"The economy is resilient.","chinese":"经济具有韧性。"}],"collocations":[{"english":"a resilient economy","chinese":"韧性强的经济体"},{"english":"resilient communities","chinese":"具有韧性的社区"}],"related":[{"word":"resilience","relation":"same_root"}]}
     """;
     public static HttpResponseMessage JsonReply(string content) => new(HttpStatusCode.OK)
     {

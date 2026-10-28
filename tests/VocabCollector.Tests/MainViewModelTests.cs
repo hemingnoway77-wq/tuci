@@ -4,6 +4,29 @@ using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Tests;
 public class MainViewModelTests
 {
+    [Theory]
+    [InlineData(CaptureStatus.Saved)]
+    [InlineData(CaptureStatus.AlreadyExists)]
+    public async Task CorrectionUpdatesInputOnlyAfterSuccessfulSaveOrKnownTarget(CaptureStatus status)
+    {
+        var service = new TestService((_, _) => Task.FromResult(new CaptureResult(status, "introduce", "# introduce", [], "拼写已修正：introdce → introduce。") { CorrectedFrom = "introdce" }));
+        var vm = new MainViewModel(service, AppSettings.Default) { Word = "introdce" };
+        await vm.GenerateAsync();
+        Assert.Equal("introduce", vm.Word);
+        Assert.Equal("# introduce", vm.Markdown);
+        Assert.Contains("introdce → introduce", vm.Message);
+    }
+    [Theory]
+    [InlineData(CaptureStatus.Failed)]
+    [InlineData(CaptureStatus.Cancelled)]
+    [InlineData(CaptureStatus.InvalidInput)]
+    public async Task UnsuccessfulCorrectionKeepsTheUsersOriginalInput(CaptureStatus status)
+    {
+        var service = new TestService((_, _) => Task.FromResult(new CaptureResult(status, "introduce", "", [], "未保存") { CorrectedFrom = "introdce" }));
+        var vm = new MainViewModel(service, AppSettings.Default) { Word = "introdce" };
+        await vm.GenerateAsync();
+        Assert.Equal("introdce", vm.Word);
+    }
     [Fact] public async Task Generate_RestoresStateAndKeepsInputAfterFailure()
     {
         var vm=new MainViewModel(new TestService((_,_)=>Task.FromResult(new CaptureResult(CaptureStatus.Failed,"resilient","generated result",[],"save failed"))),AppSettings.Default){Word="resilient",Context="source"};
