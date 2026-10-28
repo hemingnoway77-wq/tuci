@@ -3,6 +3,7 @@ using System.Windows;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Windows.Controls.Primitives;
 using VocabCollector.Core;
 using VocabCollector.Core.Reading;
 using VocabCollector.Desktop.Preview;
@@ -16,14 +17,31 @@ public partial class MainWindow : Window
     private readonly Action<string>? _openArticle;
     private HttpClient? _readingClient;
     private DailyReadingWindow? _readingWindow;
+    private readonly ThemeManager _themes;
+    private bool _initializingTheme = true;
     public MainWindow(MainViewModel viewModel, ISettingsStore settingsStore, IAppNavigator navigator,
-        IDailyReadingService? readingService = null, Action<string>? openArticle = null)
+        IDailyReadingService? readingService = null, Action<string>? openArticle = null, ThemeManager? themeManager = null)
     {
+        _themes = themeManager ?? new ThemeManager(Application.Current.Resources);
         InitializeComponent(); _viewModel = viewModel; _store = settingsStore; _navigator = navigator; DataContext = viewModel;
         _readingService = readingService; _openArticle = openArticle;
+        if (FindName("ThemeToggleButton") is ToggleButton themeToggle) themeToggle.IsChecked = _themes.CurrentTheme == AppTheme.Pink;
+        _initializingTheme = false;
         Loaded += (_, _) => WordBox.Focus();
         Closing += OnClosing;
         Closed += (_, _) => { _readingWindow?.Close(); _readingClient?.Dispose(); };
+    }
+    private async void ThemeToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_initializingTheme || sender is not ToggleButton toggle) return;
+        toggle.IsEnabled = false;
+        try
+        {
+            var saved = await _themes.SetThemeAsync(toggle.IsChecked == true ? AppTheme.Pink : AppTheme.WarmNeutral);
+            if (!saved) _viewModel.Message = "主题已切换，但未能保存偏好；下次启动可以重新选择。";
+        }
+        catch (Exception) { _viewModel.Message = "暂时无法切换主题，请稍后重试。"; }
+        finally { toggle.IsEnabled = true; }
     }
     private void DailyReading_Click(object sender, RoutedEventArgs e)
     {

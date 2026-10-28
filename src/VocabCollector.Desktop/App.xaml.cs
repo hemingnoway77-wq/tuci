@@ -15,13 +15,16 @@ public partial class App : Application
     {
         base.OnStartup(e);
         if (!_runProductionStartup) return;
-        var store = new WindowsSettingsStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VocabCollector"));
+        var settingsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VocabCollector");
+        var themes = new ThemeManager(Resources, new AppearanceSettingsStore(settingsDirectory));
+        await themes.LoadAsync();
+        var store = new WindowsSettingsStore(settingsDirectory);
         var loaded = await store.LoadAsync(CancellationToken.None);
         _client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(90) };
         var vaultStore = new VaultStore();
         var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(_client), vaultStore, TimeProvider.System), loaded.Settings, vaultStore);
         if (loaded.Warning.Length > 0) vm.Message = loaded.Warning;
-        MainWindow = new MainWindow(vm, store, new WindowsNavigator()); MainWindow.Show();
+        MainWindow = new MainWindow(vm, store, new WindowsNavigator(), themeManager: themes); MainWindow.Show();
         await vm.InitializeAsync(loaded.Warning);
     }
     protected override void OnExit(ExitEventArgs e) { _client?.Dispose(); base.OnExit(e); }

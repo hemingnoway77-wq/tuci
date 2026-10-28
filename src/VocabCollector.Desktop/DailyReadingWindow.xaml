@@ -14,40 +14,40 @@
   <Grid Margin="0,0,0,20">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
    <StackPanel Orientation="Horizontal">
-    <Border Width="48" Height="48" Background="#FFF7FA" CornerRadius="16" Margin="0,0,14,0">
+    <Border Width="48" Height="48" Background="{DynamicResource ThemeBrushFFF7FA}" CornerRadius="16" Margin="0,0,14,0">
      <Path Data="M 2,3 C 6,1 10,2 13,4 C 16,2 20,1 24,3 L 24,22 C 20,20 16,21 13,23 C 10,21 6,20 2,22 Z M 13,4 L 13,23 M 5,7 C 7,6 9,7 10,8 M 16,8 C 18,7 20,6 22,7 M 5,12 C 7,11 9,12 10,13 M 16,13 C 18,12 20,11 22,12"
-      Width="26" Height="26" Stretch="Uniform" Stroke="#B7557B" StrokeThickness="1.35" StrokeLineJoin="Round" />
+      Width="26" Height="26" Stretch="Uniform" Stroke="{DynamicResource ThemeBrushB7557B}" StrokeThickness="1.35" StrokeLineJoin="Round" />
     </Border>
     <StackPanel VerticalAlignment="Center">
      <TextBlock Text="每日阅读" FontSize="25" FontWeight="SemiBold" />
-     <TextBlock Text="给英语留一小段时间。" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,5,0,0" />
+     <TextBlock Text="给英语留一小段时间。" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,5,0,0" />
     </StackPanel>
    </StackPanel>
    <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
-    <TextBlock x:Name="ReadingDateText" Text="{Binding DayLabel}" FontSize="12" Foreground="{StaticResource Muted}" HorizontalAlignment="Right" />
+    <TextBlock x:Name="ReadingDateText" Text="{Binding DayLabel}" FontSize="12" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right" />
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,7,0,0">
-     <Ellipse Width="5" Height="5" Fill="#C97B9A" Margin="0,0,6,0" VerticalAlignment="Center" />
-     <TextBlock Text="免费获取 · 无需 API Key" Foreground="#AC597A" FontSize="11" />
+     <Ellipse Width="5" Height="5" Fill="{DynamicResource ThemeBrushC97B9A}" Margin="0,0,6,0" VerticalAlignment="Center" />
+     <TextBlock Text="免费获取 · 无需 API Key" Foreground="{DynamicResource ThemeBrushAC597A}" FontSize="11" />
     </StackPanel>
    </StackPanel>
   </Grid>
 
-  <Border Grid.Row="1" Background="#8CFFFFFF" BorderBrush="#FFF8FB" BorderThickness="1" CornerRadius="16" Padding="18,14" Margin="0,0,0,17">
+  <Border Grid.Row="1" Background="{DynamicResource ThemeBrush8CFFFFFF}" BorderBrush="{DynamicResource ThemeBrushFFF8FB}" BorderThickness="1" CornerRadius="16" Padding="18,14" Margin="0,0,0,17">
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
     <StackPanel VerticalAlignment="Center">
      <StackPanel Orientation="Horizontal">
-      <TextBlock Text="今日配比" FontSize="11" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,10,0" />
+      <TextBlock Text="今日配比" FontSize="11" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,10,0" />
       <TextBlock Text="2 篇通用 · 1 篇技术" FontSize="14" FontWeight="SemiBold" />
      </StackPanel>
-     <TextBlock Text="社会与环境泛读，搭配一篇技术阅读。先读摘要，再打开原文。" FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,7,14,0" />
+     <TextBlock Text="社会与环境泛读，搭配一篇技术阅读。先读摘要，再打开原文。" FontSize="11" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,7,14,0" />
     </StackPanel>
     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
      <Button x:Name="DailyReadingCancelButton" Content="取消获取" Command="{Binding CancelCommand}" Style="{StaticResource QuietButton}"
       Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" Margin="0,0,6,0" Padding="10,10" />
      <Button x:Name="DailyReadingRefreshButton" Command="{Binding RefreshCommand}" Style="{StaticResource PrimaryButton}" Padding="15,10" ToolTip="重新获取今日文章；网络恢复后可在这里重试">
       <StackPanel Orientation="Horizontal">
-       <Path Data="M 14,5 A 6,6 0 1 0 14,11 M 10,5 L 14,5 L 14,1" Stroke="White" StrokeThickness="1.5" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0" />
+       <Path Data="M 14,5 A 6,6 0 1 0 14,11 M 10,5 L 14,5 L 14,1" Stroke="{DynamicResource ThemeBrushFFFFFF}" StrokeThickness="1.5" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0" />
        <TextBlock Text="刷新文章" FontSize="12" />
       </StackPanel>
      </Button>
@@ -64,8 +64,8 @@
         <StackPanel>
          <Grid Margin="0,0,0,12">
           <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-          <Border CornerRadius="7" Padding="8,4" Background="#FBE8EF" Margin="0,0,12,0">
-           <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="#AD5778">
+          <Border CornerRadius="7" Padding="8,4" Background="{DynamicResource ThemeBrushFBE8EF}" Margin="0,0,12,0">
+           <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource ThemeBrushAD5778}">
             <TextBlock.Style>
              <Style TargetType="TextBlock">
               <Setter Property="Text" Value="通用泛读" />
@@ -75,20 +75,20 @@
            </TextBlock>
           </Border>
           <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-           <TextBlock Text="{Binding SourceName}" Foreground="{StaticResource Muted}" FontSize="10" />
-           <TextBlock Text=" · " Foreground="#C3A5B3" FontSize="10" Margin="4,0" />
-           <TextBlock Text="{Binding PublishedAt,StringFormat={}{0:yyyy-MM-dd},TargetNullValue=发布日期未提供}" Foreground="{StaticResource Muted}" FontSize="10" />
+           <TextBlock Text="{Binding SourceName}" Foreground="{DynamicResource Muted}" FontSize="10" />
+           <TextBlock Text=" · " Foreground="{DynamicResource ThemeBrushC3A5B3}" FontSize="10" Margin="4,0" />
+           <TextBlock Text="{Binding PublishedAt,StringFormat={}{0:yyyy-MM-dd},TargetNullValue=发布日期未提供}" Foreground="{DynamicResource Muted}" FontSize="10" />
           </StackPanel>
          </Grid>
-         <TextBlock Text="{Binding Title}" FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" LineHeight="28" Foreground="{StaticResource Ink}" />
-         <TextBlock Text="{Binding Summary}" FontSize="14" TextWrapping="Wrap" LineHeight="24" Foreground="#78616D" Margin="0,10,0,14" />
+         <TextBlock Text="{Binding Title}" FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" LineHeight="28" Foreground="{DynamicResource Ink}" />
+         <TextBlock Text="{Binding Summary}" FontSize="14" TextWrapping="Wrap" LineHeight="24" Foreground="{DynamicResource ThemeBrush78616D}" Margin="0,10,0,14" />
          <Grid>
           <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-          <TextBlock Text="英文摘要 · 轻松泛读" FontSize="10" Foreground="#AD8B9A" VerticalAlignment="Center" />
+          <TextBlock Text="英文摘要 · 轻松泛读" FontSize="10" Foreground="{DynamicResource ThemeBrushAD8B9A}" VerticalAlignment="Center" />
           <Button x:Name="OpenArticleButton" Grid.Column="1" Click="OpenArticle_Click" Tag="{Binding Url}" Padding="12,7" ToolTip="在默认浏览器中打开文章来源">
            <StackPanel Orientation="Horizontal">
-            <TextBlock Text="阅读原文" FontSize="11" Foreground="#A34A6D" />
-            <Path Data="M 2,12 L 12,2 M 5,2 L 12,2 L 12,9" Stroke="#B46383" StrokeThickness="1.4" Width="11" Height="11" Stretch="Uniform" Margin="9,0,0,0" VerticalAlignment="Center" />
+            <TextBlock Text="阅读原文" FontSize="11" Foreground="{DynamicResource ThemeBrushA34A6D}" />
+            <Path Data="M 2,12 L 12,2 M 5,2 L 12,2 L 12,9" Stroke="{DynamicResource ThemeBrushB46383}" StrokeThickness="1.4" Width="11" Height="11" Stretch="Uniform" Margin="9,0,0,0" VerticalAlignment="Center" />
            </StackPanel>
           </Button>
          </Grid>
@@ -106,22 +106,22 @@
      </Style>
     </Border.Style>
     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="30">
-     <TextBlock Text="READ A LITTLE, EVERY DAY" Foreground="#B88D9F" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,16" />
+     <TextBlock Text="READ A LITTLE, EVERY DAY" Foreground="{DynamicResource ThemeBrushB88D9F}" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,16" />
      <TextBlock FontSize="21" FontWeight="SemiBold" TextAlignment="Center">
       <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="下一篇新知，从这里开始" /><Style.Triggers><DataTrigger Binding="{Binding IsBusy}" Value="True"><Setter Property="Text" Value="正在为今天准备阅读…" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
      </TextBlock>
-     <TextBlock Text="每日获取三篇公开文章，读一点，积累一点。" Foreground="{StaticResource Muted}" FontSize="12" TextAlignment="Center" TextWrapping="Wrap" Margin="0,12,0,0" />
-     <TextBlock Text="点击「刷新文章」即可获取，遇到网络问题也可以重试。" Foreground="#B194A2" FontSize="11" TextAlignment="Center" TextWrapping="Wrap" Margin="0,8,0,0" />
+     <TextBlock Text="每日获取三篇公开文章，读一点，积累一点。" Foreground="{DynamicResource Muted}" FontSize="12" TextAlignment="Center" TextWrapping="Wrap" Margin="0,12,0,0" />
+     <TextBlock Text="点击「刷新文章」即可获取，遇到网络问题也可以重试。" Foreground="{DynamicResource ThemeBrushB194A2}" FontSize="11" TextAlignment="Center" TextWrapping="Wrap" Margin="0,8,0,0" />
     </StackPanel>
    </Border>
   </Grid>
 
-  <Border Grid.Row="3" Background="#80FFFFFF" CornerRadius="12" Margin="0,3,0,0" Padding="14,11">
+  <Border Grid.Row="3" Background="{DynamicResource ThemeBrush80FFFFFF}" CornerRadius="12" Margin="0,3,0,0" Padding="14,11">
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-    <Ellipse Width="6" Height="6" Fill="#D67599" Margin="0,0,10,0" VerticalAlignment="Center" />
-    <TextBlock x:Name="ReadingStatusText" Grid.Column="1" Text="{Binding Message}" Foreground="#866A79" TextWrapping="Wrap" FontSize="11" />
-    <ProgressBar Grid.Column="2" Width="54" Height="3" IsIndeterminate="True" Background="#F1CFDD" Foreground="{StaticResource Rose}" BorderThickness="0" Margin="12,0,0,0" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" />
+    <Ellipse Width="6" Height="6" Fill="{DynamicResource ThemeBrushD67599}" Margin="0,0,10,0" VerticalAlignment="Center" />
+    <TextBlock x:Name="ReadingStatusText" Grid.Column="1" Text="{Binding Message}" Foreground="{DynamicResource ThemeBrush866A79}" TextWrapping="Wrap" FontSize="11" />
+    <ProgressBar Grid.Column="2" Width="54" Height="3" IsIndeterminate="True" Background="{DynamicResource ThemeBrushF1CFDD}" Foreground="{DynamicResource Rose}" BorderThickness="0" Margin="12,0,0,0" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" />
    </Grid>
   </Border>
  </Grid>

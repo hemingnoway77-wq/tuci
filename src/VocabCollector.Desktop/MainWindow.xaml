@@ -6,17 +6,21 @@
    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
    <StackPanel Orientation="Horizontal">
     <Image Source="{StaticResource BrandMark}" Width="48" Height="48" Margin="0,0,14,0" />
-    <StackPanel VerticalAlignment="Center"><TextBlock Text="单词收集器" FontSize="25" FontWeight="SemiBold" /><TextBlock Text="把每一次遇见，变成积累。" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0" /></StackPanel>
+    <StackPanel VerticalAlignment="Center"><TextBlock Text="单词收集器" FontSize="25" FontWeight="SemiBold" /><TextBlock Text="把每一次遇见，变成积累。" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,0,0" /></StackPanel>
    </StackPanel>
    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,15,0">
+     <TextBlock Text="粉色主题" FontSize="11" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="0,0,7,0" />
+     <ToggleButton x:Name="ThemeToggleButton" Style="{StaticResource ThemeToggle}" Checked="ThemeToggle_Changed" Unchecked="ThemeToggle_Changed" AutomationProperties.Name="粉色主题" ToolTip="关闭使用暖灰主题，打开使用粉色主题" />
+    </StackPanel>
     <Button x:Name="DailyReadingButton" Click="DailyReading_Click" Margin="0,0,9,0" ToolTip="每日英文文章，免费获取，无需配置 AI">
-     <StackPanel Orientation="Horizontal"><Path Data="M 8,3 C 5,1 2,1 1,2 L 1,14 C 3,13 5,13 8,15 C 11,13 13,13 15,14 L 15,2 C 13,1 11,1 8,3 L 8,15" Stroke="#965A73" StrokeThickness="1.4" Width="17" Height="17" Stretch="Uniform" Margin="0,0,7,0" /><TextBlock Text="每日阅读" /></StackPanel>
+     <StackPanel Orientation="Horizontal"><Path Data="M 8,3 C 5,1 2,1 1,2 L 1,14 C 3,13 5,13 8,15 C 11,13 13,13 15,14 L 15,2 C 13,1 11,1 8,3 L 8,15" Stroke="{DynamicResource ThemeBrush965A73}" StrokeThickness="1.4" Width="17" Height="17" Stretch="Uniform" Margin="0,0,7,0" /><TextBlock Text="每日阅读" /></StackPanel>
     </Button>
     <Button x:Name="RefreshLinksButton" Command="{Binding RefreshLinksCommand}" Margin="0,0,9,0" ToolTip="本地刷新单词与词根的关联，不调用 AI">
-     <StackPanel Orientation="Horizontal"><Path Data="M 14,5 A 6,6 0 1 0 14,11 M 10,5 L 14,5 L 14,1" Stroke="#965A73" StrokeThickness="1.5" Width="16" Height="16" Stretch="Uniform" Margin="0,0,7,0" /><TextBlock Text="刷新关联" /></StackPanel>
+     <StackPanel Orientation="Horizontal"><Path Data="M 14,5 A 6,6 0 1 0 14,11 M 10,5 L 14,5 L 14,1" Stroke="{DynamicResource ThemeBrush965A73}" StrokeThickness="1.5" Width="16" Height="16" Stretch="Uniform" Margin="0,0,7,0" /><TextBlock Text="刷新关联" /></StackPanel>
     </Button>
     <Button x:Name="SettingsButton" Click="Settings_Click" IsEnabled="{Binding CanConfigure}" ToolTip="API 与词库设置">
-     <StackPanel Orientation="Horizontal"><Path Data="M 2,4 L 14,4 M 2,12 L 14,12 M 6,1 L 6,7 M 10,9 L 10,15" Stroke="#965A73" StrokeThickness="1.5" Width="16" Height="16" Stretch="Uniform" Margin="0,0,7,0" /><TextBlock Text="设置" /></StackPanel>
+     <StackPanel Orientation="Horizontal"><Path Data="M 2,4 L 14,4 M 2,12 L 14,12 M 6,1 L 6,7 M 10,9 L 10,15" Stroke="{DynamicResource ThemeBrush965A73}" StrokeThickness="1.5" Width="16" Height="16" Stretch="Uniform" Margin="0,0,7,0" /><TextBlock Text="设置" /></StackPanel>
     </Button>
    </StackPanel>
   </Grid>
@@ -27,41 +31,41 @@
      <ScrollViewer x:Name="InputScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsEnabled="{Binding CanConfigure}">
       <StackPanel Margin="0,0,2,0">
        <TextBlock Text="收录新词" FontSize="20" FontWeight="SemiBold" />
-       <TextBlock Text="让陌生的词，慢慢熟悉起来。" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,7,0,24" />
+       <TextBlock Text="让陌生的词，慢慢熟悉起来。" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,7,0,24" />
        <TextBlock Text="英文单词" Style="{StaticResource FieldLabel}" />
        <TextBox x:Name="WordBox" Text="{Binding Word,UpdateSourceTrigger=PropertyChanged}" FontSize="22" Height="54" Tag="例如 serendipity" ToolTip="输入一个英文单词，最多 64 个字符" />
-       <DockPanel Margin="0,23,0,8"><TextBlock Text="遇见它的原句" FontSize="13" FontWeight="SemiBold" /><TextBlock Text="可选" FontSize="11" Foreground="{StaticResource Muted}" HorizontalAlignment="Right" VerticalAlignment="Center" /></DockPanel>
+       <DockPanel Margin="0,23,0,8"><TextBlock Text="遇见它的原句" FontSize="13" FontWeight="SemiBold" /><TextBlock Text="可选" FontSize="11" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right" VerticalAlignment="Center" /></DockPanel>
        <TextBox x:Name="ContextBox" Text="{Binding Context,UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" Height="122" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Tag="粘贴原句，理解它在这里的意思…" />
-       <TextBlock Text="一句真实的语境，让释义更贴近你的阅读。" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,10,0,0" />
-       <Border Background="#FFF5D9" CornerRadius="12" Padding="13,11" Margin="0,22,0,0"><TextBlock Text="一点点积累，也会成为很大的词库。" Foreground="#917544" FontSize="11" TextWrapping="Wrap" LineHeight="18" /></Border>
+       <TextBlock Text="一句真实的语境，让释义更贴近你的阅读。" Foreground="{DynamicResource Muted}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,10,0,0" />
+       <Border Background="{DynamicResource ThemeBrushFFF5D9}" CornerRadius="12" Padding="13,11" Margin="0,22,0,0"><TextBlock Text="一点点积累，也会成为很大的词库。" Foreground="{DynamicResource ThemeBrush917544}" FontSize="11" TextWrapping="Wrap" LineHeight="18" /></Border>
       </StackPanel>
      </ScrollViewer>
      <StackPanel Grid.Row="1" Margin="0,20,0,0">
       <Button x:Name="GenerateButton" Style="{StaticResource PrimaryButton}" Command="{Binding GenerateCommand}" Height="48">
-       <StackPanel Orientation="Horizontal"><TextBlock Text="解析并保存" /><Path Data="M 1,7 L 13,7 M 8,2 L 13,7 L 8,12" Stroke="White" StrokeThickness="1.6" Width="15" Height="15" Margin="10,0,0,0" VerticalAlignment="Center" /></StackPanel>
+       <StackPanel Orientation="Horizontal"><TextBlock Text="解析并保存" /><Path Data="M 1,7 L 13,7 M 8,2 L 13,7 L 8,12" Stroke="{DynamicResource ThemeBrushFFFFFF}" StrokeThickness="1.6" Width="15" Height="15" Margin="10,0,0,0" VerticalAlignment="Center" /></StackPanel>
       </Button>
       <Button x:Name="CancelButton" Content="取消本次操作" Command="{Binding CancelCommand}" Style="{StaticResource QuietButton}" Margin="0,7,0,0" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" />
-      <TextBlock Text="自动纠错 · 保存到你的 Obsidian" Foreground="{StaticResource Muted}" FontSize="11" HorizontalAlignment="Center" Margin="0,12,0,0" />
+      <TextBlock Text="自动纠错 · 保存到你的 Obsidian" Foreground="{DynamicResource Muted}" FontSize="11" HorizontalAlignment="Center" Margin="0,12,0,0" />
      </StackPanel>
     </Grid>
    </Border>
    <Border Grid.Column="2" Style="{StaticResource SurfaceCard}">
     <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-     <DockPanel Margin="0,0,0,18"><Border DockPanel.Dock="Right" Background="#FBEAF1" CornerRadius="8" Padding="9,5"><TextBlock Text="阅读视图" FontSize="10" Foreground="#A15C78" /></Border><TextBlock Text="笔记预览" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" /></DockPanel>
+     <DockPanel Margin="0,0,0,18"><Border DockPanel.Dock="Right" Background="{DynamicResource ThemeBrushFBEAF1}" CornerRadius="8" Padding="9,5"><TextBlock Text="阅读视图" FontSize="10" Foreground="{DynamicResource ThemeBrushA15C78}" /></Border><TextBlock Text="笔记预览" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" /></DockPanel>
      <Grid Grid.Row="1">
-      <preview:MarkdownPreview x:Name="NotePreview" Markdown="{Binding Markdown}" LinkRequested="Preview_LinkRequested" Background="Transparent" BorderThickness="0" Padding="0" />
+      <preview:MarkdownPreview x:Name="NotePreview" Markdown="{Binding Markdown}" LinkRequested="Preview_LinkRequested" Background="{DynamicResource ThemeBrush00FFFFFF}" BorderThickness="0" Padding="0" />
       <StackPanel x:Name="PreviewEmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
        <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Markdown}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
        <Image Source="{StaticResource BrandMark}" Width="74" Height="74" Opacity="0.75" Margin="0,0,0,22" />
        <TextBlock FontSize="21" FontWeight="SemiBold" TextAlignment="Center"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="下一张词卡，从这里开始" /><Style.Triggers><DataTrigger Binding="{Binding IsBusy}" Value="True"><Setter Property="Text" Value="正在整理这次遇见…" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
-       <TextBlock Text="输入单词与原句，预览会显示完整排版。" Foreground="{StaticResource Muted}" TextAlignment="Center" FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap" />
-       <TextBlock Text="释义 · 词根 · 例句 · 单词关联" Foreground="#BC9AA9" TextAlignment="Center" FontSize="11" Margin="0,22,0,0" />
+       <TextBlock Text="输入单词与原句，预览会显示完整排版。" Foreground="{DynamicResource Muted}" TextAlignment="Center" FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap" />
+       <TextBlock Text="释义 · 词根 · 例句 · 单词关联" Foreground="{DynamicResource ThemeBrushBC9AA9}" TextAlignment="Center" FontSize="11" Margin="0,22,0,0" />
       </StackPanel>
      </Grid>
      <StackPanel Grid.Row="2" Margin="0,16,0,0">
       <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding Notes.Count}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-      <Border Height="1" Background="{StaticResource Line}" Margin="0,0,0,13" />
-      <TextBlock Text="词卡位置" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,0,0,5" />
+      <Border Height="1" Background="{DynamicResource Line}" Margin="0,0,0,13" />
+      <TextBlock Text="词卡位置" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,5" />
       <ListBox x:Name="NotesList" ItemsSource="{Binding Notes}" SelectedItem="{Binding SelectedNote}" DisplayMemberPath="VaultRelativePath" MaxHeight="60" FontSize="11" />
       <StackPanel Orientation="Horizontal" Margin="0,11,0,0">
        <Button x:Name="OpenNoteButton" Content="在 Obsidian 中打开" Click="OpenNote_Click" IsEnabled="{Binding CanOpen}" Padding="13,9" />
@@ -71,11 +75,11 @@
     </Grid>
    </Border>
   </Grid>
-  <Border Grid.Row="2" Background="#80FFFFFF" CornerRadius="12" Margin="0,17,0,0" Padding="14,11">
+  <Border Grid.Row="2" Background="{DynamicResource ThemeBrush80FFFFFF}" CornerRadius="12" Margin="0,17,0,0" Padding="14,11">
    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-    <Ellipse Width="6" Height="6" Fill="#D67599" Margin="0,0,10,0" VerticalAlignment="Center" />
-    <TextBlock Grid.Column="1" Text="{Binding Message}" Foreground="#866A79" TextWrapping="Wrap" FontSize="11" />
-    <ProgressBar Grid.Column="2" Width="54" Height="3" IsIndeterminate="True" Background="#F1CFDD" Foreground="{StaticResource Rose}" BorderThickness="0" Margin="12,0,0,0" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" />
+    <Ellipse Width="6" Height="6" Fill="{DynamicResource ThemeBrushD67599}" Margin="0,0,10,0" VerticalAlignment="Center" />
+    <TextBlock Grid.Column="1" Text="{Binding Message}" Foreground="{DynamicResource ThemeBrush866A79}" TextWrapping="Wrap" FontSize="11" />
+    <ProgressBar Grid.Column="2" Width="54" Height="3" IsIndeterminate="True" Background="{DynamicResource ThemeBrushF1CFDD}" Foreground="{DynamicResource Rose}" BorderThickness="0" Margin="12,0,0,0" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" />
    </Grid>
   </Border>
  </Grid>

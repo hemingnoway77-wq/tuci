@@ -1,32 +1,32 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- Original vector artwork. Keep the matching SVG in sync when changing this drawing. -->
-    <DrawingImage x:Key="BrandMark">
+    <DrawingImage x:Key="BrandMark" x:Shared="False">
         <DrawingImage.Drawing>
             <DrawingGroup>
-                <GeometryDrawing Brush="Transparent" Geometry="M0,0 H512 V512 H0 Z" />
+                <GeometryDrawing Brush="{DynamicResource ThemeBrush00FFFFFF}" Geometry="M0,0 H512 V512 H0 Z" />
                 <GeometryDrawing>
                     <GeometryDrawing.Brush>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="0.8,1">
-                            <GradientStop Color="#FBD1DF" Offset="0" />
-                            <GradientStop Color="#F3ABC5" Offset="1" />
+                            <GradientStop Color="{DynamicResource ThemeColorFBD1DF}" Offset="0" />
+                            <GradientStop Color="{DynamicResource ThemeColorF3ABC5}" Offset="1" />
                         </LinearGradientBrush>
                     </GeometryDrawing.Brush>
                     <GeometryDrawing.Geometry>
                         <RectangleGeometry Rect="24,24,464,464" RadiusX="112" RadiusY="112" />
                     </GeometryDrawing.Geometry>
                 </GeometryDrawing>
-                <GeometryDrawing Brush="#15563244"
+                <GeometryDrawing Brush="{DynamicResource ThemeBrush15563244}"
                                  Geometry="M158,106 H334 L394,166 V405 Q394,440 359,440 H158 Q127,440 127,409 V137 Q127,106 158,106 Z" />
-                <GeometryDrawing Brush="#FFF9EB"
+                <GeometryDrawing Brush="{DynamicResource ThemeBrushFFF9EB}"
                                  Geometry="M154,91 H330 L390,151 V391 Q390,426 355,426 H154 Q123,426 123,395 V122 Q123,91 154,91 Z" />
-                <GeometryDrawing Brush="#DE6F98"
+                <GeometryDrawing Brush="{DynamicResource ThemeBrushDE6F98}"
                                  Geometry="M166,91 H210 V174 L188,158 166,174 Z" />
-                <GeometryDrawing Brush="#FFE28A"
+                <GeometryDrawing Brush="{DynamicResource ThemeBrushFFE28A}"
                                  Geometry="M330,91 L390,151 H350 Q330,151 330,131 Z" />
-                <GeometryDrawing Brush="Transparent">
+                <GeometryDrawing Brush="{DynamicResource ThemeBrush00FFFFFF}">
                     <GeometryDrawing.Pen>
-                        <Pen Brush="#563244" Thickness="20" StartLineCap="Round" EndLineCap="Round" LineJoin="Round" />
+                        <Pen Brush="{DynamicResource ThemeBrush563244}" Thickness="20" StartLineCap="Round" EndLineCap="Round" LineJoin="Round" />
                     </GeometryDrawing.Pen>
                     <GeometryDrawing.Geometry>
                         <GeometryGroup>
@@ -37,7 +37,7 @@
                 </GeometryDrawing>
                 <GeometryDrawing>
                     <GeometryDrawing.Pen>
-                        <Pen Brush="#E9BAC8" Thickness="12" StartLineCap="Round" EndLineCap="Round" />
+                        <Pen Brush="{DynamicResource ThemeBrushE9BAC8}" Thickness="12" StartLineCap="Round" EndLineCap="Round" />
                     </GeometryDrawing.Pen>
                     <GeometryDrawing.Geometry>
                         <PathGeometry Figures="M171,363 H330 M171,387 H282" />

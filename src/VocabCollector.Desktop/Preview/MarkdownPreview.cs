@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
-using System.Windows.Media;
 
 namespace VocabCollector.Desktop.Preview;
 
@@ -27,7 +26,10 @@ public sealed class MarkdownPreview : RichTextBox
         IsReadOnlyCaretVisible = false;
         BorderThickness = new Thickness(0);
         Padding = new Thickness(0);
-        Background = Brushes.Transparent;
+        SetResourceReference(BackgroundProperty, "ThemeBrush00FFFFFF");
+        SetResourceReference(SelectionBrushProperty, "ThemeBrushEAA7C0");
+        SetResourceReference(CaretBrushProperty, "Rose");
+        SelectionOpacity = 0.45;
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
         Document = Render("");

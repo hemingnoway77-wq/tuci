@@ -4,7 +4,7 @@
 
 ## 开始使用
 
-1. 最新每日阅读版双击 `dist/兔词-每日阅读版/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
+1. 最新双主题版双击 `dist/兔词-双主题版/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
 2. 点击右上角“设置”，填写 API 地址、API Key、模型名。
 3. 选择 **Obsidian 仓库根目录**，填写仓库内的单词子目录，默认 `英语单词`。
 4. 按需开启“按主要词性分文件夹”，保存设置。
@@ -13,7 +13,11 @@
 
 ## 界面与阅读预览
 
-主窗口和设置页采用浅粉背景、奶油白卡片、玫瑰色按钮和少量柔黄色点缀。图标为原创词卡图形，已嵌入 exe 和窗口，提供 16–256 像素的多尺寸版本。
+默认主题使用暖灰背景、米白卡片、炭色文字和棕灰强调色，不使用蓝色或绿色。主窗口右上角的“粉色主题”开关可切回原来的浅粉背景、奶油白卡片、玫瑰色按钮和柔黄色点缀；关闭后恢复暖灰。
+
+切换立即应用到主窗口、设置页、每日阅读、已显示的笔记和滚动条，保留当前输入和阅读内容，不调用 AI。主题选择单独保存在 `%LOCALAPPDATA%\VocabCollector\appearance.json`，不需要先填写 API 或 Obsidian 配置，重启后继续使用；缺失或损坏时使用暖灰。保存偏好失败时仍可使用当前主题，并显示提示。
+
+图标为原创词卡图形，已嵌入 exe 和窗口，提供 16–256 像素的多尺寸版本。界面中的矢量词卡随主题调整颜色；exe 的品牌图标沿用原有版本。验收见[双主题验证记录](docs/verification/2026-10-28-theme-switch.md)。
 
 预览使用本地原生文档排版：隐藏 YAML 属性、Markdown 格式符号和程序注释，展示标题、分行释义、加粗、引用、列表及词条关联。选择复制获得阅读文字；磁盘保存的文件仍是原来的 Markdown。历史词条和词根链接可点击在 Obsidian 中打开，普通 HTTP/HTTPS 链接使用默认浏览器。
 
@@ -122,7 +126,7 @@ pwsh -NoProfile -File scripts/verify.ps1
 pwsh -NoProfile -File scripts/publish.ps1
 ```
 
-当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory 'dist/兔词-每日阅读版'` 单独打包，避免占用正在运行的旧 exe。
+当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory 'dist/兔词-双主题版'` 单独打包，避免占用正在运行的旧 exe。
 
 没有 `pwsh` 时可使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1`。脚本不修改系统执行策略。
 
