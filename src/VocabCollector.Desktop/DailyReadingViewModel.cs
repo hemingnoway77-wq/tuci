@@ -41,6 +41,9 @@ public sealed class DailyReadingViewModel : INotifyPropertyChanged
     public bool IsFromCache { get => _isFromCache; private set => Set(ref _isFromCache, value); }
     public bool IsOffline { get => _isOffline; private set => Set(ref _isOffline, value); }
     public string DayLabel => _day.ToString("yyyy 年 MM 月 dd 日 · dddd", CultureInfo.GetCultureInfo("zh-CN"));
+    public string Composition => Articles.Count == 0
+        ? "尚未获取今日文章"
+        : $"{Articles.Count(article => article.Category == ReadingCategory.General)} 篇通用泛读 · {Articles.Count(article => article.Category == ReadingCategory.Technology)} 篇技术阅读";
     public string Message { get => _message; set => Set(ref _message, value); }
     public AsyncCommand RefreshCommand { get; }
     public ActionCommand CancelCommand { get; }
@@ -62,6 +65,7 @@ public sealed class DailyReadingViewModel : INotifyPropertyChanged
             Changed(nameof(DayLabel));
             Articles.Clear();
             foreach (var article in result.Articles) Articles.Add(article);
+            Changed(nameof(Composition));
             IsFromCache = result.IsFromCache;
             IsOffline = result.IsOffline;
             Message = result.Message;

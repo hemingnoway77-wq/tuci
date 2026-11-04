@@ -5,13 +5,19 @@ namespace VocabCollector.Desktop;
 public partial class SettingsWindow : Window
 {
     private readonly ISettingsStore _store;
+    private readonly ThemeManager? _themes;
     public AppSettings? SavedSettings { get; private set; }
-    public SettingsWindow(AppSettings draft, ISettingsStore store)
+    public SettingsWindow(AppSettings draft, ISettingsStore store, ThemeManager? themes = null)
     {
-        InitializeComponent(); _store = store;
+        InitializeComponent(); _store = store; _themes = themes;
         BaseUrlBox.Text = draft.Api.BaseUrl; KeyBox.Password = draft.Api.ApiKey; ModelBox.Text = draft.Api.Model;
         VaultBox.Text = draft.Vault.RootPath; SubfolderBox.Text = draft.Vault.OutputSubfolder; ClassifyBox.IsChecked = draft.Vault.ClassifyByPartOfSpeech;
+        SourceInitialized += (_, _) => TitleBarTheme.Apply(this);
+        if (_themes is not null) _themes.ThemeChanged += Themes_ThemeChanged;
+        Closed += (_, _) => { if (_themes is not null) _themes.ThemeChanged -= Themes_ThemeChanged; };
     }
+
+    private void Themes_ThemeChanged(object? sender, AppTheme theme) => TitleBarTheme.Apply(this);
     private void Browse_Click(object sender, RoutedEventArgs e)
     {
         var picker = new OpenFolderDialog { Title = "选择 Obsidian 仓库根目录", Multiselect = false };

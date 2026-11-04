@@ -8,59 +8,61 @@ namespace VocabCollector.Tests;
 
 public class ThemeTests
 {
-    private static readonly string[] OriginalColors =
+    private static readonly string[] Roles =
     [
-        "15563244", "49333F", "563244", "78616D", "80FFFFFF", "85717C", "866A79", "8B717F",
-        "8CFFFFFF", "8D2850", "917544", "965A73", "9A3F63", "A15C78", "A34A6D", "AC597A",
-        "AD5778", "AD8B9A", "B194A2", "B33960", "B46383", "B49BA8", "B7557B", "B88D9F",
-        "BC9AA9", "BD416D", "BF4775", "C3A5B3", "C88DA5", "C97B9A", "CF7397", "D67599",
-        "D68CA8", "D9A5BA", "DE6F98", "DEB7C8", "E9BAC8", "EAA7C0", "EDD2DD", "F0DCE4",
-        "F1CFDD", "F2CFDE", "F3ABC5", "FBD1DF", "FBE6EE", "FBE8EF", "FBE8F0", "FBEAF0",
-        "FBEAF1", "FCE8EF", "FFE28A", "FFE3ED", "FFF0F5", "FFF2CF", "FFF3F2", "FFF5D9",
-        "FFF7FA", "FFF8FB", "FFF9EB", "FFFCF9", "FFFCFC", "FFFFFF", "00FFFFFF", "000000"
+        "Paper", "Sheet", "Ink", "InkSecondary", "InkTertiary", "Line", "LineSoft", "Rule",
+        "Accent", "AccentInk", "AccentSoft", "Margin", "Error", "Selection", "Hover", "ShellBackground"
     ];
 
     [Fact]
-    public void PinkPalettePreservesEveryOriginalColorAndBrush()
+    public void EveryThemeExposesTheSameSemanticRoles()
     {
-        var palette = ThemePalette.Create(AppTheme.Pink);
-        foreach (var hex in OriginalColors)
+        var mono = ThemePalette.Create(AppTheme.Mono);
+        foreach (var theme in new[] { AppTheme.WarmNeutral, AppTheme.Pink })
         {
-            var color = (Color)ColorConverter.ConvertFromString("#" + hex);
-            Assert.Equal(color, Assert.IsType<Color>(palette["ThemeColor" + hex]));
-            Assert.Equal(color, Assert.IsType<SolidColorBrush>(palette["ThemeBrush" + hex]).Color);
+            var other = ThemePalette.Create(theme);
+            Assert.Equal(mono.Keys.Cast<string>().Order(), other.Keys.Cast<string>().Order());
         }
-        Assert.Equal(Color.FromRgb(189, 65, 109), Assert.IsType<SolidColorBrush>(palette["Rose"]).Color);
+        foreach (var role in Roles) Assert.IsType<SolidColorBrush>(mono[role]);
     }
 
     [Fact]
-    public void NeutralPaletteCoversSameKeysWithWarmReadableHierarchy()
+    public void MonoPaletteIsNeutralAndItsShellIsFlat()
     {
-        var neutral = ThemePalette.Create(AppTheme.WarmNeutral);
-        var pink = ThemePalette.Create(AppTheme.Pink);
-        Assert.Equal(pink.Keys.Cast<string>().Order(), neutral.Keys.Cast<string>().Order());
-        foreach (DictionaryEntry entry in neutral)
+        var mono = ThemePalette.Create(AppTheme.Mono);
+        foreach (DictionaryEntry entry in mono)
         {
-            if (entry.Value is not Color color) continue;
-            Assert.True(color.R >= color.G && color.G >= color.B, entry.Key.ToString());
+            if (entry.Key is not string key || key is "Error" || entry.Value is not SolidColorBrush brush) continue;
+            var color = brush.Color;
+            var spread = Math.Max(color.R, Math.Max(color.G, color.B)) - Math.Min(color.R, Math.Min(color.G, color.B));
+            Assert.True(spread <= 6, key + " should stay monochrome but spreads to " + spread);
         }
 
-        var paper = Assert.IsType<SolidColorBrush>(neutral["Paper"]).Color;
-        var ink = Assert.IsType<SolidColorBrush>(neutral["Ink"]).Color;
-        var muted = Assert.IsType<SolidColorBrush>(neutral["Muted"]).Color;
-        var primary = Assert.IsType<SolidColorBrush>(neutral["Rose"]).Color;
-        Assert.True(Contrast(paper, ink) >= 10, "Body text must remain easy to read.");
-        Assert.True(Contrast(paper, muted) >= 4.5, "Secondary text must remain readable.");
-        Assert.True(Contrast(Colors.White, primary) >= 4.5, "Primary button label must remain readable.");
-        Assert.IsType<LinearGradientBrush>(neutral["ShellBackground"]);
+        Assert.IsType<SolidColorBrush>(mono["ShellBackground"]);
+        Assert.Same(mono["Paper"], mono["ShellBackground"]);
+    }
+
+    [Theory]
+    [InlineData(AppTheme.Mono)]
+    [InlineData(AppTheme.WarmNeutral)]
+    [InlineData(AppTheme.Pink)]
+    public void EveryThemeKeepsReadableTextAndActionContrast(AppTheme theme)
+    {
+        var palette = ThemePalette.Create(theme);
+        var sheet = Brush(palette, "Sheet");
+        Assert.True(Contrast(sheet, Brush(palette, "Ink")) >= 10, theme + " body text must remain easy to read.");
+        Assert.True(Contrast(sheet, Brush(palette, "InkSecondary")) >= 4.5, theme + " secondary text must remain readable.");
+        Assert.True(Contrast(Brush(palette, "Paper"), Brush(palette, "InkSecondary")) >= 4.5, theme + " secondary text on the page must remain readable.");
+        Assert.True(Contrast(Brush(palette, "AccentInk"), Brush(palette, "Accent")) >= 4.5, theme + " primary action label must remain readable.");
     }
 
     [Fact]
-    public void InvalidEnumFallsBackToNeutralPalette()
+    public void InvalidEnumFallsBackToMonoPalette()
     {
-        var palette = ThemePalette.Create((AppTheme)123);
-        Assert.Equal(Assert.IsType<Color>(ThemePalette.Create(AppTheme.WarmNeutral)["ThemeColorBD416D"]),
-            Assert.IsType<Color>(palette["ThemeColorBD416D"]));
+        var invalid = ThemePalette.Create((AppTheme)123);
+        foreach (var role in Roles)
+            Assert.Equal(Assert.IsType<SolidColorBrush>(ThemePalette.Create(AppTheme.Mono)[role]).Color,
+                Assert.IsType<SolidColorBrush>(invalid[role]).Color);
     }
 
     [Fact]
@@ -71,14 +73,19 @@ public class ThemeTests
         var control = new TextBlock { Resources = resources, Text = "keep input" };
         control.SetResourceReference(TextBlock.ForegroundProperty, "Ink");
         var initial = Assert.IsType<SolidColorBrush>(control.Foreground).Color;
+        Assert.Equal(AppTheme.WarmNeutral, manager.CurrentTheme);
 
         manager.Apply(AppTheme.Pink);
 
         Assert.Equal(AppTheme.Pink, manager.CurrentTheme);
         Assert.NotEqual(initial, Assert.IsType<SolidColorBrush>(control.Foreground).Color);
-        Assert.Equal(Color.FromRgb(73, 51, 63), Assert.IsType<SolidColorBrush>(control.Foreground).Color);
+        Assert.Equal(Color.FromRgb(0x33, 0x24, 0x2B), Assert.IsType<SolidColorBrush>(control.Foreground).Color);
         Assert.Equal("keep input", control.Text);
         Assert.Equal("keep", resources["UnrelatedSetting"]);
+
+        manager.Apply(AppTheme.Mono);
+        Assert.Equal(Color.FromRgb(0x23, 0x23, 0x21), Assert.IsType<SolidColorBrush>(control.Foreground).Color);
+
         manager.Apply((AppTheme)123);
         Assert.Equal(AppTheme.WarmNeutral, manager.CurrentTheme);
         Assert.Equal(initial, Assert.IsType<SolidColorBrush>(control.Foreground).Color);
@@ -120,6 +127,9 @@ public class ThemeTests
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
     });
+
+    private static Color Brush(ResourceDictionary palette, string role) =>
+        Assert.IsType<SolidColorBrush>(palette[role]).Color;
 
     private static double Contrast(Color left, Color right)
     {

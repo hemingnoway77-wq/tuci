@@ -18,11 +18,20 @@ public sealed class ThemeManager
 
     public AppTheme CurrentTheme { get; private set; }
 
+    /// <summary>Raised after a palette is applied so every open surface can sync its own selector.</summary>
+    public event EventHandler<AppTheme>? ThemeChanged;
+
     public void Apply(AppTheme theme)
     {
-        var selected = theme == AppTheme.Pink ? AppTheme.Pink : AppTheme.WarmNeutral;
+        var selected = theme switch
+        {
+            AppTheme.Pink => AppTheme.Pink,
+            AppTheme.Mono => AppTheme.Mono,
+            _ => AppTheme.WarmNeutral
+        };
         foreach (DictionaryEntry entry in ThemePalette.Create(selected)) resources[entry.Key] = entry.Value;
         CurrentTheme = selected;
+        ThemeChanged?.Invoke(this, selected);
     }
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)

@@ -26,10 +26,10 @@ public sealed class MarkdownPreview : RichTextBox
         IsReadOnlyCaretVisible = false;
         BorderThickness = new Thickness(0);
         Padding = new Thickness(0);
-        SetResourceReference(BackgroundProperty, "ThemeBrush00FFFFFF");
-        SetResourceReference(SelectionBrushProperty, "ThemeBrushEAA7C0");
-        SetResourceReference(CaretBrushProperty, "Rose");
-        SelectionOpacity = 0.45;
+        Background = System.Windows.Media.Brushes.Transparent;
+        SetResourceReference(SelectionBrushProperty, "Selection");
+        SetResourceReference(CaretBrushProperty, "Accent");
+        SelectionOpacity = 0.5;
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
         Document = Render("");

@@ -9,13 +9,14 @@ public sealed class AppearanceSettingsStoreTests : IDisposable
     private string AppearanceFile => Path.Combine(directory, "appearance.json");
 
     [Fact]
-    public async Task MissingPreferenceDefaultsToNeutralWithoutCreatingFiles()
+    public async Task MissingPreferenceDefaultsToWarmWithoutCreatingFiles()
     {
         Assert.Equal(AppTheme.WarmNeutral, await new AppearanceSettingsStore(directory).LoadAsync());
         Assert.False(Directory.Exists(directory));
     }
 
     [Theory]
+    [InlineData(AppTheme.Mono, "mono")]
     [InlineData(AppTheme.Pink, "pink")]
     [InlineData(AppTheme.WarmNeutral, "warmNeutral")]
     public async Task SavedThemeRoundTripsIndependentlyOfApiSettings(AppTheme theme, string storedName)
@@ -37,13 +38,25 @@ public sealed class AppearanceSettingsStoreTests : IDisposable
     }
 
     [Theory]
+    [InlineData("{\"theme\":\"warmNeutral\"}", AppTheme.WarmNeutral)]
+    [InlineData("{\"theme\":\"pink\"}", AppTheme.Pink)]
+    [InlineData("{\"theme\":\"mono\"}", AppTheme.Mono)]
+    public async Task PreviousPreferenceNamesRemainValid(string json, AppTheme expected)
+    {
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(AppearanceFile, json);
+
+        Assert.Equal(expected, await new AppearanceSettingsStore(directory).LoadAsync());
+    }
+
+    [Theory]
     [InlineData("{broken")]
     [InlineData("{\"theme\":\"future-theme\"}")]
     [InlineData("{\"theme\":2}")]
     [InlineData("{\"theme\":null}")]
     [InlineData("{}")]
     [InlineData("null")]
-    public async Task InvalidPreferenceDefaultsToNeutralAndPreservesFile(string json)
+    public async Task InvalidPreferenceDefaultsToWarmAndPreservesFile(string json)
     {
         Directory.CreateDirectory(directory);
         await File.WriteAllTextAsync(AppearanceFile, json);
@@ -53,7 +66,7 @@ public sealed class AppearanceSettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UnreadablePreferenceDefaultsToNeutral()
+    public async Task UnreadablePreferenceDefaultsToWarm()
     {
         var store = new AppearanceSettingsStore(directory);
         await store.SaveAsync(AppTheme.Pink);
@@ -70,7 +83,7 @@ public sealed class AppearanceSettingsStoreTests : IDisposable
         var original = await File.ReadAllTextAsync(AppearanceFile);
         using (var locked = new FileStream(AppearanceFile, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
-            var error = await Record.ExceptionAsync(() => store.SaveAsync(AppTheme.WarmNeutral));
+            var error = await Record.ExceptionAsync(() => store.SaveAsync(AppTheme.Mono));
             Assert.True(error is IOException or UnauthorizedAccessException, error?.ToString());
         }
 
@@ -87,14 +100,14 @@ public sealed class AppearanceSettingsStoreTests : IDisposable
         using var canceled = new CancellationTokenSource();
         canceled.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.SaveAsync(AppTheme.WarmNeutral, canceled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.SaveAsync(AppTheme.Mono, canceled.Token));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.LoadAsync(canceled.Token));
         Assert.Equal(original, await File.ReadAllTextAsync(AppearanceFile));
         Assert.Empty(Directory.GetFiles(directory, "*.tmp"));
     }
 
     [Fact]
-    public async Task InvalidEnumIsSavedAsSafeNeutral()
+    public async Task InvalidEnumIsSavedAsSafeWarm()
     {
         var store = new AppearanceSettingsStore(directory);
         await store.SaveAsync((AppTheme)123);

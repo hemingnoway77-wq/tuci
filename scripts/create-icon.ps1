@@ -9,23 +9,31 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
 
 Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase
 $assets = [IO.Path]::GetFullPath($AssetsDirectory)
-$dictionary = [Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $assets 'AppIcon.xaml')))
-$drawing = $dictionary['BrandMark'].Drawing
+$sourcePath = Join-Path $assets 'app-icon-source.png'
+if (-not (Test-Path -LiteralPath $sourcePath)) { throw "Missing icon source: $sourcePath" }
+
+$source = [Windows.Media.Imaging.BitmapImage]::new()
+$sourceStream = [IO.File]::OpenRead($sourcePath)
+try {
+    $source.BeginInit()
+    $source.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+    $source.StreamSource = $sourceStream
+    $source.EndInit()
+    $source.Freeze()
+}
+finally { $sourceStream.Dispose() }
+if ($source.PixelWidth -ne $source.PixelHeight) { throw 'Icon source must be square.' }
 
 function Get-IconPng([int]$Size) {
-    # Supersampling keeps the small Explorer and taskbar representations smooth.
-    $renderSize = $Size * 4
     $visual = [Windows.Media.DrawingVisual]::new()
+    [Windows.Media.RenderOptions]::SetBitmapScalingMode($visual, [Windows.Media.BitmapScalingMode]::HighQuality)
     $context = $visual.RenderOpen()
-    $context.PushTransform([Windows.Media.ScaleTransform]::new(($renderSize / 512.0), ($renderSize / 512.0)))
-    $context.DrawDrawing($drawing)
-    $context.Pop()
+    $context.DrawImage($source, [Windows.Rect]::new(0, 0, $Size, $Size))
     $context.Close()
-    $render = [Windows.Media.Imaging.RenderTargetBitmap]::new($renderSize, $renderSize, 96, 96, [Windows.Media.PixelFormats]::Pbgra32)
+    $render = [Windows.Media.Imaging.RenderTargetBitmap]::new($Size, $Size, 96, 96, [Windows.Media.PixelFormats]::Pbgra32)
     $render.Render($visual)
-    $reduced = [Windows.Media.Imaging.TransformedBitmap]::new($render, [Windows.Media.ScaleTransform]::new(0.25, 0.25))
     $encoder = [Windows.Media.Imaging.PngBitmapEncoder]::new()
-    $encoder.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($reduced))
+    $encoder.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($render))
     $memory = [IO.MemoryStream]::new()
     try {
         $encoder.Save($memory)
@@ -97,4 +105,4 @@ try {
     }
 }
 finally { $reader.Dispose() }
-Write-Output "Original artwork rendered and verified: ICO sizes $($sizes -join ', '); PNG previews 256 and 512."
+Write-Output "Icon source rendered and verified: ICO sizes $($sizes -join ', '); PNG previews 256 and 512."

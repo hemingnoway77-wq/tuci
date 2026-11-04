@@ -1,24 +1,22 @@
 # Application artwork
 
-The icon is original vector artwork: a vocabulary page, a bookmark, a folded corner, and a geometric lowercase **a**. It uses the supplied reference only for its warm pink, cream, and pale yellow color family.
+The icon is the supplied rabbit-and-magnifier mark: black strokes forming two ears, a ring head, and a diagonal handle on a transparent canvas. The raster master is `app-icon-source.png` (1254 × 1254), including transparency inside the ring.
 
 | Role | Color |
 | --- | --- |
-| Pink tile | `#FBD1DF` → `#F3ABC5` |
-| Cream paper | `#FFF9EB` |
-| Pale yellow folded corner | `#FFE28A` |
-| Plum lettering | `#563244` |
-| Rose bookmark | `#DE6F98` |
-| Quiet page lines | `#E9BAC8` |
+| Background and ring interior | Transparent |
+| Rabbit strokes | `#000000` |
 
-`AppIcon.xaml` supplies the scalable WPF `DrawingImage` resource `BrandMark`. `app-icon.svg` is the corresponding vector master for other uses. Both have a transparent 512 × 512 canvas.
+`scripts/create-icon.ps1` scales the master with WPF high-quality resampling and writes:
 
-`app.ico` contains 32-bit PNG representations at 16, 24, 32, 48, 64, 128, and 256 pixels. The standalone PNG previews are 256 and 512 pixels.
+- `app.ico` — 32-bit PNG representations at 16, 24, 32, 48, 64, 128, and 256 pixels; embedded in the executable and used for the window, taskbar and title-bar icon.
+- `app-icon-256.png` — embedded as the WPF resource used by the header mark.
+- `app-icon.png` — 512-pixel preview.
 
-Regenerate the raster assets from the XAML source:
+Regenerate the raster assets from the master:
 
 ```powershell
 powershell.exe -NoProfile -STA -File scripts/create-icon.ps1
 ```
 
-The script supersamples the drawing, writes the ICO directory, and verifies each embedded PNG's dimensions. When changing the artwork, update the matching SVG geometry as well.
+The script preserves alpha transparency, writes the ICO directory, produces the previews, and verifies each embedded PNG's dimensions.

@@ -18,7 +18,12 @@ public sealed class AppearanceSettingsStore(string settingsDirectory)
         {
             var json = await File.ReadAllTextAsync(AppearanceFile, cancellationToken).ConfigureAwait(false);
             var preference = JsonSerializer.Deserialize<AppearancePreference>(json, JsonOptions);
-            return preference?.Theme == "pink" ? AppTheme.Pink : AppTheme.WarmNeutral;
+            return preference?.Theme switch
+            {
+                "pink" => AppTheme.Pink,
+                "mono" => AppTheme.Mono,
+                _ => AppTheme.WarmNeutral
+            };
         }
         catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -34,7 +39,13 @@ public sealed class AppearanceSettingsStore(string settingsDirectory)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(settingsDirectory);
-            var preference = new AppearancePreference(theme == AppTheme.Pink ? "pink" : "warmNeutral");
+            var name = theme switch
+            {
+                AppTheme.Pink => "pink",
+                AppTheme.Mono => "mono",
+                _ => "warmNeutral"
+            };
+            var preference = new AppearancePreference(name);
             await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(preference, JsonOptions), new UTF8Encoding(false), cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             if (File.Exists(AppearanceFile)) File.Replace(temporary, AppearanceFile, null);

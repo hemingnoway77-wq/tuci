@@ -3,111 +3,65 @@ using System.Windows.Media;
 
 namespace VocabCollector.Desktop;
 
-public enum AppTheme { WarmNeutral, Pink }
+public enum AppTheme { Mono, WarmNeutral, Pink }
 
+/// <summary>Semantic palette shared by every surface. Themes differ only in these roles.</summary>
 public static class ThemePalette
 {
-    // Explicit role-preserving pairs: original pink hex -> warm neutral hex.
-    // Keeping the original hex in each key lets every existing surface share the palette.
-    private static readonly (string Pink, string Neutral)[] Colors =
-    [
-        ("15563244", "154C443B"),
-        ("49333F", "35312D"), // Body text.
-        ("563244", "4C443B"),
-        ("78616D", "625A51"),
-        ("80FFFFFF", "80FFFCF7"),
-        ("85717C", "756C62"),
-        ("866A79", "71665B"),
-        ("8B717F", "756C62"), // Secondary text retains normal-text contrast on paper.
-        ("8CFFFFFF", "8CFFFCF7"),
-        ("8D2850", "594331"),
-        ("917544", "7A603D"),
-        ("965A73", "78624E"),
-        ("9A3F63", "6B5140"),
-        ("A15C78", "7E6651"),
-        ("A34A6D", "745640"),
-        ("AC597A", "7A604A"),
-        ("AD5778", "78604B"),
-        ("AD8B9A", "8B7D6D"),
-        ("B194A2", "8E8172"),
-        ("B33960", "9F4938"), // Errors remain a distinct brick red.
-        ("B46383", "8A6E55"),
-        ("B49BA8", "958A7E"),
-        ("B7557B", "84654D"),
-        ("B88D9F", "8A7B6A"),
-        ("BC9AA9", "918373"),
-        ("BD416D", "6B5140"), // Primary action.
-        ("BF4775", "70513E"), // Preview links and headings.
-        ("C3A5B3", "AD9F8F"),
-        ("C88DA5", "A18C74"),
-        ("C97B9A", "987B5C"),
-        ("CF7397", "9A7B5E"),
-        ("D67599", "A48666"),
-        ("D68CA8", "B09A80"),
-        ("D9A5BA", "B9ADA0"), // Scrollbar thumb.
-        ("DE6F98", "A98964"),
-        ("DEB7C8", "C8BAA8"),
-        ("E9BAC8", "D0BFAB"),
-        ("EAA7C0", "C9B69C"),
-        ("EDD2DD", "DDD3C5"),
-        ("F0DCE4", "DDD4C8"), // Borders.
-        ("F1CFDD", "DCD0BE"),
-        ("F2CFDE", "D6C8B5"),
-        ("F3ABC5", "D8C6AB"),
-        ("FBD1DF", "E8DECD"),
-        ("FBE6EE", "ECE5DB"),
-        ("FBE8EF", "EFE7DC"),
-        ("FBE8F0", "EDE5D9"),
-        ("FBEAF0", "EAE1D4"), // Selected list row.
-        ("FBEAF1", "ECE4D7"),
-        ("FCE8EF", "EFE7DC"),
-        ("FFE28A", "D8BD8F"),
-        ("FFE3ED", "EEE8DF"),
-        ("FFF0F5", "F4EEE5"),
-        ("FFF2CF", "F2E9D7"),
-        ("FFF3F2", "F5F1EA"),
-        ("FFF5D9", "F3ECDC"),
-        ("FFF7FA", "F7F3ED"),
-        ("FFF8FB", "FAF7F1"),
-        ("FFF9EB", "FFFAEF"),
-        ("FFFCF9", "FFFCF7"), // Card paper.
-        ("FFFCFC", "FFFDFA"), // Input surface.
-        ("FFFFFF", "FFFFFF"),
-        ("00FFFFFF", "00FFFFFF"),
-        ("000000", "000000")
-    ];
+    private sealed record Palette(
+        string Paper, string Sheet, string Ink, string InkSecondary, string InkTertiary,
+        string Line, string LineSoft, string Rule, string Accent, string AccentInk,
+        string AccentSoft, string Margin, string Error, string Selection, string Hover);
+
+    private static readonly Palette Mono = new(
+        Paper: "F1F1EF", Sheet: "FCFCFA", Ink: "232321", InkSecondary: "5B5B58", InkTertiary: "6F6F6B",
+        Line: "E0E0DD", LineSoft: "ECECE9", Rule: "232321", Accent: "2A2A28", AccentInk: "FCFCFA",
+        AccentSoft: "E9E9E6", Margin: "C9C9C4", Error: "8F3B32", Selection: "D9D9D4", Hover: "E8E8E5");
+
+    private static readonly Palette Warm = new(
+        Paper: "F1E9DA", Sheet: "FFFCF4", Ink: "2E2A23", InkSecondary: "6B6252", InkTertiary: "7D7260",
+        Line: "E4D9C3", LineSoft: "F0E7D6", Rule: "2E2A23", Accent: "9A4E56", AccentInk: "FFFCF4",
+        AccentSoft: "F0E2E2", Margin: "D8A7A0", Error: "A03A2C", Selection: "EADFCB", Hover: "EDE3D3");
+
+    private static readonly Palette Rose = new(
+        Paper: "FAF0F2", Sheet: "FFFBF9", Ink: "33242B", InkSecondary: "6E5560", InkTertiary: "806270",
+        Line: "EBD8DE", LineSoft: "F4E7EB", Rule: "33242B", Accent: "A8445C", AccentInk: "FFFBFA",
+        AccentSoft: "F3E1E7", Margin: "D9A7B0", Error: "A02B3F", Selection: "F0DCE3", Hover: "F5E7EC");
 
     public static ResourceDictionary Create(AppTheme theme)
     {
-        var palette = new ResourceDictionary();
-        foreach (var pair in Colors)
+        var palette = theme switch
         {
-            var color = (Color)ColorConverter.ConvertFromString("#" + (theme == AppTheme.Pink ? pair.Pink : pair.Neutral));
-            var brush = new SolidColorBrush(color);
-            brush.Freeze();
-            palette["ThemeColor" + pair.Pink] = color;
-            palette["ThemeBrush" + pair.Pink] = brush;
-        }
-
-        palette["Ink"] = palette["ThemeBrush49333F"];
-        palette["Muted"] = palette["ThemeBrush8B717F"];
-        palette["Rose"] = palette["ThemeBrushBD416D"];
-        palette["RoseSoft"] = palette["ThemeBrushFCE8EF"];
-        palette["Line"] = palette["ThemeBrushF0DCE4"];
-        palette["Paper"] = palette["ThemeBrushFFFCF9"];
-        var shell = new LinearGradientBrush
-        {
-            StartPoint = new Point(0, 0),
-            EndPoint = new Point(1, 1),
-            GradientStops =
-            [
-                new((Color)palette["ThemeColorFFE3ED"], 0),
-                new((Color)palette["ThemeColorFFF3F2"], .5),
-                new((Color)palette["ThemeColorFBE6EE"], 1)
-            ]
+            AppTheme.Pink => Rose,
+            AppTheme.WarmNeutral => Warm,
+            _ => Mono
         };
-        shell.Freeze();
-        palette["ShellBackground"] = shell;
-        return palette;
+        var resources = new ResourceDictionary();
+        Add(resources, "Paper", palette.Paper);
+        Add(resources, "Sheet", palette.Sheet);
+        Add(resources, "Ink", palette.Ink);
+        Add(resources, "InkSecondary", palette.InkSecondary);
+        Add(resources, "InkTertiary", palette.InkTertiary);
+        Add(resources, "Line", palette.Line);
+        Add(resources, "LineSoft", palette.LineSoft);
+        Add(resources, "Rule", palette.Rule);
+        Add(resources, "Accent", palette.Accent);
+        Add(resources, "AccentInk", palette.AccentInk);
+        Add(resources, "AccentSoft", palette.AccentSoft);
+        Add(resources, "Margin", palette.Margin);
+        Add(resources, "Error", palette.Error);
+        Add(resources, "Selection", palette.Selection);
+        Add(resources, "Hover", palette.Hover);
+        // The shell is a single flat sheet; the key is kept for window backgrounds and tests.
+        resources["ShellBackground"] = resources["Paper"];
+        return resources;
+    }
+
+    private static void Add(ResourceDictionary resources, string key, string hex)
+    {
+        var color = (Color)ColorConverter.ConvertFromString("#" + hex);
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        resources[key] = brush;
     }
 }

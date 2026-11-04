@@ -13,7 +13,7 @@
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../VocabCollector.Core/VocabCollector.Core.csproj" /></ItemGroup>
   <ItemGroup><PackageReference Include="Markdig" Version="1.4.2" /></ItemGroup>
-  <ItemGroup><Resource Include="Assets\app.ico" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets\app.ico" /><Resource Include="Assets\app-icon-256.png" /></ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../THIRD-PARTY-NOTICES.md" LogicalName="VocabCollector.ThirdPartyNotices" />
     <Content Include="../../THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />

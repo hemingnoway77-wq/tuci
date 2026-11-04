@@ -10,7 +10,6 @@ using Markdig.Parsers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using MdBlock = Markdig.Syntax.Block;
-using MdInline = Markdig.Syntax.Inlines.Inline;
 using WpfBlock = System.Windows.Documents.Block;
 using WpfInline = System.Windows.Documents.Inline;
 using WpfList = System.Windows.Documents.List;
@@ -20,20 +19,23 @@ namespace VocabCollector.Desktop.Preview;
 public static class MarkdownDocumentRenderer
 {
     private static readonly MarkdownPipeline Pipeline = CreatePipeline();
-    private static readonly ResourceDictionary NeutralFallback = ThemePalette.Create(AppTheme.WarmNeutral);
+    private static readonly ResourceDictionary MonoFallback = ThemePalette.Create(AppTheme.Mono);
+    private const string ContentFont = "Segoe UI, Microsoft YaHei UI, Microsoft YaHei";
+    private const string DisplayFont = "Sitka Display, Georgia, Microsoft YaHei UI, Microsoft YaHei";
+    private const string CodeFont = "Cascadia Mono, Consolas, Microsoft YaHei UI, Microsoft YaHei";
 
     public static FlowDocument Render(string markdown, Action<PreviewLink>? onLink = null)
     {
         var document = new FlowDocument
         {
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI"),
-            FontSize = 14.5,
+            FontFamily = new FontFamily(ContentFont),
+            FontSize = 14,
             LineHeight = 25,
             PagePadding = new Thickness(0),
             TextAlignment = TextAlignment.Left,
             ColumnWidth = double.PositiveInfinity
         };
-        ThemeBrush(document, FlowDocument.ForegroundProperty, "49333F");
+        ThemeBrush(document, FlowDocument.ForegroundProperty, "Ink");
         foreach (var block in Markdig.Markdown.Parse(markdown ?? "", Pipeline))
             if (RenderBlock(block, onLink) is { } rendered) document.Blocks.Add(rendered);
         return document;
@@ -57,10 +59,21 @@ public static class MarkdownDocumentRenderer
             case HeadingBlock heading:
             {
                 var paragraph = Paragraph(heading.Inline, onLink);
-                paragraph.FontSize = heading.Level switch { 1 => 30, 2 => 23, 3 => 20, 4 => 18, _ => 15 };
-                paragraph.FontWeight = FontWeights.SemiBold;
-                ThemeBrush(paragraph, TextElement.ForegroundProperty, heading.Level == 1 ? "49333F" : "BF4775");
-                paragraph.Margin = heading.Level == 1 ? new Thickness(0, 0, 0, 17) : new Thickness(0, 16, 0, 8);
+                paragraph.FontFamily = new FontFamily(heading.Level == 1 ? DisplayFont : ContentFont);
+                paragraph.FontSize = heading.Level switch { 1 => 32, 2 => 21, 3 => 18, 4 => 16, _ => 14 };
+                paragraph.FontWeight = heading.Level == 1 ? FontWeights.Medium : FontWeights.SemiBold;
+                ThemeBrush(paragraph, TextElement.ForegroundProperty, heading.Level == 1 ? "Ink" : heading.Level == 5 ? "InkSecondary" : "Accent");
+                if (heading.Level == 1) paragraph.Margin = new Thickness(0, 0, 0, 10);
+                else if (heading.Level == 5) paragraph.Margin = new Thickness(0, 12, 0, 6);
+                else if (heading.Level >= 4)
+                {
+                    // Section labels behave like a printed subhead with a hairline above it.
+                    paragraph.BorderThickness = new Thickness(0, 1, 0, 0);
+                    ThemeBrush(paragraph, WpfBlock.BorderBrushProperty, "LineSoft");
+                    paragraph.Padding = new Thickness(0, 12, 0, 0);
+                    paragraph.Margin = new Thickness(0, 15, 0, 7);
+                }
+                else paragraph.Margin = new Thickness(0, 16, 0, 7);
                 return paragraph;
             }
             case ParagraphBlock paragraph:
@@ -69,11 +82,11 @@ public static class MarkdownDocumentRenderer
             {
                 var section = new Section
                 {
-                    BorderThickness = new Thickness(3, 0, 0, 0),
-                    Padding = new Thickness(15, 5, 5, 5),
-                    Margin = new Thickness(0, 0, 0, 18)
+                    BorderThickness = new Thickness(2, 0, 0, 0),
+                    Padding = new Thickness(15, 4, 4, 4),
+                    Margin = new Thickness(0, 0, 0, 14)
                 };
-                ThemeBrush(section, WpfBlock.BorderBrushProperty, "F2CFDE");
+                ThemeBrush(section, WpfBlock.BorderBrushProperty, "Margin");
                 AddChildren(section.Blocks, quote, onLink);
                 foreach (var child in section.Blocks) child.Margin = new Thickness(0);
                 return section;
@@ -84,13 +97,13 @@ public static class MarkdownDocumentRenderer
                 {
                     MarkerStyle = list.IsOrdered ? TextMarkerStyle.Decimal : TextMarkerStyle.Disc,
                     MarkerOffset = 6,
-                    Padding = new Thickness(24, 0, 0, 0),
-                    Margin = new Thickness(0, 0, 0, 12)
+                    Padding = new Thickness(22, 0, 0, 0),
+                    Margin = new Thickness(0, 0, 0, 10)
                 };
                 if (list.IsOrdered && int.TryParse(list.OrderedStart, out var start) && start > 0) rendered.StartIndex = start;
                 foreach (var child in list.OfType<ListItemBlock>())
                 {
-                    var item = new ListItem { Margin = new Thickness(0, 0, 0, 5) };
+                    var item = new ListItem { Margin = new Thickness(0, 0, 0, 4) };
                     AddChildren(item.Blocks, child, onLink);
                     foreach (var itemBlock in item.Blocks) itemBlock.Margin = new Thickness(0, 0, 0, 3);
                     rendered.ListItems.Add(item);
@@ -101,18 +114,18 @@ public static class MarkdownDocumentRenderer
                 return ThemeBrush(new Paragraph
                 {
                     BorderThickness = new Thickness(0, 0, 0, 1),
-                    Margin = new Thickness(0, 0, 0, 18),
+                    Margin = new Thickness(0, 4, 0, 18),
                     LineHeight = 1,
                     FontSize = 1
-                }, WpfBlock.BorderBrushProperty, "F2CFDE");
+                }, WpfBlock.BorderBrushProperty, "LineSoft");
             case CodeBlock code:
                 return ThemeBrush(new Paragraph(new Run(code.Lines.ToString()))
                 {
-                    FontFamily = new FontFamily("Cascadia Code, Consolas"),
-                    FontSize = 12.5,
+                    FontFamily = new FontFamily(CodeFont),
+                    FontSize = 13,
                     Padding = new Thickness(13, 9, 13, 9),
                     Margin = new Thickness(0, 0, 0, 16)
-                }, TextElement.BackgroundProperty, "FFF0F5");
+                }, TextElement.BackgroundProperty, "AccentSoft");
             case ContainerBlock container:
             {
                 var section = new Section();
@@ -126,7 +139,7 @@ public static class MarkdownDocumentRenderer
 
     private static Paragraph Paragraph(ContainerInline? source, Action<PreviewLink>? onLink)
     {
-        var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 16) };
+        var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 12) };
         AddInlines(paragraph.Inlines, source, onLink);
         return paragraph;
     }
@@ -154,14 +167,14 @@ public static class MarkdownDocumentRenderer
                     target.Add(lineBreak.IsHard ? new LineBreak() : new Run(" "));
                     break;
                 case CodeInline code:
-                    target.Add(ThemeBrush(new Run(code.Content) { FontFamily = new FontFamily("Cascadia Code, Consolas"), FontSize = 13 }, TextElement.BackgroundProperty, "FFF0F5"));
+                    target.Add(ThemeBrush(new Run(code.Content) { FontFamily = new FontFamily(CodeFont), FontSize = 13 }, TextElement.BackgroundProperty, "AccentSoft"));
                     break;
                 case WikiLinkInline wiki:
                     target.Add(allowLinks ? Link(new PreviewLink(wiki.Target, true), new Run(wiki.Label), onLink) : new Run(wiki.Label));
                     break;
                 case LinkInline { IsImage: true } image:
                     // Display alt text only. Preview must never fetch a remote resource.
-                    var alternate = ThemeBrush(new Span(), TextElement.ForegroundProperty, "85717C");
+                    var alternate = ThemeBrush(new Span(), TextElement.ForegroundProperty, "InkTertiary");
                     AddInlines(alternate.Inlines, image, onLink, allowLinks: false);
                     target.Add(alternate);
                     break;
@@ -175,7 +188,7 @@ public static class MarkdownDocumentRenderer
                     target.Add(allowLinks ? Link(new PreviewLink(link.Url, false), new Run(link.Url), onLink) : new Run(link.Url));
                     break;
                 case EmphasisInline emphasis:
-                    Span formatting = emphasis.DelimiterCount >= 2 ? ThemeBrush(new Bold(), TextElement.ForegroundProperty, "BF4775") : new Italic();
+                    Span formatting = emphasis.DelimiterCount >= 2 ? ThemeBrush(new Bold(), TextElement.ForegroundProperty, "Accent") : new Italic();
                     AddInlines(formatting.Inlines, emphasis, onLink, allowLinks);
                     target.Add(formatting);
                     break;
@@ -192,19 +205,18 @@ public static class MarkdownDocumentRenderer
     {
         var link = new Hyperlink(label)
         {
-            TextDecorations = null,
+            TextDecorations = TextDecorations.Underline,
             Cursor = Cursors.Hand,
             ToolTip = target.Target,
             Tag = target
         };
-        ThemeBrush(link, TextElement.ForegroundProperty, "BF4775");
+        ThemeBrush(link, TextElement.ForegroundProperty, "Accent");
         link.Click += (_, args) => { args.Handled = true; onLink?.Invoke(target); };
         return link;
     }
 
-    private static T ThemeBrush<T>(T element, DependencyProperty property, string originalHex) where T : FrameworkContentElement
+    private static T ThemeBrush<T>(T element, DependencyProperty property, string key) where T : FrameworkContentElement
     {
-        var key = "ThemeBrush" + originalHex;
         if (element.TryFindResource(key) is Brush)
         {
             element.SetResourceReference(property, key);
@@ -213,7 +225,7 @@ public static class MarkdownDocumentRenderer
 
         // Standalone renderers also work without an Application. Bind once hosted, so
         // an early-created document joins the live palette without rebuilding its text.
-        element.SetValue(property, NeutralFallback[key]);
+        element.SetValue(property, MonoFallback[key]);
         RoutedEventHandler? bindWhenLoaded = null;
         bindWhenLoaded = (_, _) =>
         {

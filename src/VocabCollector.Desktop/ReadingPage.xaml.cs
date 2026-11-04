@@ -4,13 +4,12 @@ using System.Windows.Controls;
 
 namespace VocabCollector.Desktop;
 
-public partial class DailyReadingWindow : Window
+public partial class ReadingPage : UserControl
 {
     private readonly DailyReadingViewModel _viewModel;
     private readonly Action<string> _openArticle;
-    private bool _loaded;
 
-    public DailyReadingWindow(DailyReadingViewModel viewModel, Action<string>? openArticle = null)
+    public ReadingPage(DailyReadingViewModel viewModel, Action<string>? openArticle = null)
     {
         _viewModel = viewModel;
         _openArticle = openArticle ?? (url => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }));
@@ -18,22 +17,15 @@ public partial class DailyReadingWindow : Window
         DataContext = viewModel;
     }
 
-    private async void Window_Loaded(object sender, RoutedEventArgs e)
+    public DailyReadingViewModel ViewModel => _viewModel;
+
+    public async Task EnsureLoadedAsync()
     {
-        if (_loaded) return;
-        _loaded = true;
-        try { await _viewModel.LoadAsync(); }
-        catch (Exception) { _viewModel.Message = "文章获取失败，请点击“刷新文章”重试。"; }
+        if (_viewModel.Articles.Count == 0) await _viewModel.LoadAsync();
+        else await _viewModel.RefreshIfNewDayAsync();
     }
 
-    private void Window_Closed(object? sender, EventArgs e) => _viewModel.Cancel();
-
-    private async void Window_Activated(object? sender, EventArgs e)
-    {
-        if (!_loaded) return;
-        try { await _viewModel.RefreshIfNewDayAsync(); }
-        catch (Exception) { _viewModel.Message = "文章获取失败，请点击“刷新文章”重试。"; }
-    }
+    public void Cancel() => _viewModel.Cancel();
 
     private void OpenArticle_Click(object sender, RoutedEventArgs e)
     {

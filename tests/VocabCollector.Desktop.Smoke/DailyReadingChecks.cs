@@ -1,5 +1,5 @@
-using System.Windows;
 using System.IO;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using VocabCollector.Core.Reading;
@@ -12,49 +12,65 @@ public sealed partial class SmokeRunner
         Func<string?> openedArticle, string output, Func<int> modelRequests)
     {
         var before = modelRequests();
-        Invoke(Control<Button>(main, "DailyReadingButton"));
-        await Until(() => app.Windows.OfType<DailyReadingWindow>().Any(window => window.IsVisible));
-        var window = app.Windows.OfType<DailyReadingWindow>().Single(window => window.IsVisible);
-        var vm = (DailyReadingViewModel)window.DataContext;
-        await Until(() => !vm.IsBusy && vm.Articles.Count == 3);
+        await SelectPageAsync(main, "ReadingTab");
+        await Until(() => Descendants<ReadingPage>(main).Any(page => page.IsVisible && !((DailyReadingViewModel)page.DataContext).IsBusy));
+        var page = Descendants<ReadingPage>(main).Single(item => item.IsVisible);
+        var viewModel = (DailyReadingViewModel)page.DataContext;
+        await Until(() => viewModel.Articles.Count == 3);
+
+        Check(ReferenceEquals(Window.GetWindow(page), main) && page.IsVisible, "daily reading is a page inside the main window");
+        Check(app.Windows.OfType<Window>().Count(item => item.IsVisible) == 1, "daily reading opens no extra window");
         Check(modelRequests() == before, "reading works without API settings and makes zero model requests");
-        Check(window.Icon != null, "reading window shares the application icon");
         Check(service.Calls == 1 && !service.LastForced, "first opening loads daily articles");
-        Invoke(Control<Button>(main, "DailyReadingButton"));
-        Check(app.Windows.OfType<DailyReadingWindow>().Count(item => item.IsVisible) == 1 && service.Calls == 1,
-            "repeated entry reuses the open reading window");
+
+        await SelectPageAsync(main, "CaptureTab");
+        Check(!page.IsVisible, "leaving the page hides the reading surface");
+        await SelectPageAsync(main, "ReadingTab");
+        Check(page.IsVisible && ReferenceEquals(page, Descendants<ReadingPage>(main).Single(item => item.IsVisible))
+            && service.Calls == 1 && viewModel.Articles.Count == 3,
+            "returning to reading reuses the loaded page and articles");
+
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-        var openButton = Descendants<Button>(window).First(button => button.Name == "OpenArticleButton");
+        var openButton = Descendants<Button>(page).First(button => button.Name == "OpenArticleButton");
         Invoke(openButton);
         await Until(() => openedArticle() is not null);
         Check(openedArticle() == service.Articles[0].Url, "article button opens the original URL");
         Check(modelRequests() == before, "opening original article uses no model requests");
-        Snapshot(window, Path.Combine(output, "daily-reading.png"));
-        window.Width = window.MinWidth; window.Height = window.MinHeight;
+        Snapshot(main, Path.Combine(output, "daily-reading.png"));
+
+        main.Width = main.MinWidth;
+        main.Height = main.MinHeight;
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-        Check(Control<Button>(window, "DailyReadingRefreshButton").IsVisible, "refresh remains reachable at minimum reading size");
-        var scroll = Descendants<ScrollViewer>(window).First();
+        main.UpdateLayout();
+        var refresh = Descendants<Button>(main).Single(button => button.Name == "DailyReadingRefreshButton");
+        Check(refresh.IsVisible, "refresh remains reachable at minimum reading size");
+        var scroll = Descendants<ScrollViewer>(main).First(viewer => viewer.Name == "ReadingArticlesScroll");
         Check(AutoHideScrollbars.GetIsEnabled(scroll), "reading uses shared auto-hiding scrollbars");
         scroll.ScrollToEnd();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-        Check(Descendants<Button>(window).Where(button => button.Name == "OpenArticleButton").Last().IsVisible,
+        Check(Descendants<Button>(page).Where(button => button.Name == "OpenArticleButton").Last().IsVisible,
             "last article remains reachable by scrolling");
-        Snapshot(window, Path.Combine(output, "daily-reading-minimum.png"));
-        Invoke(Control<Button>(window, "DailyReadingRefreshButton"));
-        await Until(() => service.Calls == 2 && !vm.IsBusy);
+        Snapshot(main, Path.Combine(output, "daily-reading-minimum.png"));
+
+        Invoke(refresh);
+        await Until(() => service.Calls == 2 && !viewModel.IsBusy);
         Check(service.LastForced, "manual refresh asks for fresh feeds");
+
         service.BlockRefresh = true;
-        Invoke(Control<Button>(window, "DailyReadingRefreshButton"));
-        await Until(() => service.Calls == 3 && vm.IsBusy);
-        window.Close();
-        await Until(() => service.Cancelled && !vm.IsBusy);
+        Invoke(refresh);
+        await Until(() => service.Calls == 3 && viewModel.IsBusy);
+        await SelectPageAsync(main, "CaptureTab");
+        await Until(() => service.Cancelled && !viewModel.IsBusy);
         Check(modelRequests() == before, "refresh and cancellation never call the model");
         service.BlockRefresh = false;
-        Invoke(Control<Button>(main, "DailyReadingButton"));
-        await Until(() => app.Windows.OfType<DailyReadingWindow>().Any(item => item.IsVisible));
-        window = app.Windows.OfType<DailyReadingWindow>().Single(item => item.IsVisible);
-        await Until(() => !((DailyReadingViewModel)window.DataContext).IsBusy);
-        window.Close();
+
+        main.Width = 1140;
+        main.Height = 800;
+        await SelectPageAsync(main, "ReadingTab");
+        await Until(() => page.IsVisible && !viewModel.IsBusy);
+        Check(viewModel.Articles.Count == 3, "canceled refresh keeps the articles already loaded");
+        await SelectPageAsync(main, "CaptureTab");
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
     }
 
     private sealed class RecordingReadingService : IDailyReadingService
