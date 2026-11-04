@@ -3,7 +3,12 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
-    <AssemblyName>VocabCollector</AssemblyName>
+    <AssemblyName>兔词</AssemblyName>
+    <RootNamespace>VocabCollector.Desktop</RootNamespace>
+    <PackageId>VocabCollector</PackageId>
+    <AssemblyTitle>兔词</AssemblyTitle>
+    <Product>兔词</Product>
+    <Description>将遇见的英文单词整理为 Obsidian 学习笔记。</Description>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../VocabCollector.Core/VocabCollector.Core.csproj" /></ItemGroup>

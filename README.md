@@ -1,10 +1,10 @@
-# 单词收集器
+# 兔词
 
 一个简单的 Windows 桌面工具：粘贴陌生英文单词，调用自己配置的 AI，生成固定格式的 Markdown，存入 Obsidian 仓库。
 
 ## 开始使用
 
-1. 最新生成修复版双击 `dist/兔词-生成修复版/VocabCollector.exe`；常规构建输出为 `dist/win-x64/VocabCollector.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
+1. 双击 `dist/win-x64/兔词.exe`。发布版自带运行环境，无需另装 .NET、Python 或 Node.js。
 2. 点击右上角“设置”，填写 API 地址、API Key、模型名。
 3. 选择 **Obsidian 仓库根目录**，填写仓库内的单词子目录，默认 `英语单词`。
 4. 按需开启“按主要词性分文件夹”，保存设置。
@@ -136,7 +136,9 @@ pwsh -NoProfile -File scripts/verify.ps1
 pwsh -NoProfile -File scripts/publish.ps1
 ```
 
-当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory 'dist/兔词-生成修复版'` 单独打包，避免占用正在运行的旧 exe。
+项目代码位于 `C:\Private Files\Projects\TUCI`，保留 Git 历史。程序名称、窗口标题、文件属性和发布文件名统一为“兔词”；内部代码命名及 `%LOCALAPPDATA%\VocabCollector` 配置目录继续保留，以读取已有 API、主题和阅读缓存设置。
+
+当前版本可用 `pwsh -NoProfile -File scripts/publish.ps1 -OutputDirectory 'dist/兔词'` 单独打包，避免占用正在运行的旧 exe。
 
 没有 `pwsh` 时可使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1`。脚本不修改系统执行策略。
 
