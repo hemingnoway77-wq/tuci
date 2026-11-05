@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private readonly IDailyReadingService? _readingService;
     private readonly Action<string>? _openArticle;
     private readonly ThemeManager _themes;
+    private readonly DesktopSync? _sync;
     private HttpClient? _readingClient;
     private DailyReadingViewModel? _readingViewModel;
     private ReadingPage? _readingPage;
@@ -26,10 +27,18 @@ public partial class MainWindow : Window
     private bool _showingReading;
 
     public MainWindow(MainViewModel viewModel, ISettingsStore settingsStore, IAppNavigator navigator,
-        IDailyReadingService? readingService = null, Action<string>? openArticle = null, ThemeManager? themeManager = null)
+        IDailyReadingService? readingService = null, Action<string>? openArticle = null, ThemeManager? themeManager = null, DesktopSync? sync = null)
     {
         _themes = themeManager ?? new ThemeManager(Application.Current.Resources);
         InitializeComponent();
+        _sync = sync;
+        SyncButton.Visibility = sync == null ? Visibility.Collapsed : Visibility.Visible;
+        if (sync != null)
+        {
+            SyncButton.ToolTip = sync.Status;
+            sync.Updated += SyncStatusChanged;
+        }
+        Activated += (_, _) => _sync?.Request();
         _viewModel = viewModel;
         _store = settingsStore;
         _navigator = navigator;
@@ -160,6 +169,13 @@ public partial class MainWindow : Window
         else _viewModel.Message = message;
     }
 
+    private void SyncStatusChanged(object? sender, EventArgs args) => SyncButton.ToolTip = _sync?.Status;
+
+    private void Sync_Click(object sender, RoutedEventArgs e)
+    {
+        if (_sync != null) new SyncWindow(_sync, _viewModel.Settings.Vault) { Owner = this }.ShowDialog();
+    }
+
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         if (_viewModel.IsBusy) return;
@@ -205,6 +221,7 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        if (_sync != null) _sync.Updated -= SyncStatusChanged;
         _readingPage?.Cancel();
         _readingClient?.Dispose();
     }

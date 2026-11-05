@@ -5,7 +5,7 @@ using VocabCollector.Core.Markdown;
 
 namespace VocabCollector.Core.Storage;
 
-public sealed class LinkRefresher
+public sealed partial class LinkRefresher
 {
     private static readonly UTF8Encoding Utf8 = new(false, true);
 

@@ -11,6 +11,7 @@ public partial class App : Application
     public App() : this(true) { }
     public App(bool runProductionStartup) => _runProductionStartup = runProductionStartup;
     private HttpClient? _client;
+    private DesktopSync? _sync;
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -25,8 +26,9 @@ public partial class App : Application
         var diagnostics = new FileAnalysisDiagnostics(Path.Combine(settingsDirectory, "logs"));
         var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(_client, diagnostics), vaultStore, TimeProvider.System), loaded.Settings, vaultStore);
         if (loaded.Warning.Length > 0) vm.Message = loaded.Warning;
-        MainWindow = new MainWindow(vm, store, new WindowsNavigator(), themeManager: themes); MainWindow.Show();
+        _sync = new DesktopSync(settingsDirectory, Dispatcher);
+        MainWindow = new MainWindow(vm, store, new WindowsNavigator(), themeManager: themes, sync: _sync); MainWindow.Show();
         await vm.InitializeAsync(loaded.Warning);
     }
-    protected override void OnExit(ExitEventArgs e) { _client?.Dispose(); base.OnExit(e); }
+    protected override void OnExit(ExitEventArgs e) { _sync?.Dispose(); _client?.Dispose(); base.OnExit(e); }
 }

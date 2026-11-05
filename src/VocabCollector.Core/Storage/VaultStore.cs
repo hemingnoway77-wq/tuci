@@ -123,7 +123,7 @@ public sealed class VaultStore : IVocabularyStore, ILinkMaintenance
             ObsidianRelativePath = obsidianRoot.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.RootPath)), StringComparison.OrdinalIgnoreCase)
                 ? null : Path.GetRelativePath(obsidianRoot, path).Replace('\\', '/')
         };
-    private static async Task<FileStream> AcquireLockAsync(string path, CancellationToken ct)
+    internal static async Task<FileStream> AcquireLockAsync(string path, CancellationToken ct)
     {
         var elapsed = Stopwatch.StartNew();
         while (true)

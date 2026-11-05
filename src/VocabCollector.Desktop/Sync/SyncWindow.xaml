@@ -1,0 +1,19 @@
+<Window x:Class="VocabCollector.Desktop.SyncWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="词库同步 · 兔词" Width="480" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" Style="{StaticResource {x:Type Window}}">
+ <StackPanel Margin="28">
+  <TextBlock Text="词库同步" Style="{StaticResource PageTitle}" FontSize="24" Margin="0,0,0,16"/>
+  <StackPanel x:Name="ConnectPanel">
+   <TextBlock Text="服务器地址" Style="{StaticResource FieldLabel}"/><TextBox x:Name="UrlBox" Tag="https://sync.example.com" Margin="0,5,0,14"/>
+   <TextBlock Text="激活码或设备配对码" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="CodeBox" Margin="0,5,0,14"/>
+   <TextBlock Text="本机单词目录" Style="{StaticResource FieldLabel}"/>
+   <DockPanel Margin="0,5,0,10"><Button Content="选择…" DockPanel.Dock="Right" Click="Choose_Click" Style="{StaticResource OutlineAction}" Margin="6,0,0,0"/><TextBox x:Name="FolderBox"/></DockPanel>
+   <TextBlock Text="绑定后，此目录中的 Markdown 笔记与云端词库会自动双向同步。" TextWrapping="Wrap" Style="{StaticResource HintText}" Margin="0,0,0,12"/>
+   <Button Content="绑定并同步" Style="{StaticResource PrimaryAction}" Click="Bind_Click"/>
+  </StackPanel>
+  <StackPanel x:Name="BoundPanel">
+   <TextBlock x:Name="Details" TextWrapping="Wrap" Style="{StaticResource HintText}" Margin="0,0,0,14"/>
+   <WrapPanel><Button Content="立即同步" Style="{StaticResource OutlineAction}" Click="Sync_Click" Margin="0,0,6,0"/><Button Content="生成配对码" Click="Pair_Click" Style="{StaticResource OutlineAction}"/><Button Content="断开本机" Click="Disconnect_Click" Style="{StaticResource QuietAction}" Margin="6,0,0,0"/></WrapPanel>
+   <TextBox x:Name="PairBox" AutomationProperties.Name="短期设备配对码" IsReadOnly="True" Visibility="Collapsed" Margin="0,8,0,0"/>
+  </StackPanel>
+  <TextBlock x:Name="StatusText" TextWrapping="Wrap" Style="{StaticResource HintText}" Margin="0,14,0,0"/>
+ </StackPanel>
+</Window>
