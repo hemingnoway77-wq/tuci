@@ -28,6 +28,8 @@ public partial class MainWindow : Window
     private LearningPage? _learningPage;
     private bool _initializingUi = true, _syncingThemeOption, _changingPage, _closed;
     private string _page = "capture";
+    private ResourceDictionary? _notebookChrome;
+    private bool _savingBeforeClose, _allowClose;
 
     public MainWindow(MainViewModel viewModel, ISettingsStore settingsStore, IAppNavigator navigator,
         IDailyReadingService? readingService = null, Action<string>? openArticle = null, ThemeManager? themeManager = null,
@@ -84,6 +86,7 @@ public partial class MainWindow : Window
         if (_closed) return;
         if (_page == "reading" && page != "reading") _readingPage?.Cancel();
         _page = page;
+        ApplyNotebookChrome();
         CapturePage.Visibility = page == "capture" ? Visibility.Visible : Visibility.Collapsed;
         if (_readingPage != null) _readingPage.Visibility = page == "reading" ? Visibility.Visible : Visibility.Collapsed;
         if (_learningPage != null) _learningPage.Visibility = page is "library" or "roaming" ? Visibility.Visible : Visibility.Collapsed;
@@ -99,6 +102,15 @@ public partial class MainWindow : Window
         _learningPage.StatusChanged += (_, _) => UpdateStatus();
         _learningPage.ReaderRequested += (_, _) => SelectPage("library");
         _learningPage.WebLinkRequested += (_, url) => OpenArticle(url);
+        _learningPage.NotebookThemeChanged += (_, _) => ApplyNotebookChrome();
+        _learningPage.PageRequested += async (_, page) =>
+        {
+            if (_learningPage == null || !await _learningPage.SaveAllAsync()) return;
+            if (page == "settings") Settings_Click(this, new RoutedEventArgs());
+            else if (page == "roaming") await ShowLearningAsync(true);
+            else if (page == "reading") await ShowReadingAsync();
+            else SelectPage("capture");
+        };
         PageHost.Children.Add(_learningPage);
         return _learningPage;
     }
@@ -108,6 +120,7 @@ public partial class MainWindow : Window
         SelectPage(roaming ? "roaming" : "library");
         if (!roaming) learning.ShowLibrary();
         await learning.ReloadAsync();
+        ApplyNotebookChrome();
         if (_closed || !ReferenceEquals(learning, _learningPage)) return;
         if (roaming && _page == "roaming") await learning.ShowRoamingAsync();
     }
@@ -163,6 +176,7 @@ public partial class MainWindow : Window
     private void SetMessage(string message)
     {
         if (_page == "reading" && _readingViewModel != null) _readingViewModel.Message = message;
+        else if (_page == "library" && _learningPage != null) _learningPage.NotebookControl.SetMessage(message);
         else { _viewModel.Message = message; StatusMessageText.Text = message; }
     }
     private void SyncStatusChanged(object? sender, EventArgs args)
@@ -173,9 +187,10 @@ public partial class MainWindow : Window
     private void Sync_Click(object sender, RoutedEventArgs e)
     { if (_sync != null) new SyncWindow(_sync, _viewModel.Settings.Vault) { Owner = this }.ShowDialog(); }
 
-    private void Settings_Click(object sender, RoutedEventArgs e)
+    private async void Settings_Click(object sender, RoutedEventArgs e)
     {
         if (_viewModel.IsBusy) return;
+        if (_learningPage?.HasUnsavedChanges == true && !await _learningPage.SaveAllAsync()) return;
         var dialog = new SettingsWindow(_viewModel.Settings, _store, _themes) { Owner = this };
         dialog.ShowDialog();
         if (dialog.SavedSettings is not { } saved) return;
@@ -209,11 +224,31 @@ public partial class MainWindow : Window
         if (!_closed && ReferenceEquals(learning, _learningPage) && source == _viewModel.SelectedNote && page == _page)
             learning.HandleLink(e, source, NotePreview);
     }
-    private void OnClosing(object? sender, CancelEventArgs e)
+    private async void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (!_viewModel.IsBusy) return;
-        e.Cancel = true; _viewModel.CancelCommand.Execute(null);
-        _viewModel.Message = "正在取消本次操作，完成后可以关闭窗口。";
+        if (_viewModel.IsBusy)
+        {
+            e.Cancel = true; _viewModel.CancelCommand.Execute(null);
+            _viewModel.Message = "正在取消本次操作，完成后可以关闭窗口。"; return;
+        }
+        if (_allowClose || _learningPage?.HasUnsavedChanges != true) return;
+        e.Cancel = true;
+        if (_savingBeforeClose) return;
+        _savingBeforeClose = true;
+        try { if (await _learningPage.SaveAllAsync()) { _allowClose = true; Close(); } }
+        finally { _savingBeforeClose = false; }
+    }
+    private void ApplyNotebookChrome()
+    {
+        if (_initializingUi || MainHeader == null) return;
+        var notebook = _page == "library";
+        MainHeader.Visibility = MainFooter.Visibility = notebook ? Visibility.Collapsed : Visibility.Visible;
+        WindowLayout.RowDefinitions[0].Height = new GridLength(notebook ? 0 : 100);
+        WindowLayout.RowDefinitions[2].Height = new GridLength(notebook ? 0 : 38);
+        if (_notebookChrome != null) Resources.MergedDictionaries.Remove(_notebookChrome);
+        _notebookChrome = notebook ? NotebookPalette.Create(_learningPage?.NotebookControl.IsDark ?? true) : null;
+        if (_notebookChrome != null) Resources.MergedDictionaries.Add(_notebookChrome);
+        TitleBarTheme.Apply(this);
     }
     private void OnClosed(object? sender, EventArgs e)
     {

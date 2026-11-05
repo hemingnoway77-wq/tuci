@@ -14,9 +14,11 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
     private readonly DispatcherTimer _singleClickTimer;
     private Hyperlink? _pressedLink;
     private Hyperlink? _pendingLink;
+    private Hyperlink? _hoverLink;
     private Point _pressedAt;
     private bool _doubleClick;
     private bool _disposed;
+    private bool _watchingInput;
     public static readonly DependencyProperty MarkdownProperty = DependencyProperty.Register(
         nameof(Markdown), typeof(string), typeof(MarkdownPreview), new PropertyMetadata("", OnMarkdownChanged));
 
@@ -27,7 +29,10 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
     }
 
     public string RenderedText => new TextRange(Document.ContentStart, Document.ContentEnd).Text;
+    public bool ImmediateLinks { get; set; }
     public event EventHandler<PreviewLinkEventArgs>? LinkRequested;
+    public event EventHandler<PreviewLinkEventArgs>? LinkHovered;
+    public event EventHandler? HoverEnded;
 
     public MarkdownPreview()
     {
@@ -36,7 +41,9 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
         _singleClickTimer.Tick += OnSingleClick;
         AddHandler(Mouse.PreviewMouseDownEvent, new MouseButtonEventHandler(OnLinkMouseDown), true);
         AddHandler(Mouse.PreviewMouseUpEvent, new MouseButtonEventHandler(OnLinkMouseUp), true);
-        Unloaded += (_, _) => CancelPendingLink();
+        Loaded += (_, _) => { if (!_disposed && !_watchingInput) { InputManager.Current.PreProcessInput += OnHoverKeyboard; _watchingInput = true; } };
+        Unloaded += (_, _) => { CancelPendingLink(); EndHover(); StopWatchingInput(); };
+        PreviewKeyUp += (_, _) => { if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) EndHover(); };
         IsReadOnly = true;
         IsDocumentEnabled = true;
         IsReadOnlyCaretVisible = false;
@@ -55,12 +62,57 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
     {
         var preview = (MarkdownPreview)sender;
         preview.CancelPendingLink();
+        preview.EndHover();
         preview.Document = preview.Render(args.NewValue as string ?? "");
         preview.ScrollToHome();
     }
 
     private FlowDocument Render(string markdown) => MarkdownDocumentRenderer.Render(markdown,
-        link => { if (!_disposed) LinkRequested?.Invoke(this, new PreviewLinkEventArgs(link.Target, link.IsWikiLink)); });
+        link => { if (!_disposed) LinkRequested?.Invoke(this, new PreviewLinkEventArgs(link.Target, link.IsWikiLink, modifiers: Keyboard.Modifiers)); });
+
+    protected override void OnMouseMove(MouseEventArgs args)
+    {
+        base.OnMouseMove(args);
+        UpdateHover(args.OriginalSource);
+    }
+
+    private void UpdateHover(object? source)
+    {
+        var link = ImmediateLinks && Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? FindLink(source) : null;
+        if (link is not null)
+        {
+            DependencyObject? parent = link;
+            while (parent is FrameworkContentElement content && parent is not FlowDocument) parent = content.Parent;
+            if (!ReferenceEquals(parent, Document)) link = null;
+        }
+        if (ReferenceEquals(link, _hoverLink)) return;
+        EndHover();
+        _hoverLink = link;
+        if (link?.Tag is PreviewLink target)
+            LinkHovered?.Invoke(this, new PreviewLinkEventArgs(target.Target, target.IsWikiLink, modifiers: Keyboard.Modifiers));
+    }
+
+    private void OnHoverKeyboard(object sender, PreProcessInputEventArgs args)
+    {
+        if (args.StagingItem.Input is not KeyEventArgs key || key.Key is not (Key.LeftCtrl or Key.RightCtrl)) return;
+        if (key.IsUp) EndHover();
+        else Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => { if (!_disposed && IsLoaded) UpdateHover(Mouse.DirectlyOver); }));
+    }
+
+    private void StopWatchingInput()
+    {
+        if (!_watchingInput) return;
+        InputManager.Current.PreProcessInput -= OnHoverKeyboard; _watchingInput = false;
+    }
+
+    protected override void OnMouseLeave(MouseEventArgs args) { base.OnMouseLeave(args); EndHover(); }
+
+    private void EndHover()
+    {
+        if (_hoverLink is null) return;
+        _hoverLink = null;
+        HoverEnded?.Invoke(this, EventArgs.Empty);
+    }
 
     private void OnLinkMouseDown(object sender, MouseButtonEventArgs args)
     {
@@ -83,7 +135,12 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
             Math.Abs(position.X - _pressedAt.X) > SystemParameters.MinimumHorizontalDragDistance ||
             Math.Abs(position.Y - _pressedAt.Y) > SystemParameters.MinimumVerticalDragDistance)
         { _doubleClick = false; return; }
-        if (_doubleClick)
+        if (ImmediateLinks)
+        {
+            CancelPendingLink();
+            RaiseLink(pressed, false);
+        }
+        else if (_doubleClick)
         {
             CancelPendingLink();
             RaiseLink(pressed, true);
@@ -117,7 +174,7 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
     private void RaiseLink(Hyperlink link, bool isDoubleClick)
     {
         if (!_disposed && link.Tag is PreviewLink target)
-            LinkRequested?.Invoke(this, new PreviewLinkEventArgs(target.Target, target.IsWikiLink, isDoubleClick));
+            LinkRequested?.Invoke(this, new PreviewLinkEventArgs(target.Target, target.IsWikiLink, isDoubleClick, Keyboard.Modifiers));
     }
 
     private void CancelPendingLink()
@@ -133,6 +190,8 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
         if (_disposed) return;
         _disposed = true;
         CancelPendingLink();
+        EndHover();
+        StopWatchingInput();
         _singleClickTimer.Tick -= OnSingleClick;
     }
 
@@ -140,9 +199,10 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
     private static extern uint GetDoubleClickTime();
 }
 
-public sealed class PreviewLinkEventArgs(string target, bool isWikiLink, bool isDoubleClick = false) : EventArgs
+public sealed class PreviewLinkEventArgs(string target, bool isWikiLink, bool isDoubleClick = false, ModifierKeys modifiers = ModifierKeys.None) : EventArgs
 {
     public string Target { get; } = target;
     public bool IsWikiLink { get; } = isWikiLink;
     public bool IsDoubleClick { get; } = isDoubleClick;
+    public ModifierKeys Modifiers { get; } = modifiers;
 }

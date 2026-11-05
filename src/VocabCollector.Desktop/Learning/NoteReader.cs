@@ -1,6 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using VocabCollector.Core.Library;
 using VocabCollector.Desktop.Preview;
@@ -14,16 +17,21 @@ public sealed class NoteReader : UserControl, IDisposable
     private readonly TextBlock _path = new() { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _message = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
     private readonly Stack<ReadingPosition> _history = new();
+    private readonly Stack<ReadingPosition> _forward = new();
+    private readonly DockPanel _toolbar = new();
+    private Popup? _hover;
     private LibraryCatalog? _catalog;
     private IReadOnlyList<LibraryNote> _notes = [];
     private Window? _card;
     private DispatcherOperation? _restoreOperation;
     private double? _restoreOffset;
     private bool _disposed;
+    private string _lastFind = "";
+    private int _nextFindAt;
 
     public NoteReader()
     {
-        var toolbar = new DockPanel();
+        var toolbar = _toolbar;
         toolbar.Children.Add(_back);
         toolbar.Children.Add(_path);
         _back.SetResourceReference(StyleProperty, "QuietAction");
@@ -41,12 +49,85 @@ public sealed class NoteReader : UserControl, IDisposable
         Content = layout;
         _back.Click += (_, _) => GoBack();
         _preview.LinkRequested += OnPreviewLink;
+        _preview.LinkHovered += OnLinkHovered;
+        _preview.HoverEnded += (_, _) => CloseHover();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
 
     public LibraryNote? Note { get; private set; }
     public bool CanGoBack => _history.Count > 0;
+    public IReadOnlyList<LibraryHeading> Outline => HeadingParagraphs().Select((paragraph, index) => new LibraryHeading(
+        MarkdownDocumentRenderer.GetHeadingLevel(paragraph), new TextRange(paragraph.ContentStart, paragraph.ContentEnd).Text.Trim(), index)).ToArray();
+    private Paragraph[] HeadingParagraphs() => ReadingBlocks(_preview.Document.Blocks).OfType<Paragraph>()
+        .Where(paragraph => MarkdownDocumentRenderer.GetHeadingLevel(paragraph) > 0).ToArray();
+    internal int? HeadingSourceOffset(int index)
+    {
+        var headings = HeadingParagraphs();
+        return index >= 0 && index < headings.Length ? MarkdownDocumentRenderer.GetHeadingSourceOffset(headings[index]) : null;
+    }
+    public bool DirectLinks
+    {
+        get => _preview.ImmediateLinks;
+        set
+        {
+            _preview.ImmediateLinks = value;
+            _toolbar.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            _preview.Margin = value ? new Thickness(0) : new Thickness(0, 14, 0, 0);
+            _preview.Padding = value ? new Thickness(30, 20, 30, 40) : new Thickness(0);
+            _preview.MaxWidth = value ? 900 : double.PositiveInfinity;
+            if (value) ApplyReadingTypography();
+        }
+    }
+    public double VerticalOffset => _restoreOffset ?? _preview.VerticalOffset;
+    public bool CanGoForward => _forward.Count > 0;
+    public void GoForward()
+    {
+        if (_disposed || !_forward.TryPop(out var next)) return;
+        if (Note is not null) _history.Push(new(Note, VerticalOffset));
+        Display(_notes.FirstOrDefault(n => n.Id == next.Note.Id) ?? next.Note, next.Offset);
+        NavigationRequested?.Invoke(this, EventArgs.Empty);
+    }
+    public void NavigateHeading(int index)
+    {
+        if (_disposed || index < 0) return;
+        var document = _preview.Document;
+        var headings = HeadingParagraphs();
+        if (index >= headings.Length) return;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (!_disposed && ReferenceEquals(document, _preview.Document)) headings[index].BringIntoView();
+        }));
+    }
+
+    public bool FindText(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return false;
+        var text = new System.Text.StringBuilder();
+        var points = new List<TextPointer>();
+        for (var pointer = _preview.Document.ContentStart; pointer is not null && pointer.CompareTo(_preview.Document.ContentEnd) < 0;)
+        {
+            if (pointer.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text)
+            {
+                var run = pointer.GetTextInRun(LogicalDirection.Forward);
+                for (var i = 0; i < run.Length; i++) { text.Append(run[i]); points.Add(pointer.GetPositionAtOffset(i)!); }
+                pointer = pointer.GetPositionAtOffset(run.Length);
+            }
+            else pointer = pointer.GetNextContextPosition(LogicalDirection.Forward);
+        }
+        var content = text.ToString();
+        var start = _lastFind == query ? Math.Min(_nextFindAt, content.Length) : 0;
+        var match = content.IndexOf(query, start, StringComparison.CurrentCultureIgnoreCase);
+        if (match < 0 && start > 0) match = content.IndexOf(query, StringComparison.CurrentCultureIgnoreCase);
+        if (match < 0) return false;
+        _lastFind = query; _nextFindAt = match + query.Length;
+        _preview.Selection.Select(points[match], points[match + query.Length - 1].GetPositionAtOffset(1)!);
+        points[match].Paragraph?.BringIntoView();
+        _preview.Focus();
+        return true;
+    }
+    public event EventHandler<LibraryNote>? NewTabRequested;
+    internal Func<LibraryNote, bool>? NavigationGuard { get; set; }
     public event EventHandler<LibraryNote>? NoteChanged;
     public event EventHandler? NavigationRequested;
     public event EventHandler<string>? MessageChanged;
@@ -62,6 +143,7 @@ public sealed class NoteReader : UserControl, IDisposable
         _catalog = catalog;
         _notes = notes.ToArray();
         _history.Clear();
+        _forward.Clear();
         Note = null;
         _path.Text = "选择一篇笔记开始阅读";
         _preview.Markdown = "";
@@ -73,6 +155,7 @@ public sealed class NoteReader : UserControl, IDisposable
     {
         if (_disposed) return;
         ArgumentNullException.ThrowIfNull(note);
+        if (remember && NavigationGuard?.Invoke(note) == false) return;
         CloseCard();
         var offset = initialOffset is { } requested ? (double.IsFinite(requested) ? Math.Max(0, requested) : 0) : (double?)null;
         if (Note?.Id == note.Id)
@@ -89,6 +172,7 @@ public sealed class NoteReader : UserControl, IDisposable
             return;
         }
         if (remember && Note is not null) _history.Push(new ReadingPosition(Note, _restoreOffset ?? _preview.VerticalOffset));
+        if (remember) _forward.Clear();
         Display(note, offset ?? 0);
         if (remember) NavigationRequested?.Invoke(this, EventArgs.Empty);
     }
@@ -114,6 +198,7 @@ public sealed class NoteReader : UserControl, IDisposable
     public void GoBack()
     {
         if (_disposed || !_history.TryPop(out var previous)) return;
+        if (Note is not null) _forward.Push(new(Note, VerticalOffset));
         var note = _notes.FirstOrDefault(n => n.Id == previous.Note.Id) ?? previous.Note;
         Display(note, previous.Offset);
         NavigationRequested?.Invoke(this, EventArgs.Empty);
@@ -135,8 +220,9 @@ public sealed class NoteReader : UserControl, IDisposable
         var matches = _catalog.Resolve(target, source, _notes);
         if (matches.Count == 0) { CloseCard(); SetMessage("未找到笔记：" + target); return; }
         SetMessage("");
-        if (matches.Count > 1) ShowCandidates(matches, args.IsDoubleClick, placementTarget);
-        else if (args.IsDoubleClick) OpenNote(matches[0]);
+        if (matches.Count > 1) ShowCandidates(matches, DirectLinks || args.IsDoubleClick, placementTarget, DirectLinks && args.Modifiers.HasFlag(ModifierKeys.Control));
+        else if (DirectLinks && args.Modifiers.HasFlag(ModifierKeys.Control)) NewTabRequested?.Invoke(this, matches[0]);
+        else if (DirectLinks || args.IsDoubleClick) OpenNote(matches[0]);
         else ShowCard(matches[0], placementTarget);
     }
 
@@ -149,6 +235,8 @@ public sealed class NoteReader : UserControl, IDisposable
         Note = note;
         _path.Text = note.RelativePath;
         _preview.Markdown = note.Markdown;
+        _lastFind = ""; _nextFindAt = 0;
+        if (DirectLinks) ApplyReadingTypography();
         _back.IsEnabled = CanGoBack;
         _restoreOffset = offset;
         QueueRestore();
@@ -200,7 +288,7 @@ public sealed class NoteReader : UserControl, IDisposable
         ShowWindow("词条简卡 · " + note.Title, new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, placementTarget);
     }
 
-    private void ShowCandidates(IReadOnlyList<LibraryNote> notes, bool openFullNote, FrameworkElement? placementTarget)
+    private void ShowCandidates(IReadOnlyList<LibraryNote> notes, bool openFullNote, FrameworkElement? placementTarget, bool newTab = false)
     {
         var panel = new Grid { Margin = new Thickness(24) };
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -216,7 +304,8 @@ public sealed class NoteReader : UserControl, IDisposable
         void SelectNote()
         {
             if (list.SelectedItem is not ListBoxItem { Tag: LibraryNote selected }) return;
-            if (openFullNote) OpenNote(selected); else ShowCard(selected, placementTarget);
+            if (newTab) { CloseCard(); NewTabRequested?.Invoke(this, selected); }
+            else if (openFullNote) OpenNote(selected); else ShowCard(selected, placementTarget);
         }
         open.Click += (_, _) => SelectNote();
         list.MouseDoubleClick += (_, args) =>
@@ -269,9 +358,57 @@ public sealed class NoteReader : UserControl, IDisposable
 
     private void CloseCard()
     {
+        CloseHover();
         var window = _card;
         _card = null;
         window?.Close();
+    }
+
+    private void ApplyReadingTypography()
+    {
+        _preview.Document.FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI");
+        _preview.Document.FontSize = 16;
+        _preview.Document.LineHeight = 28;
+        foreach (var paragraph in HeadingParagraphs())
+        {
+            paragraph.FontFamily = _preview.Document.FontFamily;
+            paragraph.FontWeight = FontWeights.SemiBold;
+            paragraph.SetResourceReference(TextElement.ForegroundProperty, "NotebookText");
+        }
+    }
+
+    private static IEnumerable<Block> ReadingBlocks(BlockCollection blocks)
+    {
+        foreach (var block in blocks)
+        {
+            yield return block;
+            if (block is Section section) foreach (var child in ReadingBlocks(section.Blocks)) yield return child;
+            if (block is System.Windows.Documents.List list)
+                foreach (var item in list.ListItems) foreach (var child in ReadingBlocks(item.Blocks)) yield return child;
+        }
+    }
+
+    private void OnLinkHovered(object? sender, PreviewLinkEventArgs args)
+    {
+        if (!DirectLinks || _catalog is null) return;
+        var matches = _catalog.Resolve(args.Target, Note, _notes);
+        if (matches.Count != 1) return;
+        var note = matches[0];
+        var panel = new StackPanel { Margin = new Thickness(16), MaxWidth = 360 };
+        panel.Children.Add(Text(note.Title, 19, "NotebookText"));
+        if (note.Phonetics.Length > 0) panel.Children.Add(Text(note.Phonetics, 13, "NotebookMuted"));
+        panel.Children.Add(Text(note.Meaning.Length > 0 ? note.Meaning : note.Excerpt, 14, "NotebookText"));
+        var border = new Border { Child = panel, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4) };
+        border.SetResourceReference(Border.BackgroundProperty, "NotebookRaised");
+        border.SetResourceReference(Border.BorderBrushProperty, "NotebookBorder");
+        _hover = new Popup { Child = border, PlacementTarget = _preview, Placement = PlacementMode.MousePoint,
+            StaysOpen = true, AllowsTransparency = true, Focusable = false, IsHitTestVisible = false, IsOpen = true };
+    }
+
+    private void CloseHover()
+    {
+        if (_hover is null) return;
+        _hover.IsOpen = false; _hover.Child = null; _hover = null;
     }
 
     public void Dispose()

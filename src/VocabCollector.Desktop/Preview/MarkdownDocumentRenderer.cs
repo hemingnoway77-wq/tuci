@@ -18,6 +18,14 @@ namespace VocabCollector.Desktop.Preview;
 
 public static class MarkdownDocumentRenderer
 {
+    public static readonly DependencyProperty HeadingLevelProperty = DependencyProperty.RegisterAttached(
+        "HeadingLevel", typeof(int), typeof(MarkdownDocumentRenderer), new PropertyMetadata(0));
+    public static readonly DependencyProperty HeadingSourceOffsetProperty = DependencyProperty.RegisterAttached(
+        "HeadingSourceOffset", typeof(int), typeof(MarkdownDocumentRenderer), new PropertyMetadata(-1));
+    public static int GetHeadingLevel(DependencyObject element) => (int)element.GetValue(HeadingLevelProperty);
+    public static void SetHeadingLevel(DependencyObject element, int value) => element.SetValue(HeadingLevelProperty, value);
+    public static int GetHeadingSourceOffset(DependencyObject element) => (int)element.GetValue(HeadingSourceOffsetProperty);
+    public static void SetHeadingSourceOffset(DependencyObject element, int value) => element.SetValue(HeadingSourceOffsetProperty, value);
     private static readonly MarkdownPipeline Pipeline = CreatePipeline();
     private static readonly ResourceDictionary MonoFallback = ThemePalette.Create(AppTheme.Mono);
     private const string ContentFont = "Segoe UI, Microsoft YaHei UI, Microsoft YaHei";
@@ -59,6 +67,8 @@ public static class MarkdownDocumentRenderer
             case HeadingBlock heading:
             {
                 var paragraph = Paragraph(heading.Inline, onLink);
+                SetHeadingLevel(paragraph, heading.Level);
+                SetHeadingSourceOffset(paragraph, heading.Span.Start);
                 paragraph.FontFamily = new FontFamily(heading.Level == 1 ? DisplayFont : ContentFont);
                 paragraph.FontSize = heading.Level switch { 1 => 32, 2 => 21, 3 => 18, 4 => 16, _ => 14 };
                 paragraph.FontWeight = heading.Level == 1 ? FontWeights.Medium : FontWeights.SemiBold;

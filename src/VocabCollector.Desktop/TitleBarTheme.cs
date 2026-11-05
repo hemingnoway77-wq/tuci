@@ -28,9 +28,8 @@ public static class TitleBarTheme
             window.TryFindResource("Line") is not SolidColorBrush line)
             return false;
 
-        // Force light caption buttons so they stay visible on the paper-coloured caption.
-        var light = 0;
-        Set(handle, UseImmersiveDarkMode, ref light);
+        var dark = paper.Color.R * 0.2126 + paper.Color.G * 0.7152 + paper.Color.B * 0.0722 < 128 ? 1 : 0;
+        Set(handle, UseImmersiveDarkMode, ref dark);
 
         var applied = SetColor(handle, CaptionColor, paper.Color);
         applied &= SetColor(handle, TextColor, ink.Color);

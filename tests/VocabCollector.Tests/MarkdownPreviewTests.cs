@@ -11,6 +11,15 @@ namespace VocabCollector.Tests;
 public sealed class MarkdownPreviewTests
 {
     [Fact]
+    public void ImmediateLinksDispatchMouseSingleClickBeforeDoubleClickDelay() => OnSta(() =>
+    {
+        using var preview = new MarkdownPreview { Markdown = "[[target]]", ImmediateLinks = true };
+        var requests = new List<PreviewLinkEventArgs>();
+        preview.LinkRequested += (_, args) => requests.Add(args);
+        MouseClick(Inlines(preview.Document).OfType<Hyperlink>().Single(), 1);
+        Assert.Equal("target", Assert.Single(requests).Target);
+    });
+    [Fact]
     public void MouseDoubleClickOpensOnlyOnceWithoutShowingSingleClickCard() => OnSta(() =>
     {
         var preview = new MarkdownPreview { Markdown = "[[first]] and [[second]]" };

@@ -1,0 +1,77 @@
+<UserControl x:Class="VocabCollector.Desktop.Learning.LibraryShell" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:VocabCollector.Desktop.Learning" PreviewKeyDown="Shell_KeyDown" Background="{DynamicResource NotebookBackground}">
+ <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="NotebookTheme.xaml"/></ResourceDictionary.MergedDictionaries>
+  <HierarchicalDataTemplate DataType="{x:Type local:LibraryTreeEntry}" ItemsSource="{Binding Children}"><Grid ToolTip="{Binding RelativePath}"><Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><local:NotebookIcon Kind="{Binding Icon}" Width="14" Height="14"/><TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></Grid></HierarchicalDataTemplate>
+  <DataTemplate x:Key="ReferenceRow"><StackPanel><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding RelativePath}" Foreground="{DynamicResource NotebookMuted}" FontSize="12" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/></StackPanel></DataTemplate>
+ </ResourceDictionary></UserControl.Resources>
+ <Grid x:Name="NotebookRoot">
+  <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="26"/></Grid.RowDefinitions>
+  <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition x:Name="LeftWidth" Width="240" MinWidth="0"/><ColumnDefinition x:Name="LeftDividerWidth" Width="4"/><ColumnDefinition Width="*" MinWidth="260"/><ColumnDefinition x:Name="RightDividerWidth" Width="4"/><ColumnDefinition x:Name="RightWidth" Width="238" MinWidth="0"/></Grid.ColumnDefinitions>
+  <Border Grid.RowSpan="2" Background="{DynamicResource NotebookSurface}" BorderBrush="{DynamicResource NotebookBorder}" BorderThickness="0,0,1,0">
+   <DockPanel Margin="5,5,5,8">
+    <StackPanel DockPanel.Dock="Bottom">
+     <Button x:Name="NotebookThemeButton" Click="Theme_Click" ToolTip="切换明暗主题"><local:NotebookIcon Kind="moon"/></Button>
+     <Button Click="Trash_Click" ToolTip="已删除的笔记"><local:NotebookIcon Kind="trash"/></Button>
+     <Button Click="Settings_Click" ToolTip="兔词设置"><local:NotebookIcon Kind="settings"/></Button>
+    </StackPanel>
+    <StackPanel>
+     <Rectangle Width="23" Height="23" Margin="0,7,0,17" Fill="{DynamicResource NotebookMuted}" ToolTip="兔词"><Rectangle.OpacityMask><ImageBrush ImageSource="/兔词;component/Assets/app-icon-256.png"/></Rectangle.OpacityMask></Rectangle>
+     <Button x:Name="NotebookFilesButton" Click="Files_Click" ToolTip="文件"><local:NotebookIcon Kind="folder"/></Button>
+     <Button x:Name="NotebookSearchButton" Click="Search_Click" ToolTip="全文搜索  Ctrl+Shift+F" Margin="0,5,0,0"><local:NotebookIcon Kind="search"/></Button>
+     <Button x:Name="NotebookQuickOpenButton" Click="QuickOpen_Click" ToolTip="快速切换  Ctrl+O" Margin="0,5,0,0"><local:NotebookIcon Kind="file"/></Button>
+     <Button x:Name="NotebookGraphButton" Click="Graph_Click" ToolTip="关系图谱" Margin="0,5,0,0"><local:NotebookIcon Kind="graph"/></Button>
+     <Button Click="Bookmarks_Click" ToolTip="书签" Margin="0,5,0,0"><local:NotebookIcon Kind="bookmark"/></Button>
+     <Border Height="1" Background="{DynamicResource NotebookBorder}" Margin="5,12"/>
+     <Button Click="Capture_Click" ToolTip="收录单词"><local:NotebookIcon Kind="plus"/></Button>
+     <Button Click="Roaming_Click" ToolTip="漫游复习" Margin="0,5,0,0"><local:NotebookIcon Kind="refresh"/></Button>
+     <Button Click="Reading_Click" ToolTip="每日阅读" Margin="0,5,0,0"><local:NotebookIcon Kind="book"/></Button>
+    </StackPanel>
+   </DockPanel>
+  </Border>
+  <Border x:Name="LeftPane" Grid.Column="1" Background="{DynamicResource NotebookSurface}" ClipToBounds="True">
+   <Grid>
+    <Grid.RowDefinitions><RowDefinition Height="36"/><RowDefinition Height="38"/><RowDefinition Height="*"/><RowDefinition Height="36"/></Grid.RowDefinitions>
+    <Grid Margin="8,0,8,0"><TextBlock x:Name="SidebarTitle" Text="文件" VerticalAlignment="Center" FontWeight="SemiBold"/><Button HorizontalAlignment="Right" Click="ToggleLeft_Click" ToolTip="折叠左侧栏"><local:NotebookIcon Kind="panel-left"/></Button></Grid>
+    <StackPanel x:Name="FileTools" Grid.Row="1" Orientation="Horizontal" Margin="8,0,8,4">
+     <Button x:Name="NewMarkdownButton" Click="NewNote_Click" ToolTip="新建笔记"><local:NotebookIcon Kind="edit"/></Button>
+     <Button x:Name="NewFolderButton" Click="NewFolder_Click" ToolTip="新建文件夹"><local:NotebookIcon Kind="folder"/></Button>
+     <Button Click="Sort_Click" ToolTip="切换文件排序"><local:NotebookIcon Kind="sort"/></Button>
+     <Button Click="Reveal_Click" ToolTip="定位当前文件"><local:NotebookIcon Kind="file"/></Button>
+     <Button Click="CollapseAll_Click" ToolTip="折叠所有文件夹"><local:NotebookIcon Kind="list"/></Button>
+     <Button x:Name="ImportMarkdownButton" Click="Import_Click" ToolTip="导入 Markdown"><local:NotebookIcon Kind="plus"/></Button>
+     <Button x:Name="ReloadLibraryButton" Click="Reload_Click" ToolTip="刷新词库"><local:NotebookIcon Kind="refresh"/></Button>
+    </StackPanel>
+    <Grid x:Name="SearchTools" Grid.Row="1" Visibility="Collapsed" Margin="10,0,10,5"><TextBox x:Name="LibrarySearchBox" TextChanged="Search_Changed" ToolTip="搜索笔记标题或正文" AutomationProperties.Name="搜索词库"/></Grid>
+    <Grid Grid.Row="2">
+     <TreeView x:Name="LibraryFilesTree" ItemsSource="{Binding Tree}" SelectedItemChanged="Tree_Selected" PreviewMouseRightButtonDown="Tree_RightClick" PreviewMouseLeftButtonDown="Tree_MouseDown" MouseMove="Tree_MouseMove" AllowDrop="True" Drop="Tree_Drop" ContextMenuOpening="Tree_ContextMenuOpening" TreeViewItem.Expanded="Tree_Expanded"/>
+     <ListBox x:Name="LibrarySearchResults" Visibility="Collapsed" ItemsSource="{Binding SearchResults}" SelectionChanged="SearchResult_Selected"><ListBox.ItemTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding Note.Title}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Note.RelativePath}" Foreground="{DynamicResource NotebookMuted}" FontSize="12" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Excerpt}" Foreground="{DynamicResource NotebookMuted}" FontSize="12" TextWrapping="Wrap" MaxHeight="38" Margin="0,4,0,0"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox>
+     <TextBlock x:Name="LibraryEmptyText" Text="词库还是空的。新建笔记或导入 Markdown 开始。" Foreground="{DynamicResource NotebookMuted}" TextWrapping="Wrap" Margin="18,14" VerticalAlignment="Top" IsHitTestVisible="False" Visibility="Collapsed"/>
+    </Grid>
+    <Border Grid.Row="3" BorderBrush="{DynamicResource NotebookBorder}" BorderThickness="0,1,0,0"><Grid Margin="12,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="NotebookName" Text="兔词词库" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><Button Grid.Column="1" Click="Commands_Click" ToolTip="命令面板  Ctrl+P"><local:NotebookIcon Kind="more"/></Button></Grid></Border>
+   </Grid>
+  </Border>
+  <GridSplitter x:Name="LeftSplitter" Grid.Column="2" Width="4" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" DragCompleted="Splitter_DragCompleted"/>
+  <Grid Grid.Column="3" Background="{DynamicResource NotebookBackground}">
+   <local:NoteWorkspace x:Name="Workspace"/>
+   <Grid x:Name="GraphHost" Visibility="Collapsed" Background="{DynamicResource NotebookBackground}">
+    <Grid.RowDefinitions><RowDefinition Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <Border Background="{DynamicResource NotebookSurface}" BorderBrush="{DynamicResource NotebookBorder}" BorderThickness="0,0,0,1"><DockPanel Margin="12,0,6,0"><Button x:Name="CloseGraphButton" DockPanel.Dock="Right" HorizontalAlignment="Right" Click="CloseGraph_Click" ToolTip="关闭关系图谱  Ctrl+W"><local:NotebookIcon Kind="close"/></Button><TextBlock Text="关系图谱" VerticalAlignment="Center"/></DockPanel></Border>
+   </Grid>
+   <Button x:Name="ShowLeftButton" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10" Click="ToggleLeft_Click" ToolTip="展开左侧栏" Visibility="Collapsed"><local:NotebookIcon Kind="panel-left"/></Button>
+   <Button x:Name="ShowRightButton" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="10" Click="ToggleRight_Click" ToolTip="展开右侧栏" Visibility="Collapsed"><local:NotebookIcon Kind="panel-right"/></Button>
+  </Grid>
+  <GridSplitter x:Name="RightSplitter" Grid.Column="4" Width="4" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" DragCompleted="Splitter_DragCompleted"/>
+  <Border x:Name="RightPane" Grid.Column="5" Background="{DynamicResource NotebookSurface}" ClipToBounds="True">
+   <Grid><Grid.RowDefinitions><RowDefinition Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <DockPanel Margin="7,0,7,0"><Button DockPanel.Dock="Right" Click="ToggleRight_Click" ToolTip="折叠右侧栏"><local:NotebookIcon Kind="panel-right"/></Button><StackPanel Orientation="Horizontal"><Button x:Name="OutlineModeButton" Click="Outline_Click" ToolTip="大纲"><local:NotebookIcon Kind="list"/></Button><Button x:Name="BacklinksModeButton" Click="Backlinks_Click" ToolTip="反向链接"><local:NotebookIcon Kind="link"/></Button><Button x:Name="OutgoingModeButton" Click="Outgoing_Click" ToolTip="出链"><local:NotebookIcon Kind="forward"/></Button></StackPanel></DockPanel>
+    <Grid Grid.Row="1" Margin="6,0,6,8"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+     <Grid Margin="8,10,8,12"><TextBlock x:Name="InspectorTitle" Text="大纲" FontWeight="SemiBold"/><Button HorizontalAlignment="Right" Click="BookmarkCurrent_Click" ToolTip="收藏当前笔记"><local:NotebookIcon Kind="bookmark" Width="14" Height="14"/></Button></Grid>
+     <Grid Grid.Row="1"><ListBox x:Name="NoteOutlineList" ItemsSource="{Binding Headings}" SelectionChanged="Heading_Selected"><ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Text}" Margin="{Binding Indent}" TextWrapping="Wrap"/></DataTemplate></ListBox.ItemTemplate></ListBox>
+      <ListBox x:Name="NoteReferencesList" Visibility="Collapsed" ItemsSource="{Binding References}" ItemTemplate="{StaticResource ReferenceRow}" SelectionChanged="Reference_Selected"/>
+      <TextBlock x:Name="InspectorEmpty" Text="打开笔记后在这里查看大纲。" Foreground="{DynamicResource NotebookMuted}" TextWrapping="Wrap" Margin="12,10" VerticalAlignment="Top" IsHitTestVisible="False"/>
+     </Grid>
+    </Grid>
+   </Grid>
+  </Border>
+  <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="5" BorderBrush="{DynamicResource NotebookBorder}" BorderThickness="0,1,0,0" Background="{DynamicResource NotebookSurface}"><Grid Margin="10,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="NotebookStatus" FontSize="12" Foreground="{DynamicResource NotebookMuted}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="NoteStatistics" Grid.Column="1" FontSize="12" Foreground="{DynamicResource NotebookMuted}" VerticalAlignment="Center" Margin="15,0,0,0"/></Grid></Border>
+ </Grid>
+</UserControl>

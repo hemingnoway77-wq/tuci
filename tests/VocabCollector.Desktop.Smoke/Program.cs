@@ -27,7 +27,12 @@ public static class Program
             try
             {
                 var runner = new SmokeRunner(app);
-                if (args.Contains("--article-only", StringComparer.Ordinal))
+                if (args.Contains("--notebook-only", StringComparer.Ordinal))
+                {
+                    await runner.RunNotebookChecksOnlyAsync();
+                    Console.WriteLine("PASS: isolated real WPF notebook tree/search, pickers, tabs/history, safe editing/conflicts, relations, panels/themes, graph and file operations");
+                }
+                else if (args.Contains("--article-only", StringComparer.Ordinal))
                 {
                     await runner.RunArticleChecksOnlyAsync();
                     Console.WriteLine("PASS: isolated real WebView2 local HTTP articles, history, protocol blocking, HTTP retry, popup/download cancellation and disposal");
@@ -35,7 +40,7 @@ public static class Program
                 else
                 {
                     await runner.RunChecksAsync();
-                    Console.WriteLine("PASS: real WPF controls, rendered note preview, in-app compact cards and full-note navigation, local library search/import/read/back without API, weighted roaming and persistent completion counts, learning themes and minimum-size screenshots, real WebView2 local HTTP articles and retry, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, spelling correction, corrected duplicate, uncertain and invalid spelling, required spelling metadata, duplicate, 401, malformed JSON and cancellation");
+                    Console.WriteLine("PASS: real WPF controls, rendered note preview, single-click in-app full-note navigation, Obsidian-style notebook tree/search/tabs/editing/relations/graph without API, weighted roaming and persistent completion counts, learning themes and minimum-size screenshots, real WebView2 local HTTP articles and retry, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, spelling correction, corrected duplicate, uncertain and invalid spelling, required spelling metadata, duplicate, 401, malformed JSON and cancellation");
                 }
                 exitCode = 0;
             }
@@ -113,7 +118,7 @@ public sealed partial class SmokeRunner(App app)
         Check(!preview.RenderedText.Contains("type: english-word") && !preview.RenderedText.Contains("primary_pos:") && !preview.RenderedText.Contains("created:") && !preview.RenderedText.Contains("**") && !preview.RenderedText.Contains("[[") && !preview.RenderedText.Contains("####") && !preview.RenderedText.Contains("sha256="), "preview hides front matter, formatting delimiters, wiki syntax and technical metadata");
         var relationLink = Links(preview.Document).Single(link => link.Tag is PreviewLink target && target.Target.EndsWith("/resilience", StringComparison.Ordinal));
         await CheckPreviewLinkOpensInLibraryAsync(main, relationLink, prior, "handwritten historical notes", navigator);
-        Check(server.Requests == 1, "preview compact card and full-note reading use no additional API request");
+        Check(server.Requests == 1, "preview navigation and full-note reading use no additional API request");
         await File.WriteAllTextAsync(Path.Combine(output,"sample.md"), text);
         Check(!text.Contains("[[名词/economy|economy]]"), "a missing example-word card is plain text");
         Check(text.Contains("**词形**：resilient的副词是resiliently。"), "a missing word-form card stays plain even beside Chinese text");

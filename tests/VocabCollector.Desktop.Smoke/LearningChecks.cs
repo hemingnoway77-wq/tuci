@@ -22,20 +22,14 @@ public sealed partial class SmokeRunner
     {
         var externalOpens = navigator.NoteOpens;
         link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent, link));
-        await Until(() => main.OwnedWindows.Cast<Window>().Any(window => window.IsVisible && window.Title.StartsWith("词条简卡 · ", StringComparison.Ordinal)));
-        var card = main.OwnedWindows.Cast<Window>().Single(window => window.IsVisible && window.Title.StartsWith("词条简卡 · ", StringComparison.Ordinal));
-        Check(Control<RadioButton>(main, "CaptureTab").IsChecked == true, "single capture-preview click keeps the capture page behind its compact card");
-        Check(navigator.NoteOpens == externalOpens, "single preview click never launches an external note application");
-        Check(Descendants<TextBlock>(card).Any(block => block.Text.Contains(Path.GetFileNameWithoutExtension(path), StringComparison.Ordinal)), "compact card identifies its linked note");
-        Invoke(Descendants<Button>(card).Single(button => Equals(button.Content, "打开整篇")));
         await CheckLibraryReadsPathAsync(main, path, expectedText);
-        Check(!card.IsVisible && navigator.NoteOpens == externalOpens, "explicit compact-card action closes the card and opens the full note inside the application");
+        Check(navigator.NoteOpens == externalOpens, "capture preview single-click opens the full note internally without an external application");
         await SelectPageAsync(main, "CaptureTab");
     }
 
     private static LearningPage Learning(MainWindow main) => Control<Grid>(main, "PageHost").Children.OfType<LearningPage>().Single();
     private static T LearningControl<T>(LearningPage page, string name) where T : FrameworkElement =>
-        (T)(page.FindName(name) ?? throw new InvalidOperationException("Missing learning control " + name));
+        (T)(page.FindName(name) ?? page.NotebookControl.FindName(name) ?? throw new InvalidOperationException("Missing learning control " + name));
     private static MarkdownPreview ReadingPreview(LearningPage page) => Descendants<MarkdownPreview>(page.ReaderControl).Single(preview => preview.Name == "ReadingPreview");
 
     private static async Task CheckLibraryReadsPathAsync(MainWindow main, string path, string expectedText)
@@ -62,14 +56,18 @@ public sealed partial class SmokeRunner
 
     private static async Task SelectLibraryNoteAsync(LearningPage page, LibraryNote note)
     {
-        var list = LearningControl<ListBox>(page, "LibraryNotesList");
-        Check(page.VisibleNotes.Any(candidate => candidate.Id == note.Id), "target note is offered by the visible library list");
-        list.SelectedItem = null;
-        list.ScrollIntoView(note);
-        list.UpdateLayout();
-        list.SelectedItem = page.VisibleNotes.Single(candidate => candidate.Id == note.Id);
+        Invoke(LearningControl<Button>(page, "NotebookFilesButton"));
+        var tree = LearningControl<TreeView>(page, "LibraryFilesTree");
+        foreach (var folder in FlattenTree(page.NotebookControl.Tree).Where(entry => entry.IsFolder && note.RelativePath.StartsWith(entry.RelativePath + "/", StringComparison.OrdinalIgnoreCase))) folder.IsExpanded = true;
+        tree.UpdateLayout();
+        var item = Descendants<TreeViewItem>(tree).Single(container => container.DataContext is LibraryTreeEntry entry && entry.Note?.Id == note.Id);
+        item.IsSelected = false;
+        ((ISelectionItemProvider)new TreeViewItemAutomationPeer(item).GetPattern(PatternInterface.SelectionItem)!).Select();
+        item.BringIntoView();
         await Until(() => page.ReaderControl.Note?.Id == note.Id);
+        Check(tree.SelectedItem is LibraryTreeEntry selected && selected.Note?.Id == note.Id, "real file tree selects and opens its Markdown file");
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        await Task.Delay(220);
     }
 
     private async Task CheckLearningAsync(MainWindow main, MainViewModel vm, ThemeManager themes, string vault,
@@ -100,35 +98,23 @@ public sealed partial class SmokeRunner
             Check(page.AllNotes.Any(note => note.Title == "resilient" && note.IsWord), "generated English vocabulary remains searchable and eligible for review");
             Check(page.AllNotes.Where(note => note.RelativePath.StartsWith("词根/", StringComparison.Ordinal)).All(note => !note.IsWord), "root notes are readable without becoming roaming candidates");
 
+            page.NotebookControl.FocusSearch();
             var search = LearningControl<TextBox>(page, "LibrarySearchBox");
             search.Text = "手写中文";
-            await Until(() => page.Query == "手写中文" && page.VisibleNotes.Count == 1);
-            Check(page.VisibleNotes.Single().AbsolutePath == chinesePath, "library search matches ordinary Chinese note bodies");
-            await SelectLibraryNoteAsync(page, page.VisibleNotes.Single());
+            await Until(() => page.NotebookControl.SearchResults.Count == 1 && page.NotebookControl.SearchResults.Single().Note.AbsolutePath == chinesePath);
+            LearningControl<ListBox>(page, "LibrarySearchResults").SelectedIndex = 0;
+            await Until(() => page.ReaderControl.Note?.AbsolutePath == chinesePath);
             var preview = ReadingPreview(page);
             preview.SelectAll();
             Check(preview.Selection.Text.Contains("手写中文笔记", StringComparison.Ordinal), "ordinary Markdown reading permits selecting and copying text");
             Check(!preview.RenderedText.Contains("[[", StringComparison.Ordinal) && !preview.RenderedText.Contains("# 中文学习", StringComparison.Ordinal), "local reader renders text and links instead of raw Markdown delimiters");
             search.Text = "resilient";
-            await Until(() => page.Query == "resilient" && page.VisibleNotes.Any(note => note.Title == "resilient"));
-            Check(page.VisibleNotes.Any(note => note.AbsolutePath == chinesePath), "body links can also be found with an English query");
-            search.Text = "";
-            await Until(() => page.Query.Length == 0);
-
-            var folders = LearningControl<TreeView>(page, "LibraryFoldersTree");
-            folders.UpdateLayout();
-            var folderItem = Descendants<TreeViewItem>(folders).Single(item => item.Header is LibraryFolder { RelativePath: "随手笔记" });
-            var folderProvider = (ISelectionItemProvider)new TreeViewItemAutomationPeer(folderItem).GetPattern(PatternInterface.SelectionItem)!;
-            folderProvider.Select();
-            await Until(() => page.FolderLabel == "随手笔记");
-            Check(page.VisibleNotes.Count == 1 && page.VisibleNotes.Single().AbsolutePath == chinesePath, "directory selection narrows the library to the chosen Markdown folder");
-            await SelectLibraryNoteAsync(page, page.VisibleNotes.Single());
+            await Until(() => page.NotebookControl.SearchResults.Any(hit => hit.Note.Title == "resilient") && page.NotebookControl.SearchResults.Any(hit => hit.Note.AbsolutePath == chinesePath));
+            await SelectLibraryNoteAsync(page, page.AllNotes.Single(note => note.AbsolutePath == chinesePath));
+            Check(FlattenTree(page.NotebookControl.Tree).Any(entry => entry.IsFolder && entry.RelativePath == "随手笔记"), "real folder tree includes the ordinary Markdown directory");
             await CheckLibraryNavigationAndReturnAsync(main, page, chinesePath, navigator);
-
-            // Select the actual all-notes tree item before testing imported root-level notes.
-            var allItem = Descendants<TreeViewItem>(folders).Single(item => item.Header is LibraryFolder { RelativePath: "" });
-            ((ISelectionItemProvider)new TreeViewItemAutomationPeer(allItem).GetPattern(PatternInterface.SelectionItem)!).Select();
-            await Until(() => page.FolderLabel == "全部笔记");
+            await CheckNotebookWorkspaceAsync(main, page, wordRoot, output);
+            Invoke(LearningControl<Button>(page, "NotebookFilesButton"));
             var importSources = Path.Combine(run, "import-sources");
             Directory.CreateDirectory(importSources);
             var source = Path.Combine(importSources, "导入札记.md");
@@ -173,14 +159,9 @@ public sealed partial class SmokeRunner
         var offset = preview.VerticalOffset;
         var link = Links(preview.Document).Single(candidate => candidate.Tag is PreviewLink { Target: "形容词/resilient" });
         link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent, link));
-        await Until(() => main.OwnedWindows.Cast<Window>().Any(window => window.IsVisible && window.Title == "词条简卡 · resilient"));
-        Check(page.ReaderControl.Note?.AbsolutePath == chinesePath, "single library link opens a compact card while preserving the source note");
-        var card = main.OwnedWindows.Cast<Window>().Single(window => window.IsVisible && window.Title == "词条简卡 · resilient");
-        Invoke(Descendants<Button>(card).Single(button => Equals(button.Content, "打开整篇")));
         await Until(() => page.ReaderControl.Note?.Title == "resilient");
-        Check(ReadingPreview(page).RenderedText.Contains("有韧性的", StringComparison.Ordinal) && navigator.NoteOpens == 0, "compact-card full note stays in the local library reader");
-        var back = Descendants<Button>(page.ReaderControl).Single(button => Equals(button.Content, "← 返回"));
-        Invoke(back);
+        Check(ReadingPreview(page).RenderedText.Contains("有韧性的", StringComparison.Ordinal) && navigator.NoteOpens == 0, "single library link opens the local full note");
+        Invoke(Descendants<Button>(page.NotebookControl.Documents).Single(button => Equals(button.ToolTip, "后退")));
         await Until(() => page.ReaderControl.Note?.AbsolutePath == chinesePath && Math.Abs(ReadingPreview(page).VerticalOffset - offset) <= 3);
         Check(ReadingPreview(page).RenderedText.Contains("第 90 段", StringComparison.Ordinal), "back navigation restores the complete source note and its prior reading position");
     }
@@ -205,9 +186,11 @@ public sealed partial class SmokeRunner
             await page.ReloadAsync();
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             Check(page.AllNotes.Count == 2, "a plain local directory loads both Chinese Markdown and an English word");
+            page.NotebookControl.FocusSearch();
             LearningControl<TextBox>(page, "LibrarySearchBox").Text = "没有 Obsidian";
-            await Until(() => page.VisibleNotes.Count == 1);
-            await SelectLibraryNoteAsync(page, page.VisibleNotes.Single());
+            await Until(() => page.NotebookControl.SearchResults.Count == 1 && page.NotebookControl.SearchResults.Single().Note.AbsolutePath == path);
+            LearningControl<ListBox>(page, "LibrarySearchResults").SelectedIndex = 0;
+            await Until(() => page.ReaderControl.Note?.AbsolutePath == path);
             Check(page.ReaderControl.Note?.AbsolutePath == path && ReadingPreview(page).RenderedText.Contains("在兔词里查找和阅读", StringComparison.Ordinal), "a standalone local library searches and reads without an API service or external application");
             Snapshot(window, Path.Combine(output, "learning-no-obsidian.png"));
             Check(await File.ReadAllTextAsync(path) == markdown, "standalone reading preserves the original Markdown");
@@ -270,7 +253,8 @@ public sealed partial class SmokeRunner
             await SelectPageAsync(main, "LibraryTab");
             await Until(() => !page.IsBusy);
             page.OpenNote(page.AllNotes.Single(note => note.AbsolutePath == chinesePath));
-            await SwitchThemeAsync(Control<RadioButton>(main, option), themes, target);
+            await themes.SetThemeAsync(target);
+            Check(themes.CurrentTheme == target, "application theme remains switchable while the notebook owns the chrome");
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             Check(ReadingPreview(page).RenderedText.Contains("手写中文", StringComparison.Ordinal), "theme change preserves the open local reading document");
             Snapshot(main, Path.Combine(output, "learning-library-" + slug + ".png"));
@@ -286,10 +270,12 @@ public sealed partial class SmokeRunner
         await Until(() => !page.IsBusy);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         main.UpdateLayout();
-        CheckReachable(LearningControl<TextBox>(page, "LibrarySearchBox"), main, "library search remains reachable at minimum size");
+        Invoke(LearningControl<Button>(page, "NotebookFilesButton"));
         CheckReachable(LearningControl<Button>(page, "ImportMarkdownButton"), main, "Markdown import remains reachable at minimum size");
+        page.NotebookControl.FocusSearch();
+        CheckReachable(LearningControl<TextBox>(page, "LibrarySearchBox"), main, "library search remains reachable at minimum size");
         Check(ReadingPreview(page).ActualWidth >= 250 && ReadingPreview(page).ActualHeight >= 180, "minimum library window leaves a usable text-reading area");
-        Snapshot(main, Path.Combine(output, "learning-library-minimum.png"));
+        Snapshot(main, Path.Combine(output, "notebook-minimum.png"));
         await SelectPageAsync(main, "RoamingTab");
         await Until(() => !page.IsBusy && page.HasExposure);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);

@@ -11,6 +11,58 @@ namespace VocabCollector.Tests;
 public sealed class NoteReaderTests
 {
     [Fact]
+    public void OutlineUsesRenderedHeadingsIncludingQuotesAndExcludesHiddenHtmlAndBoldText() => Run((reader, owner, notes) =>
+    {
+        const string start = "# Visible *one*\n\n> ## Quoted **two**\n\n<div>\n# Hidden html\n</div>\n\n**Ordinary bold line**\n\n";
+        reader.OpenNote(notes[0] with { Markdown = start + string.Join("\n\n", Enumerable.Repeat("Long reading paragraph.", 80)) + "\n\n### Last heading\n" });
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(60));
+        Assert.Equal(new[] { "Visible one", "Quoted two", "Last heading" }, reader.Outline.Select(heading => heading.Text));
+        Assert.Equal(new[] { 1, 2, 3 }, reader.Outline.Select(heading => heading.Level));
+        Assert.Equal(new[] { 0, 1, 2 }, reader.Outline.Select(heading => heading.Index));
+        var preview = Descendants<MarkdownPreview>(reader).Single();
+        // Decorative font weight must not become a navigation marker.
+        var bold = preview.Document.Blocks.OfType<System.Windows.Documents.Paragraph>()
+            .Single(paragraph => new System.Windows.Documents.TextRange(paragraph.ContentStart, paragraph.ContentEnd).Text.Contains("Ordinary bold line"));
+        bold.FontWeight = FontWeights.SemiBold;
+        reader.NavigateHeading(2);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(60));
+        Assert.True(preview.VerticalOffset > 400);
+    });
+    [Fact]
+    public void RepeatedFindAdvancesAndHeadingIndexScrollsToLaterHeading() => Run((reader, owner, notes) =>
+    {
+        reader.DirectLinks = true;
+        var markdown = "# First\n\nfind me\n\nfind me\n\n" + string.Join("\n\n", Enumerable.Repeat("Long paragraph.", 80)) + "\n\n## Last heading\n\nfind me";
+        reader.OpenNote(notes[0] with { Markdown = markdown });
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(70));
+        var preview = Descendants<MarkdownPreview>(reader).Single();
+        Assert.True(reader.FindText("find me"));
+        var first = preview.Selection.Start;
+        Assert.True(reader.FindText("find me"));
+        Assert.True(preview.Selection.Start.CompareTo(first) > 0);
+        reader.NavigateHeading(1);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(70));
+        Assert.True(preview.VerticalOffset > 400);
+    });
+    [Fact]
+    public void DirectLinksNavigateAndControlLinksRequestNewTabWithoutChangingCurrent() => Run((reader, owner, notes) =>
+    {
+        reader.DirectLinks = true;
+        reader.OpenNote(notes[0]);
+        LibraryNote? newTab = null;
+        reader.NewTabRequested += (_, note) => newTab = note;
+        reader.HandleLink(new PreviewLinkEventArgs("second", true, modifiers: System.Windows.Input.ModifierKeys.Control), notes[0], owner);
+        Assert.Equal(notes[1], newTab);
+        Assert.Equal(notes[0], reader.Note);
+        reader.HandleLink(new PreviewLinkEventArgs("second", true), notes[0], owner);
+        Assert.Equal(notes[1], reader.Note);
+        Assert.Empty(owner.OwnedWindows.Cast<Window>());
+        reader.GoBack();
+        Assert.True(reader.CanGoForward);
+        reader.GoForward();
+        Assert.Equal(notes[1], reader.Note);
+    });
+    [Fact]
     public void SingleLinkShowsCompactCardAndOnlyExplicitOpenNavigates() => Run((reader, owner, notes) =>
     {
         reader.OpenNote(notes[0]);

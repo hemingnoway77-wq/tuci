@@ -6,13 +6,14 @@ using VocabCollector.Core.Storage;
 
 namespace VocabCollector.Core.Library;
 
-public sealed class LibraryCatalog
+public sealed partial class LibraryCatalog
 {
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> Gates = new(StringComparer.OrdinalIgnoreCase);
     private readonly VaultOptions _options;
     private readonly string _wordRoot;
     private readonly SemaphoreSlim _gate;
     private List<CatalogEntry>? _pendingEntries;
+    private List<CatalogEntry>? _lastKnownEntries;
     public string LocalStateDirectory { get; }
 
     public LibraryCatalog(VaultOptions options, string? metadataDirectory = null)
@@ -43,6 +44,7 @@ public sealed class LibraryCatalog
         var statePath = Path.Combine(LocalStateDirectory, "catalog.json");
         var previous = new List<CatalogEntry>();
         var canSave = true;
+        var readPersistedIndex = false;
         try
         {
             LocalLibraryState.EnsureNoLinks(statePath);
@@ -56,6 +58,8 @@ public sealed class LibraryCatalog
                     index.Entries.Select(entry => entry.RelativePath).Distinct(StringComparer.OrdinalIgnoreCase).Count() != index.Entries.Count)
                     throw new JsonException("词库索引格式无效。");
                 previous = index.Entries;
+                _lastKnownEntries = previous;
+                readPersistedIndex = true;
             }
         }
         catch (Exception error) when (LocalLibraryState.IsStorageError(error) || error is JsonException)
@@ -65,7 +69,18 @@ public sealed class LibraryCatalog
         }
         // Keep identities already shown by this catalog even when a previous save failed.
         // The disk file is still read above so corruption is reported rather than overwritten.
-        if (_pendingEntries is not null) previous = _pendingEntries;
+        if (_pendingEntries is not null)
+        {
+            if (readPersistedIndex)
+            {
+                // A temporarily unreadable index may have produced provisional identities.
+                // Prefer the recovered persistent identity, retaining only genuinely new paths.
+                var persistedPaths = previous.Select(entry => entry.RelativePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                previous = previous.Concat(_pendingEntries.Where(entry => !persistedPaths.Contains(entry.RelativePath))).ToList();
+            }
+            else previous = _pendingEntries;
+        }
+        else if (!canSave && _lastKnownEntries is not null) previous = _lastKnownEntries;
 
         var files = new List<(string RelativePath, string AbsolutePath, string Markdown, string Hash, DateTimeOffset Created)>();
         var unavailablePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -127,6 +142,7 @@ public sealed class LibraryCatalog
             {
                 await LocalLibraryState.WriteAsync(statePath, new CatalogIndex(1, entries), cancellationToken);
                 _pendingEntries = null;
+                _lastKnownEntries = entries;
             }
             catch (Exception error) when (LocalLibraryState.IsStorageError(error))
             {
@@ -205,9 +221,9 @@ public sealed class LibraryCatalog
         catch (Exception error) when (error is UriFormatException or ArgumentException) { return []; }
         if (raw.Length == 0 || raw.StartsWith('/') || raw.Contains(':') || raw.IndexOfAny(['\0', '|', '#', '?', '*']) >= 0) return [];
         var name = raw.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ? raw : raw + ".md";
-        var safe = notes.Where(IsSafeNote).ToArray();
         if (!name.Contains('/'))
-            return safe.Where(note => Path.GetFileName(note.RelativePath.Replace('\\', '/')).Normalize().Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
+            return notes.Where(note => Path.GetFileName(note.RelativePath.Replace('\\', '/')).Normalize().Equals(name, StringComparison.OrdinalIgnoreCase))
+                .Where(IsSafeNote).ToArray();
 
         IReadOnlyList<LibraryNote> Match(string relative)
         {
@@ -216,7 +232,8 @@ public sealed class LibraryCatalog
                 var absolute = Path.GetFullPath(Path.Combine(_wordRoot, relative.Replace('/', Path.DirectorySeparatorChar)));
                 VaultPaths.EnsureInside(_wordRoot, absolute);
                 var normalized = Path.GetRelativePath(_wordRoot, absolute).Replace('\\', '/').Normalize();
-                return safe.Where(note => note.RelativePath.Replace('\\', '/').Normalize().Equals(normalized, StringComparison.OrdinalIgnoreCase)).ToArray();
+                return notes.Where(note => note.RelativePath.Replace('\\', '/').Normalize().Equals(normalized, StringComparison.OrdinalIgnoreCase))
+                    .Where(IsSafeNote).ToArray();
             }
             catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException) { return []; }
         }
@@ -262,6 +279,7 @@ public sealed class LibraryCatalog
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            await using var vaultWriteLock = await AcquireVaultWriteLockAsync(cancellationToken);
             VaultPaths.EnsureInside(_options.RootPath, _wordRoot);
             var imports = new List<(string Source, string Target)>();
             var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

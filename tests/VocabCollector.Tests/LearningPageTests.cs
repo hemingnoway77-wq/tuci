@@ -13,6 +13,7 @@ public sealed class LearningPageTests
     [Fact]
     public void CorruptReviewStateDoesNotPreventReadingAndIsNotOverwritten() => MarkdownPreviewTests.OnSta(() =>
     {
+        SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
         var sandbox = Path.Combine(Path.GetTempPath(), "learning-page-" + Guid.NewGuid().ToString("N"));
         var vault = new VaultOptions(Directory.CreateDirectory(Path.Combine(sandbox, "vault")).FullName, "notes", false);
         var wordRoot = Directory.CreateDirectory(VaultPaths.WordRoot(vault)).FullName;
