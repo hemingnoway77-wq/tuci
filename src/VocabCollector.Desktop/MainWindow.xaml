@@ -1,11 +1,12 @@
 <Window x:Class="VocabCollector.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:preview="clr-namespace:VocabCollector.Desktop.Preview"
- Title="兔词" Width="1140" Height="800" MinWidth="920" MinHeight="660" WindowStartupLocation="CenterScreen" Style="{StaticResource {x:Type Window}}">
+ Title="兔词" Width="1220" Height="840" MinWidth="920" MinHeight="700" WindowStartupLocation="CenterScreen" Style="{StaticResource {x:Type Window}}">
  <Grid>
-  <Grid.RowDefinitions><RowDefinition Height="66" /><RowDefinition Height="*" /><RowDefinition Height="38" /></Grid.RowDefinitions>
+  <Grid.RowDefinitions><RowDefinition Height="100" /><RowDefinition Height="*" /><RowDefinition Height="38" /></Grid.RowDefinitions>
 
   <Border Grid.Row="0" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="34,0">
    <Grid>
-    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="58"/><RowDefinition Height="42"/></Grid.RowDefinitions>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,30,0">
      <Image Source="Assets/app-icon-256.png" Width="32" Height="32" Margin="0,0,11,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality" />
      <StackPanel VerticalAlignment="Center">
@@ -13,11 +14,13 @@
       <TextBlock Text="VOCABULARY NOTES" FontFamily="{StaticResource UiFont}" FontSize="12" Foreground="{DynamicResource InkTertiary}" Margin="0,1,0,0" />
      </StackPanel>
     </StackPanel>
-    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Stretch">
-     <RadioButton x:Name="CaptureTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="收录" Height="66" Margin="0,0,30,0" IsChecked="True" Checked="CaptureTab_Checked" AutomationProperties.Name="收录" />
-     <RadioButton x:Name="ReadingTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="每日阅读" Height="66" Checked="ReadingTab_Checked" AutomationProperties.Name="每日阅读" />
+    <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Orientation="Horizontal" VerticalAlignment="Stretch">
+     <RadioButton x:Name="CaptureTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="收录" MinWidth="56" Margin="0,0,28,0" IsChecked="True" Checked="CaptureTab_Checked" AutomationProperties.Name="收录" />
+     <RadioButton x:Name="LibraryTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="词库" MinWidth="56" Margin="0,0,28,0" Checked="LibraryTab_Checked" AutomationProperties.Name="词库" />
+     <RadioButton x:Name="RoamingTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="漫游" MinWidth="56" Margin="0,0,28,0" Checked="RoamingTab_Checked" AutomationProperties.Name="漫游" />
+     <RadioButton x:Name="ReadingTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="每日阅读" MinWidth="78" Checked="ReadingTab_Checked" AutomationProperties.Name="每日阅读" />
     </StackPanel>
-    <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
      <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
       <TextBlock Text="主题" Style="{StaticResource MetaText}" VerticalAlignment="Center" Margin="0,0,10,0" />
       <RadioButton x:Name="ThemeMonoOption" GroupName="Theme" Style="{StaticResource ThemeSwatch}" Tag="Mono" Checked="ThemeOption_Checked" AutomationProperties.Name="墨白主题" ToolTip="墨白 · 纯黑白灰">
@@ -87,7 +90,7 @@
         </StackPanel>
        </Button>
        <Button x:Name="CancelButton" Content="取消本次操作" Command="{Binding CancelCommand}" Style="{StaticResource QuietAction}" Margin="0,5,0,0" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" />
-       <TextBlock Style="{StaticResource MetaCenter}" Text="自动纠错 · 保存到你的 OBSIDIAN" Margin="0,10,0,0" />
+       <TextBlock Style="{StaticResource MetaCenter}" Text="自动纠错 · 收进本地词库" Margin="0,10,0,0" />
       </StackPanel>
      </Grid>
     </Border>
@@ -153,7 +156,7 @@
           </ListBox>
          </StackPanel>
          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button x:Name="OpenNoteButton" Content="在 Obsidian 中打开" Click="OpenNote_Click" IsEnabled="{Binding CanOpen}" Style="{StaticResource OutlineAction}" />
+          <Button x:Name="OpenNoteButton" Content="在词库中阅读" Click="OpenNote_Click" IsEnabled="{Binding CanOpen}" Style="{StaticResource OutlineAction}" />
           <Button x:Name="OpenFolderButton" Content="打开文件夹" Click="OpenFolder_Click" IsEnabled="{Binding CanOpen}" Style="{StaticResource QuietAction}" Margin="6,0,0,0" />
          </StackPanel>
         </Grid>
@@ -166,11 +169,12 @@
 
   <Border Grid.Row="2" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="34,0">
    <Grid>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
      <Ellipse x:Name="StatusDot" Width="5" Height="5" Fill="{DynamicResource Accent}" Margin="0,0,9,0" />
      <TextBlock x:Name="StatusMessageText" Style="{StaticResource StatusText}" />
     </StackPanel>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="14,0,0,0">
      <ProgressBar x:Name="StatusProgress" Width="46" Height="2" IsIndeterminate="True" Visibility="Collapsed" Margin="0,0,14,0" />
      <TextBlock x:Name="StatusMetaText" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
     </StackPanel>

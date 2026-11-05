@@ -8,11 +8,14 @@
     <PackageId>VocabCollector</PackageId>
     <AssemblyTitle>兔词</AssemblyTitle>
     <Product>兔词</Product>
-    <Description>将遇见的英文单词整理为 Obsidian 学习笔记。</Description>
+    <Description>收录英文单词，在应用内阅读笔记与漫游复习。</Description>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../VocabCollector.Core/VocabCollector.Core.csproj" /></ItemGroup>
-  <ItemGroup><PackageReference Include="Markdig" Version="1.4.2" /></ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Markdig" Version="1.4.2" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+  </ItemGroup>
   <ItemGroup><Resource Include="Assets\app.ico" /><Resource Include="Assets\app-icon-256.png" /></ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../THIRD-PARTY-NOTICES.md" LogicalName="VocabCollector.ThirdPartyNotices" />

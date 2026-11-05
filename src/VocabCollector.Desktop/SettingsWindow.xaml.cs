@@ -20,7 +20,7 @@ public partial class SettingsWindow : Window
     private void Themes_ThemeChanged(object? sender, AppTheme theme) => TitleBarTheme.Apply(this);
     private void Browse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new OpenFolderDialog { Title = "选择 Obsidian 仓库根目录", Multiselect = false };
+        var picker = new OpenFolderDialog { Title = "选择本地词库位置", Multiselect = false };
         if (picker.ShowDialog(this) == true) VaultBox.Text = picker.FolderName;
     }
     private async void Save_Click(object sender, RoutedEventArgs e)

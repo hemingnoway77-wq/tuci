@@ -4,6 +4,30 @@ using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Tests;
 public class MainViewModelTests
 {
+    [Fact]
+    public async Task ExistingWordLoadsItsOriginalMarkdownWithoutCallingAiAgain()
+    {
+        using var vault = new TempVault();
+        var note = vault.Note("英语单词/word.md", "# word\n\n**释义**：\n\n> n. 原有词卡\n\n#### 我的笔记\n手写补充\n");
+        var vm = new MainViewModel(new TestService((_, _) => Task.FromResult(new CaptureResult(
+            CaptureStatus.AlreadyExists, "word", "", [note], "已经收录。"))), AppSettings.Default with { Vault = vault.Options });
+        await vm.GenerateAsync();
+        Assert.Equal(await File.ReadAllTextAsync(note.AbsolutePath), vm.Markdown);
+        Assert.Contains("手写补充", vm.Markdown);
+        Assert.Equal(note, vm.SelectedNote);
+    }
+
+    [Fact]
+    public async Task ExistingWordPreviewNeverReadsOutsideTheLibrary()
+    {
+        using var vault = new TempVault(); using var outside = new TempVault();
+        var note = outside.Note("英语单词/word.md", "outside-library-canary");
+        var vm = new MainViewModel(new TestService((_, _) => Task.FromResult(new CaptureResult(
+            CaptureStatus.AlreadyExists, "word", "", [note], "already exists"))), AppSettings.Default with { Vault = vault.Options });
+        await vm.GenerateAsync();
+        Assert.DoesNotContain("outside-library-canary", vm.Markdown);
+    }
+
     [Theory]
     [InlineData(CaptureStatus.Saved)]
     [InlineData(CaptureStatus.AlreadyExists)]
@@ -114,7 +138,7 @@ public class MainViewModelTests
         await vm.GenerateAsync();
         await vm.RefreshLinksAsync();
         Assert.Equal("previous preview", vm.Markdown);
-        Assert.Contains("更新 1", vm.Message); Assert.Contains("预览未更新", vm.Message); Assert.Contains("Obsidian", vm.Message);
+        Assert.Contains("更新 1", vm.Message); Assert.Contains("预览未更新", vm.Message); Assert.Contains("词库", vm.Message);
         Assert.DoesNotContain("刷新失败", vm.Message); Assert.False(vm.IsBusy);
     }
     [Fact] public async Task RefreshPreviewNeverReadsOutsideConfiguredVault()

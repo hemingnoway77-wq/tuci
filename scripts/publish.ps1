@@ -5,7 +5,7 @@ Set-StrictMode -Version Latest
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
     & (Join-Path $PSScriptRoot 'verify.ps1')
-    & dotnet publish src/VocabCollector.Desktop/VocabCollector.Desktop.csproj -c Release -r win-x64 --self-contained true -p:RestoreLockedMode=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=embedded -p:DebugSymbols=false -o $OutputDirectory
+    & dotnet publish src/VocabCollector.Desktop/VocabCollector.Desktop.csproj -c Release -r win-x64 --self-contained true -p:RestoreLockedMode=true -p:NuGetLockFilePath=packages.win-x64.lock.json -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:DebugType=embedded -p:DebugSymbols=false -o $OutputDirectory
     if ($LASTEXITCODE -ne 0) { throw 'Self-contained publish failed.' }
     $exePath = Join-Path $OutputDirectory '兔词.exe'
     $exePath = (Resolve-Path -LiteralPath $exePath).Path

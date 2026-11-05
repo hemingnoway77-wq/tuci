@@ -17,14 +17,28 @@ namespace VocabCollector.Desktop.Smoke;
 
 public static class Program
 {
-    [STAThread] public static int Main()
+    [STAThread] public static int Main(string[] args)
     {
         var app = new App(false) { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.InitializeComponent();
         var exitCode = 1;
         app.Dispatcher.BeginInvoke(new Action(async () =>
         {
-            try { await new SmokeRunner(app).RunChecksAsync(); Console.WriteLine("PASS: real WPF controls, rendered note preview, local preview links, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, spelling correction, corrected duplicate, uncertain and invalid spelling, required spelling metadata, duplicate, 401, malformed JSON, cancellation and screenshots"); exitCode = 0; }
+            try
+            {
+                var runner = new SmokeRunner(app);
+                if (args.Contains("--article-only", StringComparer.Ordinal))
+                {
+                    await runner.RunArticleChecksOnlyAsync();
+                    Console.WriteLine("PASS: isolated real WebView2 local HTTP articles, history, protocol blocking, HTTP retry, popup/download cancellation and disposal");
+                }
+                else
+                {
+                    await runner.RunChecksAsync();
+                    Console.WriteLine("PASS: real WPF controls, rendered note preview, in-app compact cards and full-note navigation, local library search/import/read/back without API, weighted roaming and persistent completion counts, learning themes and minimum-size screenshots, real WebView2 local HTTP articles and retry, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, spelling correction, corrected duplicate, uncertain and invalid spelling, required spelling metadata, duplicate, 401, malformed JSON and cancellation");
+                }
+                exitCode = 0;
+            }
             catch (Exception error) { Console.Error.WriteLine(error); }
             finally { app.Shutdown(); app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.ApplicationIdle); }
         }));
@@ -49,7 +63,8 @@ public sealed partial class SmokeRunner(App app)
         var themes = new ThemeManager(app.Resources, new AppearanceSettingsStore(configDir));
         await themes.LoadAsync();
         string? openedArticle = null;
-        var navigator = new RecordingNavigator(); var main = new MainWindow(vm, settingsStore, navigator, reading, url => openedArticle = url, themes); app.MainWindow = main; main.Show();
+        var learningState = Path.Combine(configDir, "learning");
+        var navigator = new RecordingNavigator(); var main = new MainWindow(vm, settingsStore, navigator, reading, url => openedArticle = url, themes, learningStateDirectory: learningState); app.MainWindow = main; main.Show();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         Check(!TitleBarTheme.IsSupported || TitleBarTheme.Apply(main), "native window caption adopts the current paper palette");
         await CheckThemeBeforeConfigurationAsync(main, themes, configDir, () => server.Requests);
@@ -97,9 +112,8 @@ public sealed partial class SmokeRunner(App app)
         Check(preview.RenderedText.Contains("resilient") && preview.RenderedText.Contains("有韧性的") && preview.RenderedText.Contains("能迅速恢复的") && preview.RenderedText.Contains("sal / sult"), "preview renders the word, stacked meanings and root group");
         Check(!preview.RenderedText.Contains("type: english-word") && !preview.RenderedText.Contains("primary_pos:") && !preview.RenderedText.Contains("created:") && !preview.RenderedText.Contains("**") && !preview.RenderedText.Contains("[[") && !preview.RenderedText.Contains("####") && !preview.RenderedText.Contains("sha256="), "preview hides front matter, formatting delimiters, wiki syntax and technical metadata");
         var relationLink = Links(preview.Document).Single(link => link.Tag is PreviewLink target && target.Target.EndsWith("/resilience", StringComparison.Ordinal));
-        relationLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent,relationLink));
-        await Until(() => navigator.Opened == prior);
-        Check(server.Requests == 1, "clicking an existing note in the preview opens locally without another API request");
+        await CheckPreviewLinkOpensInLibraryAsync(main, relationLink, prior, "handwritten historical notes", navigator);
+        Check(server.Requests == 1, "preview compact card and full-note reading use no additional API request");
         await File.WriteAllTextAsync(Path.Combine(output,"sample.md"), text);
         Check(!text.Contains("[[名词/economy|economy]]"), "a missing example-word card is plain text");
         Check(text.Contains("**词形**：resilient的副词是resiliently。"), "a missing word-form card stays plain even beside Chinese text");
@@ -130,11 +144,9 @@ public sealed partial class SmokeRunner(App app)
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         Check(preview.Markdown == text && !preview.RenderedText.Contains("[["), "link refresh also updates the rendered reading preview");
         var formLink = Links(preview.Document).Single(link => link.Tag is PreviewLink target && target.Target.EndsWith("/resiliently", StringComparison.Ordinal));
-        formLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent,formLink));
-        await Until(() => navigator.Opened == formTarget);
+        await CheckPreviewLinkOpensInLibraryAsync(main, formLink, formTarget, "manually added word-form card", navigator);
         var rootLink = Links(preview.Document).Single(link => new TextRange(link.ContentStart,link.ContentEnd).Text == "sal / sult");
-        rootLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent,rootLink));
-        await Until(() => navigator.Opened == rootTarget);
+        await CheckPreviewLinkOpensInLibraryAsync(main, rootLink, rootTarget, "manually added root card", navigator);
         Check(server.Requests == beforeRefresh, "refresh uses zero model requests");
         Check(await File.ReadAllTextAsync(manualTarget) == "manually added target note", "unmanaged manual note stays unchanged");
         var migrated = await File.ReadAllTextAsync(legacyPath);
@@ -170,7 +182,12 @@ public sealed partial class SmokeRunner(App app)
         Check(VisibleBounds(Control<TextBox>(main,"ContextBox"),main).Height >= Control<TextBox>(main,"ContextBox").ActualHeight-1,"source context remains reachable at minimum size");
         Snapshot(main,Path.Combine(output,"main-minimum.png")); main.Width=1140; main.Height=800;
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-        Invoke(Control<Button>(main,"OpenNoteButton")); await Until(() => navigator.Opened == note.AbsolutePath);
+        Invoke(Control<Button>(main,"OpenNoteButton"));
+        await CheckLibraryReadsPathAsync(main, note.AbsolutePath, "有韧性的");
+        Check(navigator.NoteOpens == 0, "capture full-note action reads inside the application");
+        await SelectPageAsync(main, "CaptureTab");
+        Invoke(Control<Button>(main,"OpenFolderButton")); await Until(() => navigator.FolderOpens == 1);
+        Check(navigator.Opened == note.AbsolutePath, "open-folder action retains its folder navigator route");
         var before = server.Requests; Invoke(Control<Button>(main,"GenerateButton"));
         await Until(() => !vm.IsBusy && vm.Message.Contains("已经收录"));
         Check(server.Requests == before && await File.ReadAllTextAsync(note.AbsolutePath) == text, "duplicate avoids API and keeps handwritten content");
@@ -243,6 +260,8 @@ public sealed partial class SmokeRunner(App app)
         Check(vm.Word == "cancelled" && Directory.GetFiles(vault,"*.md",SearchOption.AllDirectories).Length == baselineNoteCount + 1, "errors and cancellation create no note");
         Check(await File.ReadAllTextAsync(correctedNote.AbsolutePath) == correctedWithPersonalNote, "subsequent errors and cancellation leave the corrected card unchanged");
         Check(await File.ReadAllTextAsync(prior) == "handwritten historical notes", "historical file unchanged");
+        await CheckLearningAsync(main, vm, themes, vault, run, learningState, output, navigator, () => server.Requests);
+        await CheckArticleAsync(main, run, output);
         Check(bindings.Errors.Count == 0, "no WPF binding errors: " + string.Join(" | ",bindings.Errors));
         await File.WriteAllTextAsync(Path.Combine(output,"result.txt"),$"PASS\nVault: {vault}\nSample: {note.AbsolutePath}\nRequests: {server.Requests}\nBinding errors: 0\n");
         main.Close(); Console.WriteLine("Artifacts: " + output);
@@ -325,8 +344,10 @@ public sealed partial class SmokeRunner(App app)
     private sealed class RecordingNavigator : IAppNavigator
     {
         public string? Opened { get; private set; }
-        public void OpenNote(NoteLocation note) => Opened=note.AbsolutePath;
-        public void OpenFolder(NoteLocation note) => Opened=note.AbsolutePath;
+        public int NoteOpens { get; private set; }
+        public int FolderOpens { get; private set; }
+        public void OpenNote(NoteLocation note) { NoteOpens++; Opened=note.AbsolutePath; }
+        public void OpenFolder(NoteLocation note) { FolderOpens++; Opened=note.AbsolutePath; }
     }
     private sealed class BindingErrors : TraceListener
     {

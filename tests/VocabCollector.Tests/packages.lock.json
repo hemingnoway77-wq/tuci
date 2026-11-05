@@ -53,6 +53,11 @@
           "Newtonsoft.Json": "13.0.3"
         }
       },
+      "Microsoft.Web.WebView2": {
+        "type": "Transitive",
+        "resolved": "1.0.4314.35",
+        "contentHash": "x5MFf2W03xueU1mMNvivXfHSsQ+ODo7vJ36qw/dLtU5Gs+8d7+7N7zzmNNDoT3ffosmcvZNBtUnlzyiDUuBkSQ=="
+      },
       "Newtonsoft.Json": {
         "type": "Transitive",
         "resolved": "13.0.3",
@@ -102,6 +107,7 @@
         "type": "Project",
         "dependencies": {
           "Markdig": "[1.4.2, )",
+          "Microsoft.Web.WebView2": "[1.0.4314.35, )",
           "VocabCollector.Core": "[1.0.0, )"
         }
       },

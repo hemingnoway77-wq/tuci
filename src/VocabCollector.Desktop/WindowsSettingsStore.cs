@@ -12,7 +12,7 @@ public sealed class WindowsSettingsStore(string settingsDirectory) : ISettingsSt
     private sealed record StoredSettings(string BaseUrl, string Model, string VaultRoot, string OutputSubfolder, bool ClassifyByPartOfSpeech, string EncryptedApiKey);
     public async Task<SettingsLoadResult> LoadAsync(CancellationToken ct)
     {
-        if (!File.Exists(SettingsFile)) return new(AppSettings.Default, "请先点击“设置”，填写 API 和 Obsidian 仓库位置。");
+        if (!File.Exists(SettingsFile)) return new(AppSettings.Default, "在设置中填写 AI 接口即可收录；本地词库可直接阅读和复习。");
         try
         {
             var stored = JsonSerializer.Deserialize<StoredSettings>(await File.ReadAllTextAsync(SettingsFile, ct), JsonOptions) ?? throw new JsonException();
@@ -27,7 +27,7 @@ public sealed class WindowsSettingsStore(string settingsDirectory) : ISettingsSt
     }
     public async Task SaveAsync(AppSettings settings, CancellationToken ct)
     {
-        SettingsValidation.Validate(settings);
+        StorageValidation(settings);
         var encrypted = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(settings.Api.ApiKey.Trim()), null, DataProtectionScope.CurrentUser));
         var stored = new StoredSettings(settings.Api.BaseUrl.Trim(), settings.Api.Model.Trim(), settings.Vault.RootPath, settings.Vault.OutputSubfolder, settings.Vault.ClassifyByPartOfSpeech, encrypted);
         Directory.CreateDirectory(settingsDirectory);
@@ -39,5 +39,14 @@ public sealed class WindowsSettingsStore(string settingsDirectory) : ISettingsSt
             File.Move(temporary, SettingsFile, true);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    private static void StorageValidation(AppSettings settings)
+    {
+        VocabCollector.Core.Storage.VaultPaths.WordRoot(settings.Vault);
+        // A local library is usable without an AI subscription or API credentials.
+        // A partially configured API still receives the normal validation errors.
+        if (!string.IsNullOrWhiteSpace(settings.Api.BaseUrl) || !string.IsNullOrWhiteSpace(settings.Api.ApiKey) ||
+            !string.IsNullOrWhiteSpace(settings.Api.Model)) SettingsValidation.ValidateApi(settings.Api);
     }
 }

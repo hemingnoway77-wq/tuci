@@ -1,0 +1,319 @@
+using System.IO;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Threading;
+using VocabCollector.Core;
+using VocabCollector.Core.Library;
+using VocabCollector.Core.Storage;
+using VocabCollector.Desktop.Learning;
+using VocabCollector.Desktop.Preview;
+using VocabCollector.Desktop.Reading;
+
+namespace VocabCollector.Desktop.Smoke;
+
+public sealed partial class SmokeRunner
+{
+    private async Task CheckPreviewLinkOpensInLibraryAsync(MainWindow main, Hyperlink link, string path,
+        string expectedText, RecordingNavigator navigator)
+    {
+        var externalOpens = navigator.NoteOpens;
+        link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent, link));
+        await Until(() => main.OwnedWindows.Cast<Window>().Any(window => window.IsVisible && window.Title.StartsWith("词条简卡 · ", StringComparison.Ordinal)));
+        var card = main.OwnedWindows.Cast<Window>().Single(window => window.IsVisible && window.Title.StartsWith("词条简卡 · ", StringComparison.Ordinal));
+        Check(Control<RadioButton>(main, "CaptureTab").IsChecked == true, "single capture-preview click keeps the capture page behind its compact card");
+        Check(navigator.NoteOpens == externalOpens, "single preview click never launches an external note application");
+        Check(Descendants<TextBlock>(card).Any(block => block.Text.Contains(Path.GetFileNameWithoutExtension(path), StringComparison.Ordinal)), "compact card identifies its linked note");
+        Invoke(Descendants<Button>(card).Single(button => Equals(button.Content, "打开整篇")));
+        await CheckLibraryReadsPathAsync(main, path, expectedText);
+        Check(!card.IsVisible && navigator.NoteOpens == externalOpens, "explicit compact-card action closes the card and opens the full note inside the application");
+        await SelectPageAsync(main, "CaptureTab");
+    }
+
+    private static LearningPage Learning(MainWindow main) => Control<Grid>(main, "PageHost").Children.OfType<LearningPage>().Single();
+    private static T LearningControl<T>(LearningPage page, string name) where T : FrameworkElement =>
+        (T)(page.FindName(name) ?? throw new InvalidOperationException("Missing learning control " + name));
+    private static MarkdownPreview ReadingPreview(LearningPage page) => Descendants<MarkdownPreview>(page.ReaderControl).Single(preview => preview.Name == "ReadingPreview");
+
+    private static async Task CheckLibraryReadsPathAsync(MainWindow main, string path, string expectedText)
+    {
+        await Until(() => Control<RadioButton>(main, "LibraryTab").IsChecked == true &&
+            Control<Grid>(main, "PageHost").Children.OfType<LearningPage>().Any(page => page.IsVisible && page.ReaderControl.Note?.AbsolutePath == path));
+        var page = Learning(main);
+        await Until(() => !page.IsBusy);
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        var preview = ReadingPreview(page);
+        Check(preview.IsVisible && preview.RenderedText.Contains(expectedText, StringComparison.Ordinal), "library reader displays the complete local target note");
+        Check(page.ReaderControl.Note!.Markdown == await File.ReadAllTextAsync(path), "in-app reader uses the actual Markdown file without replacing its contents");
+    }
+
+    private static async Task<LearningPage> OpenLibraryAsync(MainWindow main)
+    {
+        await SelectPageAsync(main, "LibraryTab");
+        await Until(() => Control<Grid>(main, "PageHost").Children.OfType<LearningPage>().Any(page => page.IsVisible && !page.IsBusy));
+        var page = Learning(main);
+        await page.ReloadAsync();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        return page;
+    }
+
+    private static async Task SelectLibraryNoteAsync(LearningPage page, LibraryNote note)
+    {
+        var list = LearningControl<ListBox>(page, "LibraryNotesList");
+        Check(page.VisibleNotes.Any(candidate => candidate.Id == note.Id), "target note is offered by the visible library list");
+        list.SelectedItem = null;
+        list.ScrollIntoView(note);
+        list.UpdateLayout();
+        list.SelectedItem = page.VisibleNotes.Single(candidate => candidate.Id == note.Id);
+        await Until(() => page.ReaderControl.Note?.Id == note.Id);
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+    }
+
+    private async Task CheckLearningAsync(MainWindow main, MainViewModel vm, ThemeManager themes, string vault,
+        string run, string learningState, string output, RecordingNavigator navigator, Func<int> modelRequests)
+    {
+        var beforeRequests = modelRequests();
+        var settings = vm.Settings;
+        var theme = themes.CurrentTheme;
+        var originalWidth = main.Width;
+        var originalHeight = main.Height;
+        var settingsFile = Path.Combine(run, "config", "settings.json");
+        var savedSettings = await File.ReadAllTextAsync(settingsFile);
+        var wordRoot = VaultPaths.WordRoot(settings.Vault);
+        Check(Path.GetFullPath(wordRoot).StartsWith(Path.GetFullPath(vault) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "learning checks use the isolated smoke vault");
+        var folder = Path.Combine(wordRoot, "随手笔记");
+        Directory.CreateDirectory(folder);
+        var chinesePath = Path.Combine(folder, "中文学习.md");
+        var chineseMarkdown = "# 中文学习\n\n这是一篇手写中文笔记，阅读不需要配置 API。\n\n[[形容词/resilient|查看 resilient 词条]]\n\n" +
+            string.Join("\n\n", Enumerable.Range(1, 90).Select(index => $"第 {index} 段：把遇见的表达放回自己的语境，在长文阅读中继续积累。"));
+        await File.WriteAllTextAsync(chinesePath, chineseMarkdown);
+
+        try
+        {
+            vm.ApplySettings(settings with { Api = new ApiOptions("", "", "") });
+            Check(vm.Settings.Api.ApiKey.Length == 0 && vm.Settings.Api.BaseUrl.Length == 0, "local learning is exercised with no API configuration");
+            var page = await OpenLibraryAsync(main);
+            Check(page.AllNotes.Any(note => note.AbsolutePath == chinesePath && !note.IsWord), "ordinary Chinese Markdown appears in the same library as vocabulary");
+            Check(page.AllNotes.Any(note => note.Title == "resilient" && note.IsWord), "generated English vocabulary remains searchable and eligible for review");
+            Check(page.AllNotes.Where(note => note.RelativePath.StartsWith("词根/", StringComparison.Ordinal)).All(note => !note.IsWord), "root notes are readable without becoming roaming candidates");
+
+            var search = LearningControl<TextBox>(page, "LibrarySearchBox");
+            search.Text = "手写中文";
+            await Until(() => page.Query == "手写中文" && page.VisibleNotes.Count == 1);
+            Check(page.VisibleNotes.Single().AbsolutePath == chinesePath, "library search matches ordinary Chinese note bodies");
+            await SelectLibraryNoteAsync(page, page.VisibleNotes.Single());
+            var preview = ReadingPreview(page);
+            preview.SelectAll();
+            Check(preview.Selection.Text.Contains("手写中文笔记", StringComparison.Ordinal), "ordinary Markdown reading permits selecting and copying text");
+            Check(!preview.RenderedText.Contains("[[", StringComparison.Ordinal) && !preview.RenderedText.Contains("# 中文学习", StringComparison.Ordinal), "local reader renders text and links instead of raw Markdown delimiters");
+            search.Text = "resilient";
+            await Until(() => page.Query == "resilient" && page.VisibleNotes.Any(note => note.Title == "resilient"));
+            Check(page.VisibleNotes.Any(note => note.AbsolutePath == chinesePath), "body links can also be found with an English query");
+            search.Text = "";
+            await Until(() => page.Query.Length == 0);
+
+            var folders = LearningControl<TreeView>(page, "LibraryFoldersTree");
+            folders.UpdateLayout();
+            var folderItem = Descendants<TreeViewItem>(folders).Single(item => item.Header is LibraryFolder { RelativePath: "随手笔记" });
+            var folderProvider = (ISelectionItemProvider)new TreeViewItemAutomationPeer(folderItem).GetPattern(PatternInterface.SelectionItem)!;
+            folderProvider.Select();
+            await Until(() => page.FolderLabel == "随手笔记");
+            Check(page.VisibleNotes.Count == 1 && page.VisibleNotes.Single().AbsolutePath == chinesePath, "directory selection narrows the library to the chosen Markdown folder");
+            await SelectLibraryNoteAsync(page, page.VisibleNotes.Single());
+            await CheckLibraryNavigationAndReturnAsync(main, page, chinesePath, navigator);
+
+            // Select the actual all-notes tree item before testing imported root-level notes.
+            var allItem = Descendants<TreeViewItem>(folders).Single(item => item.Header is LibraryFolder { RelativePath: "" });
+            ((ISelectionItemProvider)new TreeViewItemAutomationPeer(allItem).GetPattern(PatternInterface.SelectionItem)!).Select();
+            await Until(() => page.FolderLabel == "全部笔记");
+            var importSources = Path.Combine(run, "import-sources");
+            Directory.CreateDirectory(importSources);
+            var source = Path.Combine(importSources, "导入札记.md");
+            const string importedMarkdown = "# 导入札记\n\n从旧笔记带来的手写内容，保持原样。\n";
+            await File.WriteAllTextAsync(source, importedMarkdown);
+            Check(LearningControl<Button>(page, "ImportMarkdownButton").IsVisible && LearningControl<Button>(page, "ImportMarkdownButton").IsEnabled, "Markdown import is available without API configuration");
+            await page.ImportAsync([source]);
+            var imported = page.AllNotes.Single(note => note.Title == "导入札记");
+            Check(await File.ReadAllTextAsync(imported.AbsolutePath) == importedMarkdown && await File.ReadAllTextAsync(source) == importedMarkdown, "import preserves both the source and the new library copy");
+            await SelectLibraryNoteAsync(page, imported);
+            Check(ReadingPreview(page).RenderedText.Contains("从旧笔记带来", StringComparison.Ordinal), "imported ordinary Markdown can be selected and read immediately");
+            await File.WriteAllTextAsync(source, "# 不应覆盖\n\nchanged source\n");
+            await page.ImportAsync([source]);
+            Check(await File.ReadAllTextAsync(imported.AbsolutePath) == importedMarkdown && page.AllNotes.Count(note => note.Title == "导入札记") == 1, "importing the same filename never overwrites an existing note");
+
+            await CheckRoamingAsync(main, page, learningState, output);
+            await CheckLearningThemesAndMinimumAsync(main, page, themes, chinesePath, learningState, output);
+            Check(modelRequests() == beforeRequests, "search, import, full-note navigation, return, roaming and themes use zero model requests without an API key");
+            Check(navigator.NoteOpens == 0, "all learning paths stay inside the application");
+            Check(!app.Windows.OfType<ArticleWindow>().Any(window => window.IsVisible), "local learning never opens or requests a remote article");
+            Check(await File.ReadAllTextAsync(chinesePath) == chineseMarkdown, "reading and review do not write progress into Markdown content");
+            Check(await File.ReadAllTextAsync(settingsFile) == savedSettings, "local learning does not rewrite saved API settings");
+            Check(!Directory.GetFiles(vault, "roaming.json", SearchOption.AllDirectories).Any() &&
+                !Directory.GetFiles(vault, "catalog.json", SearchOption.AllDirectories).Any(), "learning history and stable identities stay outside the synchronized vault");
+            await CheckStandaloneLibraryWithoutObsidianAsync(run, output);
+        }
+        finally
+        {
+            vm.ApplySettings(settings);
+            await themes.SetThemeAsync(theme);
+            main.Width = originalWidth;
+            main.Height = originalHeight;
+            await SelectPageAsync(main, "CaptureTab");
+        }
+    }
+
+    private async Task CheckLibraryNavigationAndReturnAsync(MainWindow main, LearningPage page, string chinesePath, RecordingNavigator navigator)
+    {
+        var preview = ReadingPreview(page);
+        preview.ScrollToVerticalOffset(360);
+        await Until(() => preview.VerticalOffset > 100);
+        var offset = preview.VerticalOffset;
+        var link = Links(preview.Document).Single(candidate => candidate.Tag is PreviewLink { Target: "形容词/resilient" });
+        link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent, link));
+        await Until(() => main.OwnedWindows.Cast<Window>().Any(window => window.IsVisible && window.Title == "词条简卡 · resilient"));
+        Check(page.ReaderControl.Note?.AbsolutePath == chinesePath, "single library link opens a compact card while preserving the source note");
+        var card = main.OwnedWindows.Cast<Window>().Single(window => window.IsVisible && window.Title == "词条简卡 · resilient");
+        Invoke(Descendants<Button>(card).Single(button => Equals(button.Content, "打开整篇")));
+        await Until(() => page.ReaderControl.Note?.Title == "resilient");
+        Check(ReadingPreview(page).RenderedText.Contains("有韧性的", StringComparison.Ordinal) && navigator.NoteOpens == 0, "compact-card full note stays in the local library reader");
+        var back = Descendants<Button>(page.ReaderControl).Single(button => Equals(button.Content, "← 返回"));
+        Invoke(back);
+        await Until(() => page.ReaderControl.Note?.AbsolutePath == chinesePath && Math.Abs(ReadingPreview(page).VerticalOffset - offset) <= 3);
+        Check(ReadingPreview(page).RenderedText.Contains("第 90 段", StringComparison.Ordinal), "back navigation restores the complete source note and its prior reading position");
+    }
+
+    private static async Task CheckStandaloneLibraryWithoutObsidianAsync(string run, string output)
+    {
+        var root = Path.Combine(run, "独立本地词库");
+        Directory.CreateDirectory(root);
+        var options = new VaultOptions(root, "英语单词", true);
+        var wordRoot = VaultPaths.WordRoot(options);
+        Directory.CreateDirectory(wordRoot);
+        var path = Path.Combine(wordRoot, "独立中文笔记.md");
+        const string markdown = "# 独立中文笔记\n\n没有 Obsidian 目录标记，也可以在兔词里查找和阅读。\n";
+        await File.WriteAllTextAsync(path, markdown);
+        await File.WriteAllTextAsync(Path.Combine(wordRoot, "wonder.md"), "# wonder\n\n**释义**：\n\n> n. 惊奇\n");
+        Check(!Directory.Exists(Path.Combine(root, ".obsidian")) && !Directory.Exists(Path.Combine(wordRoot, ".obsidian")), "standalone fixture has no Obsidian installation or vault marker");
+        var page = new LearningPage(options, Path.Combine(run, "standalone-learning-state"));
+        var window = new Window { Title = "独立本地词库 · 兔词", Width = 1080, Height = 780, Content = page };
+        try
+        {
+            window.Show();
+            await page.ReloadAsync();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(page.AllNotes.Count == 2, "a plain local directory loads both Chinese Markdown and an English word");
+            LearningControl<TextBox>(page, "LibrarySearchBox").Text = "没有 Obsidian";
+            await Until(() => page.VisibleNotes.Count == 1);
+            await SelectLibraryNoteAsync(page, page.VisibleNotes.Single());
+            Check(page.ReaderControl.Note?.AbsolutePath == path && ReadingPreview(page).RenderedText.Contains("在兔词里查找和阅读", StringComparison.Ordinal), "a standalone local library searches and reads without an API service or external application");
+            Snapshot(window, Path.Combine(output, "learning-no-obsidian.png"));
+            Check(await File.ReadAllTextAsync(path) == markdown, "standalone reading preserves the original Markdown");
+        }
+        finally { page.Dispose(); window.Close(); }
+    }
+
+    private static async Task CheckRoamingAsync(MainWindow main, LearningPage page, string learningState, string output)
+    {
+        await SelectPageAsync(main, "RoamingTab");
+        await Until(() => page.HasExposure && !page.IsBusy && LearningControl<Grid>(page, "RoamingSurface").IsVisible);
+        var stateFile = Directory.GetFiles(learningState, "roaming.json", SearchOption.AllDirectories).Single();
+        var first = ReviewSnapshot(stateFile);
+        Check(first.Remembered == 0 && first.Skipped == 0, "initial roaming card has exposure but no completed review");
+        Check(page.AllNotes.Any(note => note.Title == page.RoamingTitle && note.IsWord), "roaming presents an English word rather than a Chinese note or root");
+        Check(LearningControl<TextBlock>(page, "RoamingMeaningText").Text.Length > 0, "roaming card presents meaning or a readable excerpt");
+        Snapshot(main, Path.Combine(output, "learning-roaming.png"));
+        Invoke(LearningControl<Button>(page, "RoamingSkipButton"));
+        await Until(() => !page.IsBusy && ReviewSnapshot(stateFile).Exposure != first.Exposure);
+        var skipped = ReviewSnapshot(stateFile);
+        Check(skipped.Skipped == 1 && skipped.Remembered == 0, "next-card action completes the current exposure once as skipped");
+        Invoke(LearningControl<Button>(page, "RoamingRememberButton"));
+        await Until(() => !page.IsBusy && ReviewSnapshot(stateFile).Exposure != skipped.Exposure);
+        var remembered = ReviewSnapshot(stateFile);
+        Check(remembered.Skipped == 1 && remembered.Remembered == 1, "remember action records one remembered exposure before drawing again");
+        var title = page.RoamingTitle;
+        Invoke(LearningControl<Button>(page, "RoamingReadNoteButton"));
+        await Until(() => Control<RadioButton>(main, "LibraryTab").IsChecked == true && page.ReaderControl.Note?.Title == title);
+        Check(ReviewSnapshot(stateFile).Json == remembered.Json, "reading a roaming card in full does not complete or redraw its exposure");
+        await SelectPageAsync(main, "CaptureTab");
+        await SelectPageAsync(main, "LibraryTab");
+        await Until(() => !page.IsBusy);
+        await SelectPageAsync(main, "RoamingTab");
+        await Until(() => !page.IsBusy && page.HasExposure && LearningControl<Grid>(page, "RoamingSurface").IsVisible);
+        Check(page.RoamingTitle == title && ReviewSnapshot(stateFile).Json == remembered.Json, "leaving and returning to roaming keeps the same exposure without adding review counts");
+    }
+
+    private static ReviewStateSnapshot ReviewSnapshot(string path)
+    {
+        var json = File.ReadAllText(path);
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var records = root.GetProperty("Records").EnumerateObject().Select(property => property.Value).ToArray();
+        return new(root.GetProperty("CurrentExposure").GetGuid(), records.Sum(record => record.GetProperty("Remembered").GetInt32()),
+            records.Sum(record => record.GetProperty("Skipped").GetInt32()), json);
+    }
+
+    private static async Task CheckLearningThemesAndMinimumAsync(MainWindow main, LearningPage page, ThemeManager themes,
+        string chinesePath, string learningState, string output)
+    {
+        var stateFile = Directory.GetFiles(learningState, "roaming.json", SearchOption.AllDirectories).Single();
+        var before = ReviewSnapshot(stateFile).Json;
+        foreach (var (option, target, slug) in new[]
+        {
+            ("ThemeWarmOption", AppTheme.WarmNeutral, "warm"),
+            ("ThemeRoseOption", AppTheme.Pink, "pink"),
+            ("ThemeMonoOption", AppTheme.Mono, "mono")
+        })
+        {
+            await SelectPageAsync(main, "LibraryTab");
+            await Until(() => !page.IsBusy);
+            page.OpenNote(page.AllNotes.Single(note => note.AbsolutePath == chinesePath));
+            await SwitchThemeAsync(Control<RadioButton>(main, option), themes, target);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(ReadingPreview(page).RenderedText.Contains("手写中文", StringComparison.Ordinal), "theme change preserves the open local reading document");
+            Snapshot(main, Path.Combine(output, "learning-library-" + slug + ".png"));
+            await SelectPageAsync(main, "RoamingTab");
+            await Until(() => !page.IsBusy && page.HasExposure);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Snapshot(main, Path.Combine(output, "learning-roaming-" + slug + ".png"));
+        }
+        Check(ReviewSnapshot(stateFile).Json == before, "theme changes and repeated learning-page rendering do not create extra exposures or counts");
+        main.Width = main.MinWidth;
+        main.Height = main.MinHeight;
+        await SelectPageAsync(main, "LibraryTab");
+        await Until(() => !page.IsBusy);
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        main.UpdateLayout();
+        CheckReachable(LearningControl<TextBox>(page, "LibrarySearchBox"), main, "library search remains reachable at minimum size");
+        CheckReachable(LearningControl<Button>(page, "ImportMarkdownButton"), main, "Markdown import remains reachable at minimum size");
+        Check(ReadingPreview(page).ActualWidth >= 250 && ReadingPreview(page).ActualHeight >= 180, "minimum library window leaves a usable text-reading area");
+        Snapshot(main, Path.Combine(output, "learning-library-minimum.png"));
+        await SelectPageAsync(main, "RoamingTab");
+        await Until(() => !page.IsBusy && page.HasExposure);
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        main.UpdateLayout();
+        var skip = LearningControl<Button>(page, "RoamingSkipButton");
+        var remember = LearningControl<Button>(page, "RoamingRememberButton");
+        CheckReachable(skip, main, "next-card button remains reachable at minimum size");
+        CheckReachable(remember, main, "remember button remains reachable at minimum size");
+        Check(!VisibleBounds(skip, main).IntersectsWith(VisibleBounds(remember, main)), "minimum-size roaming actions do not overlap");
+        var cardScroll = Descendants<ScrollViewer>(LearningControl<Grid>(page, "RoamingSurface")).First();
+        cardScroll.ScrollToEnd();
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        CheckReachable(LearningControl<Button>(page, "RoamingReadNoteButton"), main, "full-note action remains reachable by scrolling the minimum roaming card");
+        Snapshot(main, Path.Combine(output, "learning-roaming-minimum.png"));
+        Check(ReviewSnapshot(stateFile).Json == before, "resizing and scrolling the roaming card never complete it");
+    }
+
+    private static void CheckReachable(FrameworkElement control, Window main, string message)
+    {
+        var bounds = VisibleBounds(control, main);
+        var viewport = new Rect(0, 0, main.ActualWidth, main.ActualHeight);
+        Check(control.IsVisible && control.ActualWidth > 0 && control.ActualHeight > 0 &&
+            bounds.Width >= control.ActualWidth - 1 && bounds.Height >= control.ActualHeight - 1 && viewport.Contains(bounds), message);
+    }
+
+    private sealed record ReviewStateSnapshot(Guid Exposure, int Remembered, int Skipped, string Json);
+}

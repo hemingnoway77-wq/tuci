@@ -5,6 +5,15 @@ using VocabCollector.Tests.Fakes;
 namespace VocabCollector.Tests;
 public class WindowsSettingsStoreTests
 {
+    [Fact] public async Task LocalLearningSettingsCanBeSavedBeforeApiIsConfigured()
+    {
+        using var vault = new TempVault();
+        var store = new WindowsSettingsStore(Path.Combine(vault.Root, "config"));
+        var settings = AppSettings.Default with { Vault = vault.Options };
+        await store.SaveAsync(settings, default);
+        Assert.Equal(settings, (await store.LoadAsync(default)).Settings);
+    }
+
     [Fact] public async Task Settings_DoesNotPersistPlaintextKeyAndRoundTrips()
     {
         using var vault = new TempVault(); var store = new WindowsSettingsStore(Path.Combine(vault.Root,"config"));

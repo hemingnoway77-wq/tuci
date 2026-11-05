@@ -22,7 +22,7 @@ public static class VaultPaths
     public static string WordRoot(VaultOptions options)
     {
         if (string.IsNullOrWhiteSpace(options.RootPath) || !Path.IsPathFullyQualified(options.RootPath) || !Directory.Exists(options.RootPath))
-            throw new ArgumentException("请选择已经存在的 Obsidian 仓库文件夹。");
+            throw new ArgumentException("请选择已经存在的本地词库文件夹。");
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.RootPath));
         var sub = options.OutputSubfolder.Trim();
         if (sub.Length == 0 || Path.IsPathRooted(sub) || sub.Contains(':')) throw new ArgumentException("单词目录必须是仓库内的相对目录。");

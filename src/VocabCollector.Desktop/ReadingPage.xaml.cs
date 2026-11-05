@@ -1,6 +1,6 @@
-using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using VocabCollector.Desktop.Reading;
 
 namespace VocabCollector.Desktop;
 
@@ -12,7 +12,7 @@ public partial class ReadingPage : UserControl
     public ReadingPage(DailyReadingViewModel viewModel, Action<string>? openArticle = null)
     {
         _viewModel = viewModel;
-        _openArticle = openArticle ?? (url => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }));
+        _openArticle = openArticle ?? (url => new ArticleWindow(url) { Owner = Window.GetWindow(this) }.Show());
         InitializeComponent();
         DataContext = viewModel;
     }
@@ -38,6 +38,6 @@ public partial class ReadingPage : UserControl
         }
 
         try { _openArticle(uri.AbsoluteUri); }
-        catch (Exception) { _viewModel.Message = "无法打开浏览器，请检查默认浏览器设置后重试。"; }
+        catch (Exception) { _viewModel.Message = "应用内原文暂时无法打开，请稍后重试。"; }
     }
 }

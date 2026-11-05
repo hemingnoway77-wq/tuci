@@ -5,7 +5,7 @@
   <StackPanel Margin="2,0,0,18">
    <TextBlock Style="{StaticResource Eyebrow}" Text="SETTINGS" />
    <TextBlock Style="{StaticResource PageTitle}" Text="设置" FontSize="24" Margin="0,8,0,0" />
-   <TextBlock Text="配置一次，以后遇见单词就能直接收录。" Style="{StaticResource HintText}" Margin="0,7,0,0" />
+   <TextBlock Text="AI 接口用于收录新词，本地阅读和复习无需配置接口。" Style="{StaticResource HintText}" Margin="0,7,0,0" />
   </StackPanel>
 
   <Border Grid.Row="1" Style="{StaticResource SheetCard}" Padding="28,24,26,22">
@@ -41,12 +41,12 @@
       </StackPanel>
       <Border Height="1" Background="{DynamicResource LineSoft}" Margin="0,0,0,18" />
 
-      <TextBlock Text="Obsidian 仓库根目录" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
+      <TextBlock Text="本地词库位置" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
       <DockPanel>
        <Button x:Name="BrowseButton" DockPanel.Dock="Right" Content="选择文件夹" Click="Browse_Click" Style="{StaticResource OutlineAction}" Margin="8,0,0,0" />
-       <TextBox x:Name="VaultBox" Tag="选择你的 Obsidian 仓库" />
+       <TextBox x:Name="VaultBox" Tag="默认由兔词管理，也可选择已有词库" />
       </DockPanel>
-      <TextBlock Text="单词目录会建立在这个仓库中。" Style="{StaticResource HintText}" Margin="0,6,0,16" />
+      <TextBlock Text="笔记保存在本机，可在兔词内阅读和复习。已有 Markdown 词库可继续使用。" Style="{StaticResource HintText}" Margin="0,6,0,16" />
 
       <TextBlock Text="单词保存子目录" Style="{StaticResource FieldLabel}" Margin="0,0,0,7" />
       <TextBox x:Name="SubfolderBox" Tag="例如 英语单词" Margin="0,0,0,18" />

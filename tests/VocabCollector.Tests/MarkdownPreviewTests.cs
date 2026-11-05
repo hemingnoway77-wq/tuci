@@ -1,12 +1,96 @@
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Threading;
 using VocabCollector.Desktop.Preview;
 
 namespace VocabCollector.Tests;
 
 public sealed class MarkdownPreviewTests
 {
+    [Fact]
+    public void MouseDoubleClickOpensOnlyOnceWithoutShowingSingleClickCard() => OnSta(() =>
+    {
+        var preview = new MarkdownPreview { Markdown = "[[first]] and [[second]]" };
+        var requests = new List<PreviewLinkEventArgs>();
+        preview.LinkRequested += (_, args) => requests.Add(args);
+        var link = Inlines(preview.Document).OfType<Hyperlink>().First();
+        MouseClick(link, 1);
+        Assert.Empty(requests);
+        MouseClick(link, 2);
+        Pump(ClickWait);
+        var request = Assert.Single(requests);
+        Assert.Equal("first", request.Target);
+        Assert.True((bool?)request.GetType().GetProperty("IsDoubleClick")?.GetValue(request), "A mouse double click must identify direct navigation.");
+    });
+
+    [Fact]
+    public void MouseSingleClickWaitsAndClickingAnotherLinkDoesNotOpenWrongNote() => OnSta(() =>
+    {
+        var preview = new MarkdownPreview { Markdown = "[[first]] and [[second]]" };
+        var requests = new List<PreviewLinkEventArgs>();
+        preview.LinkRequested += (_, args) => requests.Add(args);
+        var links = Inlines(preview.Document).OfType<Hyperlink>().ToArray();
+        MouseClick(links[0], 1);
+        Assert.Empty(requests);
+        MouseClick(links[1], 2);
+        Pump(ClickWait);
+        Assert.All(requests, request => Assert.False((bool?)request.GetType().GetProperty("IsDoubleClick")?.GetValue(request) ?? false));
+        Assert.Equal("second", requests.Last().Target);
+    });
+
+    [Fact]
+    public void ReplacingDocumentCancelsPendingMouseLink() => OnSta(() =>
+    {
+        var preview = new MarkdownPreview { Markdown = "[[old]]" };
+        var requests = new List<PreviewLinkEventArgs>();
+        preview.LinkRequested += (_, args) => requests.Add(args);
+        MouseClick(Inlines(preview.Document).OfType<Hyperlink>().Single(), 1);
+        preview.Markdown = "new content";
+        Pump(ClickWait);
+        Assert.Empty(requests);
+    });
+
+    [Fact]
+    public void DisposingPreviewCancelsPendingMouseLinkAndProgrammaticClicks() => OnSta(() =>
+    {
+        var preview = new MarkdownPreview { Markdown = "[[old]]" };
+        var requests = new List<PreviewLinkEventArgs>();
+        preview.LinkRequested += (_, args) => requests.Add(args);
+        var link = Inlines(preview.Document).OfType<Hyperlink>().Single();
+        MouseClick(link, 1);
+        preview.Dispose();
+        link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+        Pump(ClickWait);
+        Assert.Empty(requests);
+    });
+
+    internal static void MouseClick(Hyperlink link, int clickCount)
+    {
+        foreach (var routedEvent in new[] { Mouse.PreviewMouseDownEvent, Mouse.PreviewMouseUpEvent })
+        {
+            var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            { RoutedEvent = routedEvent };
+            typeof(MouseButtonEventArgs).GetProperty(nameof(MouseButtonEventArgs.ClickCount))!.SetValue(args, clickCount);
+            link.RaiseEvent(args);
+        }
+    }
+
+    internal static TimeSpan ClickWait => TimeSpan.FromMilliseconds(GetDoubleClickTime() + 100);
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
+
+    internal static void Pump(TimeSpan duration)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = duration };
+        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+    }
+
     [Fact]
     public void VocabularyPreviewShowsReadingContentWithoutSourceOrMetadata() => OnSta(() =>
     {

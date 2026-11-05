@@ -21,10 +21,14 @@ public partial class App : Application
         await themes.LoadAsync();
         var store = new WindowsSettingsStore(settingsDirectory);
         var loaded = await store.LoadAsync(CancellationToken.None);
+        var settings = loaded.Settings;
+        try { settings = LocalLibrarySettings.Resolve(settings, settingsDirectory); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
+        { loaded = loaded with { Warning = "无法建立默认本地词库，请在设置中选择可写目录。" }; }
         _client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(90) };
         var vaultStore = new VaultStore();
         var diagnostics = new FileAnalysisDiagnostics(Path.Combine(settingsDirectory, "logs"));
-        var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(_client, diagnostics), vaultStore, TimeProvider.System), loaded.Settings, vaultStore);
+        var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(_client, diagnostics), vaultStore, TimeProvider.System), settings, vaultStore);
         if (loaded.Warning.Length > 0) vm.Message = loaded.Warning;
         _sync = new DesktopSync(settingsDirectory, Dispatcher);
         MainWindow = new MainWindow(vm, store, new WindowsNavigator(), themeManager: themes, sync: _sync); MainWindow.Show();

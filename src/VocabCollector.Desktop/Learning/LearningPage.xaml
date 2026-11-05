@@ -1,0 +1,97 @@
+<UserControl x:Class="VocabCollector.Desktop.Learning.LearningPage"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:VocabCollector.Desktop.Learning">
+ <Grid Margin="22,18,22,16">
+  <Grid x:Name="LibrarySurface">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="268"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+   <Border Style="{DynamicResource SheetCard}" Padding="20,20,18,16">
+    <Grid>
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="125"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <StackPanel>
+      <TextBlock Text="YOUR NOTEBOOK" Style="{DynamicResource Eyebrow}"/>
+      <TextBlock Text="我的词库" Style="{DynamicResource PageTitle}" Margin="0,6,0,12"/>
+     </StackPanel>
+     <TextBox x:Name="LibrarySearchBox" Grid.Row="1" Tag="搜索词条或笔记正文" Text="{Binding Query,UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"/>
+     <TreeView x:Name="LibraryFoldersTree" Grid.Row="2" ItemsSource="{Binding Folders}" SelectedItemChanged="Folder_Selected" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource InkSecondary}" FontSize="13">
+      <TreeView.Resources>
+       <HierarchicalDataTemplate DataType="{x:Type local:LibraryFolder}" ItemsSource="{Binding Children}"><TextBlock Text="{Binding Name}" Margin="1,4"/></HierarchicalDataTemplate>
+       <Style TargetType="TreeViewItem"><Setter Property="IsExpanded" Value="True"/><Setter Property="Foreground" Value="{DynamicResource InkSecondary}"/></Style>
+      </TreeView.Resources>
+     </TreeView>
+     <StackPanel Grid.Row="3" Margin="0,8,0,8">
+      <Border Height="1" Background="{DynamicResource Line}" Margin="0,0,0,8"/>
+      <TextBlock Text="{Binding FolderLabel}" Style="{DynamicResource MetaText}" TextTrimming="CharacterEllipsis"/>
+      <TextBlock Text="{Binding Summary}" Style="{DynamicResource MetaText}" Margin="0,3,0,0"/>
+     </StackPanel>
+     <Grid Grid.Row="4">
+      <ListBox x:Name="LibraryNotesList" ItemsSource="{Binding VisibleNotes}" SelectedItem="{Binding SelectedNote,Mode=TwoWay}" SelectionChanged="Note_Selected">
+       <ListBox.ItemTemplate>
+        <DataTemplate><StackPanel Margin="1,5,0,7">
+         <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Ink}" TextTrimming="CharacterEllipsis"/>
+         <TextBlock Text="{Binding Meaning}" Foreground="{DynamicResource InkSecondary}" FontSize="12" MaxHeight="36" TextWrapping="Wrap" Margin="0,4,0,0"/>
+         <TextBlock Text="{Binding RelativePath}" FontSize="12" Foreground="{DynamicResource InkTertiary}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/>
+        </StackPanel></DataTemplate>
+       </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock x:Name="LibraryEmptyText" Text="{Binding EmptyMessage}" Style="{DynamicResource HintText}" Visibility="{Binding EmptyVisibility}" Margin="2,10,2,0" IsHitTestVisible="False"/>
+     </Grid>
+     <UniformGrid Grid.Row="5" Columns="2" Margin="0,12,0,0">
+      <Button x:Name="ImportMarkdownButton" Content="导入 Markdown" Click="Import_Click" Style="{DynamicResource OutlineAction}" IsEnabled="{Binding CanInteract}" Margin="0,0,5,0" Padding="5,8"/>
+      <Button x:Name="ReloadLibraryButton" Content="刷新词库" Click="Reload_Click" Style="{DynamicResource QuietAction}" IsEnabled="{Binding CanInteract}" Padding="5,8"/>
+     </UniformGrid>
+    </Grid>
+   </Border>
+   <Border Grid.Column="2" Style="{DynamicResource SheetCard}" Padding="24,20,24,18">
+    <Grid>
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+     <StackPanel Margin="0,0,0,12"><TextBlock Text="READ &amp; CONNECT" Style="{DynamicResource Eyebrow}"/><TextBlock Text="{Binding ReaderTitle}" Style="{DynamicResource PageTitle}" Margin="0,6,0,0"/></StackPanel>
+     <Grid Grid.Row="1">
+      <local:NoteReader x:Name="Reader"/>
+      <StackPanel x:Name="ReaderEmptyState" Visibility="{Binding ReaderEmptyVisibility}" Margin="8,44,8,0" VerticalAlignment="Top" IsHitTestVisible="False">
+       <TextBlock Text="让笔记留在阅读里" FontFamily="{DynamicResource DisplayFont}" FontSize="24" Foreground="{DynamicResource Ink}"/>
+       <TextBlock Text="从左侧选择词条或 Markdown 笔记。单击关联词看简卡，双击进入全文，返回后继续原来的位置。" Style="{DynamicResource BodyText}" MaxWidth="460" HorizontalAlignment="Left" Margin="0,14,0,0"/>
+       <TextBlock Text="还没有笔记时，可以先收录一个单词，或导入已有 Markdown。" Style="{DynamicResource HintText}" Margin="0,10,0,0"/>
+      </StackPanel>
+     </Grid>
+    </Grid>
+   </Border>
+  </Grid>
+  <Grid x:Name="RoamingSurface" Visibility="Collapsed">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="272"/></Grid.ColumnDefinitions>
+   <Border Style="{DynamicResource SheetCard}" Padding="34,26,34,24">
+    <Grid>
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <StackPanel><TextBlock Text="FOLLOW YOUR MEMORY" Style="{DynamicResource Eyebrow}"/><TextBlock Text="漫游复习" Style="{DynamicResource PageTitle}" FontSize="25" Margin="0,7,0,0"/><TextBlock Text="旧词、新词和今天的每一次回想，在这里重新相遇。" Style="{DynamicResource HintText}" Margin="0,9,0,0"/></StackPanel>
+     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,24,0,16">
+      <StackPanel x:Name="RoamingCardBody">
+       <TextBlock Text="{Binding RememberedLabel}" Style="{DynamicResource MetaText}" Margin="0,0,0,10"/>
+       <TextBlock x:Name="RoamingWordText" Text="{Binding RoamingTitle}" FontFamily="{DynamicResource ContentFont}" FontSize="38" Foreground="{DynamicResource Ink}" TextWrapping="Wrap"/>
+       <TextBlock Text="{Binding RoamingPhonetics}" Style="{DynamicResource BodyText}" Margin="0,12,0,0"/>
+       <Border Height="1" Background="{DynamicResource Line}" Margin="0,18,0,18"/>
+       <TextBlock x:Name="RoamingMeaningText" Text="{Binding RoamingMeaning}" FontSize="17" LineHeight="29" Foreground="{DynamicResource Ink}" TextWrapping="Wrap"/>
+       <Button x:Name="RoamingReadNoteButton" Content="阅读整篇笔记 →" Click="RoamingRead_Click" Style="{DynamicResource LinkAction}" IsEnabled="{Binding HasExposure}" Margin="0,20,0,0"/>
+      </StackPanel>
+     </ScrollViewer>
+     <UniformGrid Grid.Row="2" Columns="2">
+      <Button x:Name="RoamingSkipButton" Content="下一张" Click="Skip_Click" Style="{DynamicResource OutlineAction}" IsEnabled="{Binding CanAdvance}" Margin="0,0,10,0" Height="46"/>
+      <Button x:Name="RoamingRememberButton" Content="今天已记住" Click="Remember_Click" Style="{DynamicResource PrimaryAction}" IsEnabled="{Binding CanAdvance}" Height="46"/>
+     </UniformGrid>
+    </Grid>
+   </Border>
+   <Border Grid.Column="2" Style="{DynamicResource SheetCard}" Padding="22,26,22,20">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel>
+     <TextBlock Text="A LITTLE MORE OF WHAT YOU NEED" Style="{DynamicResource Eyebrow}" TextWrapping="Wrap"/>
+     <TextBlock Text="每次相遇，都有来由" FontFamily="{DynamicResource DisplayFont}" FontSize="19" Foreground="{DynamicResource Ink}" TextWrapping="Wrap" Margin="0,10,0,14"/>
+     <TextBlock Text="{Binding RoamingCountLabel}" Style="{DynamicResource BodyText}"/>
+     <Border Height="1" Background="{DynamicResource Line}" Margin="0,18,0,18"/>
+     <TextBlock Text="久未遇见的词，会更容易出现。新收录的词有少量加分。" Style="{DynamicResource BodyText}"/>
+     <TextBlock Text="今天略过越多、记住的比例越低，抽中的机会越高。" Style="{DynamicResource BodyText}" Margin="0,12,0,0"/>
+     <TextBlock Text="标记记住会降低权重，当天仍可能再次遇见。阅读整篇和查看简卡不记作一次复习。" Style="{DynamicResource HintText}" Margin="0,12,0,0"/>
+     <Border Height="1" Background="{DynamicResource Line}" Margin="0,18,0,14"/>
+     <TextBlock Text="{Binding RoamingWeightLabel}" Style="{DynamicResource MetaText}" TextWrapping="Wrap"/>
+     <TextBlock Text="复习记录保存在本机，关闭后继续保留。" Style="{DynamicResource HintText}" Margin="0,10,0,0"/>
+    </StackPanel></ScrollViewer>
+   </Border>
+  </Grid>
+ </Grid>
+</UserControl>

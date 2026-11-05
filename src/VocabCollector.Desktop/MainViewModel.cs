@@ -44,7 +44,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (IsBusy || _maintenance == null) return;
         if (string.IsNullOrWhiteSpace(Settings.Vault.RootPath))
         {
-            Message = "请先在设置中选择 Obsidian 词库目录，再刷新词条链接。";
+            Message = "请先在设置中选择本地词库目录，再刷新词条链接。";
             return;
         }
         _cancellation = new CancellationTokenSource();
@@ -69,7 +69,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or OperationCanceledException or NotSupportedException)
                 {
-                    Message += " 预览未更新，可在 Obsidian 中查看笔记。";
+                    Message += " 预览未更新，可在词库中重新打开笔记。";
                 }
             }
         }
@@ -103,6 +103,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var submittedWord = Word;
             var result = await _service.CaptureAsync(new(submittedWord, Context), Settings, progress, _cancellation.Token);
             Markdown = result.Markdown; Message = result.Message;
+            if (result.Status == CaptureStatus.AlreadyExists && Markdown.Length == 0 && result.Notes.FirstOrDefault() is { } existing)
+            {
+                try
+                {
+                    VaultPaths.EnsureInside(VaultPaths.WordRoot(Settings.Vault), existing.AbsolutePath);
+                    Markdown = await File.ReadAllTextAsync(existing.AbsolutePath, _cancellation.Token);
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                { Message += " 原笔记暂不可读取，请在词库中刷新查看。"; }
+            }
             if (result.Status is CaptureStatus.Saved or CaptureStatus.AlreadyExists && result.CorrectedFrom.Length > 0 && Word == submittedWord)
                 Word = result.Word;
             foreach (var note in result.Notes) Notes.Add(note);
