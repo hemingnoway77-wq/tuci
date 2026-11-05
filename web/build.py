@@ -9,7 +9,7 @@ from shutil import copyfile
 SOURCE = Path(__file__).resolve().parent
 FILES = (
     "index.html", "update.html", "manifest.json", "app.css", "app.js", "storage.js",
-    "library.js", "library.css", "managed-links.js", "learning.js", "learning-data.js", "learning.css",
+    "library.js", "library.css", "managed-links.js", "learning.js", "learning-data.js", "learning.css", "reader-words.js", "word-lookup.js",
     "icons/notebook.svg", "icons/brand.png", "icons/apple-touch.png", "icons/icon-192.png", "icons/icon-512.png",
 )
 

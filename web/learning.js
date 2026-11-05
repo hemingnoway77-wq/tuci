@@ -1,4 +1,5 @@
 import { analysisCard, capturePrompt, manualCard, matches, normalWord, offlineArticles, parts, pickDaily, regionHashes } from './learning-data.js';
+import { mountReadingWords } from './reader-words.js';
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -218,47 +219,29 @@ export function renderReading(ctx) {
   const {root}=ctx;
   const cache=readCache(editionKey,{}), today=dayKey();
   let articles=(Array.isArray(cache.articles)?cache.articles:[]).filter(safeStory);
-  let filter='all',current=null,alive=true,controller=null,loading=false;
+  let filter='all',current=null,alive=true,controller=null,loading=false,cleanupWords=()=>{};
   let note=cache.day!==today&&articles.length?'显示上次保存的推荐。':'';
   const openKey='tuci:reading:open:'+ctx.scope();
-  function selection(story,paragraph,ev,tools) {
-    const selected=window.getSelection();
-    const range=selected?.rangeCount && !selected.isCollapsed ? selected.getRangeAt(0) : null;
-    let raw=range && paragraph.contains(range.commonAncestorContainer) ? selected.toString().trim() : '';
-    let offset=range ? range.startOffset:0;
-    if (!raw) {
-      const caret=document.caretRangeFromPoint?.(ev.clientX,ev.clientY);
-      const position=!caret && document.caretPositionFromPoint?.(ev.clientX,ev.clientY);
-      const node=caret?.startContainer || position?.offsetNode;
-      if(node?.nodeType!==Node.TEXT_NODE || !paragraph.contains(node)) return;
-      offset=caret?.startOffset ?? position.offset;
-      for(const match of node.textContent.matchAll(/[a-z]+(?:[-'’][a-z]+)*/gi)) {
-        if(match.index<=offset && offset<match.index+match[0].length){raw=match[0]; break;}
-      }
-    }
-    let target; try {target=normalWord(raw);} catch{return;}
-    const whole=paragraph.textContent, left=whole.slice(0,offset).search(/[^.!?]*$/), right=whole.slice(offset).search(/[.!?](?:\s|$)/);
-    const context=whole.slice(Math.max(0,left),right<0 ? undefined : offset+right+1).trim().slice(0,2000);
-    tools.hidden=false;
-    tools.replaceChildren(el('strong','',target),button('收录此词','button',()=>{
-      setCache(openKey,story.id,sessionStorage);
-      setCache('tuci:capture:'+ctx.scope(),{word:target,context},sessionStorage);
-      ctx.navigate('capture');
-    }),button('关闭','learn-text',()=>{tools.hidden=true;}));
-  }
   function bodyView(story,body,message) {
-    const back=button('← 每日阅读','learn-text',()=>{controller?.abort();current=null;setCache(openKey,null,sessionStorage);list();});
+    cleanupWords();
+    const back=button('← 每日阅读','learn-text',()=>{cleanupWords();controller?.abort();current=null;setCache(openKey,null,sessionStorage);list();});
     const head=el('header','learn-article-head');head.append(back,el('p','learn-meta',catNames[story.category]+' · '+story.source),el('h1','',story.title));
-    const content=el('article','learn-prose'),tools=el('aside','learn-word-tools'); tools.hidden=true;
+    const content=el('article','learn-prose'),tools=el('aside','learn-word-tools'),reader=el('div','learn-reader'),paragraphs=[]; tools.hidden=true;
     const link=story.url ? el('a','learn-text','查看来源原文 ↗') : null;
     if(link){link.href=story.url;link.target='_blank';link.rel='noopener noreferrer';}
     if(message) content.append(el('p','learn-message',message));
     for(const paragraph of body){
       const p=el('p','',paragraph);p.lang='en';
-      p.addEventListener('click',ev=>selection(story,p,ev,tools));content.append(p);
+      paragraphs.push(p);content.append(p);
     }
-    const tip=el('p','learn-reader-tip','轻点正文中的英文单词即可收录。');
-    root.replaceChildren(head,...(body.length?[tip]:[]),content,...(link?[link]:[]),tools);
+    const tip=el('p','learn-reader-tip','轻点英文单词，可收录或临时翻译、听读音。');
+    reader.append(content,tools);
+    root.replaceChildren(head,...(body.length?[tip]:[]),reader,...(link?[link]:[]));
+    cleanupWords=mountReadingWords({container:reader,paragraphs,tools,onCollect:(word,context)=>{
+      setCache(openKey,story.id,sessionStorage);
+      setCache('tuci:capture:'+ctx.scope(),{word,context},sessionStorage);
+      ctx.navigate('capture');
+    }});
   }
   async function open(story) {
     current=story.id;
@@ -320,5 +303,5 @@ export function renderReading(ctx) {
   const previousId=readCache(openKey,null,sessionStorage), previous=[...articles,...offlineArticles].find(a=>a.id===previousId);
   if(previous) open(previous); else list();
   load();
-  return ()=>{alive=false;controller?.abort();};
+  return ()=>{alive=false;controller?.abort();cleanupWords();};
 }
