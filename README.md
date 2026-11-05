@@ -1,6 +1,11 @@
 # 兔词
 
-一个简单的 Windows 桌面工具：粘贴陌生英文单词，调用自己配置的 AI，生成固定格式的 Markdown，存入 Obsidian 仓库。
+兔词把遇到的英文单词生成 Markdown 笔记。Windows 版连接现有 Obsidian 词库，iPhone 版在应用内阅读、查看简卡和漫游复习，两端可自动同步。
+
+- [iPhone 构建、真机安装与使用](ios/README.md)
+- [私人词库同步服务部署](server/README.md)
+
+下文介绍 Windows 桌面版。
 
 ## 开始使用
 

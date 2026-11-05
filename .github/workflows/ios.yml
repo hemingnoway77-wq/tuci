@@ -1,0 +1,35 @@
+name: iPhone simulator
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  push:
+    branches: [main, feature/ios]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift core tests
+        run: ios/scripts/test-core.sh
+      - name: iPhone simulator UI tests
+        env:
+          TUCI_XCRESULT_PATH: ${{ runner.temp }}/Tuci.xcresult
+        run: ios/scripts/simulator-smoke.sh
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-smoke-result
+          path: ${{ runner.temp }}/Tuci.xcresult
+          if-no-files-found: ignore
