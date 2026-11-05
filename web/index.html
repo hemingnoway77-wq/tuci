@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f8f6ef">
+  <meta name="apple-mobile-web-app-title" content="兔词">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'self'">
+  <title>兔词</title>
+  <link rel="icon" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch.png">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./library.css">
+  <link rel="stylesheet" href="./learning.css">
+</head>
+<body>
+  <header class="masthead"><div class="masthead-inner">
+    <a class="brand" href="#capture" aria-label="兔词，回到收录"><img src="./icons/apple-touch.png" width="34" height="34" alt=""><strong>兔词</strong></a>
+    <div class="mast-tools">
+      <span class="sync-status" id="sync-status" aria-live="polite"></span>
+      <a class="icon-button" href="#settings" id="settings-link" aria-label="设置"></a>
+    </div>
+  </div></header>
+  <main id="content" tabindex="-1"><p class="boot">正在打开词库…</p></main>
+  <nav id="tabs" aria-label="学习导航"></nav>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <noscript>请在 Safari 设置中开启 JavaScript 后打开兔词。</noscript>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

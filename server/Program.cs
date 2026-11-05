@@ -45,6 +45,9 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
+    options.AddPolicy("reading", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "local",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 90, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     // At the HTTPS proxy all requests may share an address. These generous authenticated
     // limits are independent of the stricter short-code guessing limit.
     options.AddPolicy("redeem", context => RateLimitPartition.GetFixedWindowLimiter(
@@ -81,6 +84,7 @@ app.Use(async (context, next) =>
     }
 });
 app.UseRateLimiter();
+LearningWeb.Map(app);
 app.MapGet("/health", () => new { ok = true });
 app.MapPost("/v1/redeem", (RedeemRequest input) => db.Redeem(input)).RequireRateLimiting("redeem");
 app.MapPost("/v1/pair", (HttpContext ctx) => new { code = db.Pair((Device)ctx.Items["device"]!) })

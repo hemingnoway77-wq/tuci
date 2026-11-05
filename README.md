@@ -2,6 +2,7 @@
 
 兔词把遇到的英文单词生成 Markdown 笔记。Windows 版连接现有 Obsidian 词库，iPhone 版在应用内阅读、查看简卡和漫游复习，两端可自动同步。
 
+- [Safari 网页版与主屏幕安装](web/README.md)
 - [iPhone 构建、真机安装与使用](ios/README.md)
 - [私人词库同步服务部署](server/README.md)
 
