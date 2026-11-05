@@ -8,7 +8,7 @@ from shutil import copyfile
 
 SOURCE = Path(__file__).resolve().parent
 FILES = (
-    "index.html", "manifest.json", "app.css", "app.js", "storage.js",
+    "index.html", "update.html", "manifest.json", "app.css", "app.js", "storage.js",
     "library.js", "library.css", "managed-links.js", "learning.js", "learning-data.js", "learning.css",
     "icons/notebook.svg", "icons/brand.png", "icons/apple-touch.png", "icons/icon-192.png", "icons/icon-512.png",
 )
@@ -29,7 +29,9 @@ def build(target):
     template = (SOURCE / "sw.template.js").read_text()
     manifest = json.dumps(assets, sort_keys=True)
     release = hashlib.sha256((template + manifest).encode()).hexdigest()[:16]
-    worker = template.replace('"__VERSION__"', json.dumps(release)).replace('"__ASSETS__"', manifest)
+    # The recovery entry must reach the network even under an older worker.
+    offline_assets = {name: digest for name, digest in assets.items() if name != "update.html"}
+    worker = template.replace('"__VERSION__"', json.dumps(release)).replace('"__ASSETS__"', json.dumps(offline_assets, sort_keys=True))
     (target / "sw.js").write_text(worker)
     print(release)
 

@@ -6,10 +6,14 @@ const indexURL = new URL('index.html', scope).href;
 const assetURLs = new Set(Object.keys(files).map(path => new URL(path, scope).href));
 
 self.addEventListener('install', event => {
-  // Validate every byte before installing. The previous cache can still serve open pages.
+  // Activate only a complete, verified release, even when another old tab is open.
   const requests = Object.entries(files).map(([path,integrity]) =>
     new Request(new URL(path,scope), { cache:'reload', integrity, credentials:'same-origin' }));
-  event.waitUntil(caches.open(currentCache).then(cache => cache.addAll(requests)));
+  event.waitUntil((async () => {
+    const cache = await caches.open(currentCache);
+    await cache.addAll(requests);
+    await self.skipWaiting();
+  })());
 });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
