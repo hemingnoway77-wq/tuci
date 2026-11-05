@@ -10,7 +10,7 @@ SOURCE = Path(__file__).resolve().parent
 FILES = (
     "index.html", "manifest.json", "app.css", "app.js", "storage.js",
     "library.js", "library.css", "managed-links.js", "learning.js", "learning-data.js", "learning.css",
-    "icons/notebook.svg", "icons/apple-touch.png", "icons/icon-192.png", "icons/icon-512.png",
+    "icons/notebook.svg", "icons/brand.png", "icons/apple-touch.png", "icons/icon-192.png", "icons/icon-512.png",
 )
 
 

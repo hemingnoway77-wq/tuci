@@ -25,7 +25,7 @@
 .nb-empty .nb-icon { width:2.5rem; height:2.5rem; color:var(--accent,#775340); }
 .nb-empty h2 { font-size:1.15rem; margin:.9rem 0; }
 .nb-empty p { color:var(--muted,#746d65); }
-.nb-note-title, .nb-word, .nb-file-name { font-family: ui-serif, Georgia, "Songti SC", serif; }
+.nb-note-title, .nb-word, .nb-file-name { font-family:var(--serif); }
 .nb-note-title, .nb-word { overflow-wrap:anywhere; line-height:1.15; margin:.2rem 0 .7rem; }
 .nb-note-title { font-size:clamp(1.85rem,7vw,3rem); }
 .nb-word { font-size:clamp(2.2rem,9vw,3.65rem); }

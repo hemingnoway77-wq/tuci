@@ -28,7 +28,7 @@
 .learn-story strong { font:600 clamp(1.45rem,5.2vw,2.2rem)/1.2 var(--serif); letter-spacing:-.025em; }
 .learn-meta { color:var(--accent); margin-bottom:6px }
 .learn-summary { font:400 1rem/1.5 var(--serif); color:var(--muted); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden }
-.learn-message { color:var(--muted); font:400 .84rem/1.65 var(--sans); padding:8px 0; margin:0 }
+.learn-message { color:var(--muted); font:400 .84rem/1.65 var(--serif); padding:8px 0; margin:0 }
 .learn-article-head { display:grid; gap:8px }
 .learn-article-head .learn-meta { margin:8px 0 0; }
 .learn-article-head h1 { letter-spacing:-.03em }
