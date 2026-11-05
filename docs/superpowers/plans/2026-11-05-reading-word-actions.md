@@ -41,4 +41,10 @@ Repeated occurrences and punctuation must select exactly one original token; sta
 - [x] Include both modules in `web/build.py`, allow only expected audio origins in CSP, and document the free service limits.
 - [x] Run Node tests and build; verify real reading interaction at 320px/402px/desktop in Chromium and WebKit with mocked network success/failure/races and storage snapshots.
 - [x] Check actual anonymous providers separately and review changes. Live translation and phonetics returned successfully; current-network dictionary audio returned 502, so real iPhone sound playback still needs device confirmation. Audio failure/system speech invocation is covered in the browser tests.
-- [ ] Push `codex/web`, atomically publish static release, and verify live assets and reader behavior.
+- [x] Push `codex/web`, atomically publish static release, and verify live assets and reader behavior.
+
+## Verification
+
+- Node tests: 35 passed. Reading browser checks passed in Chromium and WebKit with storage/IndexedDB snapshots, repeated occurrences, stale responses, quota/retry, pronunciation fallback, correct collection context, and narrow/landscape layouts.
+- Existing oldest-worker upgrade and offline reload regression passed; general 15-layout/theme/serif checks passed in both engines. Windows WebKit offline worker installation remains unavailable in this runner.
+- Published code commit `768d1242c35668eb0c1c490046a5adbc57eb2261`, static release `b495c24ae2fbd38e`. All 20 live files matched the local build; sync health returned `ok:true`; live reading interaction checks passed in both engines with isolated mocked lookup data.
