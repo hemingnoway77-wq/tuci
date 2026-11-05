@@ -10,7 +10,7 @@
 | Windows | 桌面工程和 Windows 测试程序集交叉编译通过。真实 Windows 同步引擎与 Kestrel/SQLite 的 20 项检查通过，覆盖外部编辑、并发冲突、不可访问路径、离线删除、损坏状态和备份恢复。Windows GUI 仍需在 Windows 上运行。 |
 | 服务端 | 锁定依赖恢复和 Release 构建通过。真实 HTTP 测试覆盖一次性配对、猜测限流、设备撤销、两用户隔离、非法路径、分页、并发写入、幂等重试、备份与恢复。 |
 | 端到端 | Windows 引擎上传示例，Swift 客户端离线创建同路径的不同笔记。即使服务已接收操作而客户端丢失回执，重新启动和重试后，双方仍各有原文及一份冲突副本。 |
-| iPhone 界面 | 在本机 Mac Catalyst 的 UIKit 和 SwiftUI SDK 上对应用源码进行编译检查。需要用完整 Xcode 构建 iOS 目标，并在 iPhone 验收单击简卡、双击跳转、返回位置、辅助功能和大字号布局。 |
+| iPhone 界面 | GitHub Actions 使用 Xcode 26.6 为 iPhone 16e（iOS 26.2 模拟器）构建应用。16 项 Swift 核心测试及 3 项界面测试通过，覆盖重复收词打开已有笔记、单击预览后打开完整笔记、双击直接跳转并恢复阅读位置。[运行记录 · 6fb6017](https://github.com/hemingnoway77-wq/tuci/actions/runs/41979089430) |
 
 阿里云公网 HTTPS 的健康检查和证书校验已通过。使用隔离测试词库，在公网入口重复完成了 Windows 与 Swift 的双向同步、断线重试、冲突保留和跨用户隔离检查。运行中的 SQLite 备份通过完整性校验。
 

@@ -16,4 +16,5 @@ JSON 属性使用 camelCase，标识符为字符串。不在客户端指定词�
 - [x] src/ 让 Windows 用户绑定服务与现有词库，程序自动扫描、上传、应用更改并报告状态。验证冲突、移动、外部修改、断网和目录访问失败。
 - [x] ios/ 提供 Swift Package 可测试核心、Xcode 应用、收录与每日阅读、本地词库、笔记手势、漫游和同步。验证旧数据、重复词、权重、首次双向合并、重试与跨用户切换。
 - [x] 使用真实 Windows 和 Swift 同步引擎跨进程联调，验证结果见[验收记录](verification.md)。
-- [ ] 在完整 Xcode 和 iPhone 上完成签名、安装、手势和视觉验收；在 Windows 实机运行 WPF 界面测试。
+- [x] 在 GitHub 的 iPhone 模拟器构建并运行 3 项界面测试，详见[验收记录](verification.md)。
+- [ ] 在 iPhone 真机上完成签名、安装、触控和视觉验收，在 Windows 实机运行 WPF 界面测试。
