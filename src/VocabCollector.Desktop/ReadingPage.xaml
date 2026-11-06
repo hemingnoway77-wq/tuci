@@ -1,121 +1,85 @@
-<UserControl x:Class="VocabCollector.Desktop.ReadingPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:reading="clr-namespace:VocabCollector.Core.Reading;assembly=VocabCollector.Core">
- <Grid Margin="22,18,22,16">
-  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="18" /><ColumnDefinition Width="268" /></Grid.ColumnDefinitions>
-
-  <Border Grid.Column="0" Style="{StaticResource SheetCard}" Padding="32,26,34,0">
-   <Grid>
-    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-    <StackPanel>
-     <TextBlock Style="{StaticResource Eyebrow}" Text="DAILY READING" />
-     <TextBlock Style="{StaticResource PageTitle}" Text="每日阅读" FontSize="24" Margin="0,8,0,0" />
-     <TextBlock Text="先读摘要，再打开原文。不需要配置 AI。" Style="{StaticResource HintText}" Margin="0,7,0,0" />
-     <Border Height="1" Background="{DynamicResource LineSoft}" Margin="0,17,0,0" />
-    </StackPanel>
+<UserControl x:Class="VocabCollector.Desktop.ReadingPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:reading="clr-namespace:VocabCollector.Desktop.Reading" xmlns:core="clr-namespace:VocabCollector.Core.Reading;assembly=VocabCollector.Core" FocusVisualStyle="{x:Null}">
+ <Border Style="{StaticResource SheetCard}" Margin="22,18,22,16" Padding="32,24,32,8">
+  <Grid>
+   <Grid x:Name="ReadingDirectory">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <Grid Margin="0,0,0,12">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel>
+      <TextBlock Style="{StaticResource Eyebrow}" Text="DAILY READING"/>
+      <TextBlock Style="{StaticResource PageTitle}" Text="每日阅读" FontSize="24" Margin="0,7,0,0"/>
+      <TextBlock Style="{StaticResource HintText}" Text="打开纯净全文，点选单词即可翻译或收录。" Margin="0,7,0,0"/>
+     </StackPanel>
+     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="18,0,0,0">
+      <Button x:Name="DailyReadingRefreshButton" Content="刷新文章" Command="{Binding RefreshCommand}" Style="{StaticResource PrimaryAction}" Padding="19,10"/>
+      <Button x:Name="DailyReadingCancelButton" Content="取消获取" Command="{Binding CancelCommand}" Style="{StaticResource QuietAction}" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}"/>
+     </StackPanel>
+    </Grid>
     <Grid Grid.Row="1">
-     <ScrollViewer x:Name="ReadingArticlesScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0">
-      <ItemsControl x:Name="ReadingArticlesList" ItemsSource="{Binding Articles}" Focusable="False" AlternationCount="3">
+     <ScrollViewer x:Name="ReadingArticlesScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" FocusVisualStyle="{x:Null}" Padding="0,0,8,0">
+      <ItemsControl x:Name="ReadingArticlesList" ItemsSource="{Binding Articles}" Focusable="False" FocusVisualStyle="{x:Null}" AlternationCount="3">
        <ItemsControl.ItemTemplate>
         <DataTemplate>
-         <Border BorderBrush="{DynamicResource LineSoft}" BorderThickness="0,0,0,1" Padding="0,12,0,12">
+         <Border BorderBrush="{DynamicResource LineSoft}" BorderThickness="0,1,0,0" Padding="0,18,0,18">
           <StackPanel>
-           <Grid>
-            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-             <TextBlock Text="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ContentPresenter}, Converter={StaticResource Ordinal}}" FontFamily="{StaticResource MonoFont}" FontSize="12" Foreground="{DynamicResource Accent}" Margin="0,0,11,0" />
-             <TextBlock Margin="0,0,12,0">
-              <TextBlock.Style>
-               <Style TargetType="TextBlock" BasedOn="{StaticResource FieldLabel}">
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="Foreground" Value="{DynamicResource InkSecondary}" />
-                <Setter Property="Text" Value="通用泛读" />
-                <Style.Triggers>
-                 <DataTrigger Binding="{Binding Category}" Value="{x:Static reading:ReadingCategory.Technology}">
-                  <Setter Property="Text" Value="技术阅读" />
-                  <Setter Property="Foreground" Value="{DynamicResource Accent}" />
-                 </DataTrigger>
-                </Style.Triggers>
-               </Style>
-              </TextBlock.Style>
-             </TextBlock>
-             <TextBlock Text="{Binding SourceName}" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
-            </StackPanel>
-            <TextBlock Grid.Column="2" Text="{Binding PublishedAt, StringFormat={}{0:yyyy-MM-dd}, TargetNullValue=发布日期未提供}" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
-           </Grid>
-           <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="0,8,0,0">
-            <TextBlock.Style>
-             <Style TargetType="TextBlock">
-              <Setter Property="FontFamily" Value="{StaticResource ContentFont}" />
-              <Setter Property="FontSize" Value="21" />
-              <Setter Property="FontWeight" Value="Medium" />
-              <Setter Property="Foreground" Value="{DynamicResource Ink}" />
-              <Setter Property="LineHeight" Value="28" />
-              <Setter Property="LineStackingStrategy" Value="BlockLineHeight" />
-              <Style.Triggers>
-               <DataTrigger Binding="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ContentPresenter}}" Value="0">
-                <Setter Property="FontSize" Value="26" />
-                <Setter Property="LineHeight" Value="34" />
-               </DataTrigger>
-              </Style.Triggers>
-             </Style>
-            </TextBlock.Style>
-           </TextBlock>
-           <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontFamily="{StaticResource UiFont}" FontSize="14" LineHeight="24" LineStackingStrategy="BlockLineHeight" Foreground="{DynamicResource InkSecondary}" Margin="0,6,0,6" MaxWidth="660" HorizontalAlignment="Left" />
-           <Button x:Name="OpenArticleButton" Style="{StaticResource LinkAction}" Click="OpenArticle_Click" Tag="{Binding Url}" AutomationProperties.Name="阅读原文">
+           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal">
-             <TextBlock Text="阅读原文" />
-             <Path Data="M 2,10 L 10,2 M 4,2 L 10,2 L 10,8" Stroke="{DynamicResource Accent}" StrokeThickness="1.2" Width="9" Height="9" Stretch="Uniform" Margin="6,0,0,0" VerticalAlignment="Center" />
+             <TextBlock Margin="0,0,12,0" FontSize="13" Foreground="{DynamicResource InkSecondary}">
+              <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="通用泛读"/><Style.Triggers><DataTrigger Binding="{Binding Category}" Value="{x:Static core:ReadingCategory.Technology}"><Setter Property="Text" Value="技术阅读"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+             </TextBlock>
+             <TextBlock Text="{Binding SourceName}" Style="{StaticResource MetaText}"/>
             </StackPanel>
-           </Button>
+            <TextBlock Grid.Column="1" Text="{Binding PublishedAt, StringFormat={}{0:yyyy-MM-dd}}" Style="{StaticResource MetaText}"/>
+           </Grid>
+           <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontFamily="{StaticResource ContentFont}" FontSize="25" LineHeight="34" Foreground="{DynamicResource Ink}" Margin="0,8,0,0" Cursor="Hand" MouseLeftButtonUp="ArticleTitle_Click"/>
+           <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" FontFamily="{StaticResource UiFont}" FontSize="14" LineHeight="24" Foreground="{DynamicResource InkSecondary}" Margin="0,7,0,10"/>
+           <Button x:Name="OpenArticleButton" Content="阅读全文 →" Style="{StaticResource LinkAction}" Click="OpenArticle_Click" AutomationProperties.Name="阅读纯净全文"/>
           </StackPanel>
          </Border>
         </DataTemplate>
        </ItemsControl.ItemTemplate>
       </ItemsControl>
      </ScrollViewer>
-     <StackPanel x:Name="ReadingEmptyState" VerticalAlignment="Center" Margin="0,0,0,32">
-      <StackPanel.Style>
-       <Style TargetType="StackPanel">
-        <Setter Property="Visibility" Value="Collapsed" />
-        <Style.Triggers><DataTrigger Binding="{Binding Articles.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
-       </Style>
-      </StackPanel.Style>
-      <TextBlock FontFamily="{StaticResource DisplayFont}" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource Ink}">
-       <TextBlock.Style>
-        <Style TargetType="TextBlock">
-         <Setter Property="Text" Value="还没有今日文章" />
-         <Style.Triggers><DataTrigger Binding="{Binding IsBusy}" Value="True"><Setter Property="Text" Value="正在为今天准备阅读…" /></DataTrigger></Style.Triggers>
-        </Style>
-       </TextBlock.Style>
-      </TextBlock>
-      <TextBlock Text="点击右侧「刷新文章」获取；网络不好时也可以在这里重试。" Style="{StaticResource HintText}" Margin="0,9,0,0" />
+     <StackPanel x:Name="ReadingEmptyState" VerticalAlignment="Center">
+      <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Articles.Count}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+      <TextBlock Text="还没有今日文章" Style="{StaticResource PageTitle}"/>
+      <TextBlock Text="点击上方「刷新文章」获取；网络恢复后也可以在这里重试。" Style="{StaticResource HintText}" Margin="0,9,0,0"/>
      </StackPanel>
     </Grid>
    </Grid>
-  </Border>
 
-  <Border Grid.Column="2" Style="{StaticResource SheetCard}" Padding="24,26,24,22">
-   <Grid>
-    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-    <StackPanel>
-     <TextBlock Style="{StaticResource Eyebrow}" Text="TODAY" />
-     <TextBlock Text="{Binding DayLabel}" Style="{StaticResource DateText}" Margin="0,9,0,0" TextWrapping="Wrap" />
-     <Border Width="30" Height="1" Background="{DynamicResource Accent}" HorizontalAlignment="Left" Margin="0,14,0,0" />
-     <TextBlock Style="{StaticResource MetaText}" Text="今日配比" Margin="0,20,0,5" />
-     <TextBlock Text="{Binding Composition}" FontFamily="{StaticResource UiFont}" FontSize="14" Foreground="{DynamicResource Ink}" TextWrapping="Wrap" />
-     <TextBlock Text="社会与环境泛读，搭配一篇技术阅读。先读摘要，再打开原文。" Style="{StaticResource HintText}" Margin="0,10,0,0" />
+   <Grid x:Name="ArticleSurface" Visibility="Collapsed">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <Grid Margin="0,0,0,16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <Button x:Name="BackToReadingListButton" Content="← 返回每日阅读" Style="{StaticResource LinkAction}" Click="BackToReadingList_Click"/>
+     <Button x:Name="ArticleSourceButton" Grid.Column="1" Content="来源网页 ↗" Style="{StaticResource QuietAction}" Click="ArticleSource_Click"/>
+    </Grid>
+    <StackPanel Grid.Row="1">
+     <TextBlock x:Name="ArticleSourceText" Style="{StaticResource Eyebrow}"/>
+     <TextBlock x:Name="ArticleTitleText" TextWrapping="Wrap" FontFamily="{StaticResource ContentFont}" FontSize="28" LineHeight="37" Foreground="{DynamicResource Ink}" Margin="0,8,0,0"/>
+     <TextBlock x:Name="ArticleStatusText" Text="点选正文单词，可翻译或收录。" Style="{StaticResource HintText}" Margin="0,9,0,12" TextWrapping="Wrap"/>
+     <Border Height="1" Background="{DynamicResource LineSoft}" Margin="0,0,0,8"/>
     </StackPanel>
-    <StackPanel Grid.Row="2">
-     <Button x:Name="DailyReadingRefreshButton" Style="{StaticResource PrimaryAction}" Command="{Binding RefreshCommand}" Height="40" ToolTip="重新获取今日文章；网络恢复后可在这里重试">
-      <StackPanel Orientation="Horizontal">
-       <Path Data="M 13,4 A 5.2,5.2 0 1 0 13,11 M 10,4 L 13,4 L 13,1" Stroke="{DynamicResource AccentInk}" StrokeThickness="1.4" Width="13" Height="13" Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center" />
-       <TextBlock Text="刷新文章" />
+    <Grid Grid.Row="2">
+     <reading:ArticleTextReader x:Name="ArticleBodyReader" MaxWidth="950" HorizontalAlignment="Stretch"/>
+     <StackPanel x:Name="ArticleLoadState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="660" Margin="0,0,0,28">
+      <TextBlock x:Name="ArticleLoadMessage" Style="{StaticResource BodyText}" TextWrapping="Wrap" TextAlignment="Center"/>
+      <Button x:Name="RetryArticleButton" Content="重试全文" Style="{StaticResource QuietAction}" Margin="0,12,0,0" Click="RetryArticle_Click"/>
+     </StackPanel>
+    </Grid>
+    <Popup x:Name="ReadingWordPopup" PlacementTarget="{Binding ElementName=ArticleBodyReader}" Placement="Bottom" StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade" Closed="ReadingWordPopup_Closed">
+     <Border Background="{DynamicResource Sheet}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="5" Padding="16,12" MinWidth="220" MaxWidth="360">
+      <StackPanel>
+       <TextBlock x:Name="ReadingSelectedWord" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"/>
+       <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
+        <Button x:Name="ReadingTranslateButton" Content="翻译" Style="{StaticResource QuietAction}" Click="TranslateWord_Click" Margin="0,0,8,0"/>
+        <Button x:Name="ReadingCaptureButton" Content="收录" Style="{StaticResource PrimaryAction}" Click="CaptureWord_Click" Padding="14,7"/>
+       </StackPanel>
+       <TextBlock x:Name="WordTranslationText" TextWrapping="Wrap" FontSize="14" LineHeight="23" Foreground="{DynamicResource InkSecondary}" Margin="0,9,0,0" Visibility="Collapsed"/>
       </StackPanel>
-     </Button>
-     <Button x:Name="DailyReadingCancelButton" Content="取消获取" Command="{Binding CancelCommand}" Style="{StaticResource QuietAction}" Margin="0,4,0,0" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" />
-     <TextBlock Text="免费获取 · 无需 API Key" Style="{StaticResource MetaCenter}" Margin="0,11,0,0" />
-     <TextBlock Text="不调用模型 · 不写入词库" Style="{StaticResource MetaCenter}" Margin="0,4,0,0" />
-    </StackPanel>
+     </Border>
+    </Popup>
    </Grid>
-  </Border>
- </Grid>
+  </Grid>
+ </Border>
 </UserControl>

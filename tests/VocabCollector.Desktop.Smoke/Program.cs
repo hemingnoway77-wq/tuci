@@ -27,7 +27,12 @@ public static class Program
             try
             {
                 var runner = new SmokeRunner(app);
-                if (args.Contains("--notebook-only", StringComparer.Ordinal))
+                if (args.Contains("--reading-only", StringComparer.Ordinal))
+                {
+                    await runner.RunPureReadingChecksOnlyAsync();
+                    Console.WriteLine("PASS: isolated pure article reading, shared directory, word translation and capture prefill without model calls, retained reading positions, retry, themes and minimum window");
+                }
+                else if (args.Contains("--notebook-only", StringComparer.Ordinal))
                 {
                     await runner.RunNotebookChecksOnlyAsync();
                     Console.WriteLine("PASS: isolated real WPF two-pane library reader, file tree/search/refresh/import, reading navigation, themes, transitions and minimum window");
@@ -40,7 +45,7 @@ public static class Program
                 else
                 {
                     await runner.RunChecksAsync();
-                    Console.WriteLine("PASS: real WPF controls, rendered note preview, single-click in-app full-note navigation, two-pane file tree and Markdown reader/search/import/navigation without API, weighted roaming and persistent completion counts, learning themes and minimum-size screenshots, real WebView2 local HTTP articles and retry, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, spelling correction, corrected duplicate, uncertain and invalid spelling, required spelling metadata, duplicate, 401, malformed JSON and cancellation");
+                    Console.WriteLine("PASS: real WPF controls, rendered note preview, single-click in-app full-note navigation, two-pane file tree and Markdown reader/search/import/navigation without API, weighted roaming and persistent completion counts, learning themes and minimum-size screenshots, pure article reading/translation/capture prefill without API, real WebView2 local HTTP articles and retry, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, spelling correction, corrected duplicate, uncertain and invalid spelling, required spelling metadata, duplicate, 401, malformed JSON and cancellation");
                 }
                 exitCode = 0;
             }
@@ -65,15 +70,17 @@ public sealed partial class SmokeRunner(App app)
         var diagnosticsDirectory = Path.Combine(configDir, "logs");
         var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(client, new FileAnalysisDiagnostics(diagnosticsDirectory)), vaultStore, TimeProvider.System), AppSettings.Default, vaultStore);
         var reading = new RecordingReadingService();
+        var articleContent = new RecordingArticleContentService();
+        var wordTranslations = new RecordingWordTranslationService();
         var themes = new ThemeManager(app.Resources, new AppearanceSettingsStore(configDir));
         await themes.LoadAsync();
         string? openedArticle = null;
         var learningState = Path.Combine(configDir, "learning");
-        var navigator = new RecordingNavigator(); var main = new MainWindow(vm, settingsStore, navigator, reading, url => openedArticle = url, themes, learningStateDirectory: learningState); app.MainWindow = main; main.Show();
+        var navigator = new RecordingNavigator(); var main = new MainWindow(vm, settingsStore, navigator, reading, url => openedArticle = url, themes, learningStateDirectory: learningState, articleContentService: articleContent, wordTranslationService: wordTranslations); app.MainWindow = main; main.Show();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         Check(!TitleBarTheme.IsSupported || TitleBarTheme.Apply(main), "native window caption adopts the current paper palette");
         await CheckThemeBeforeConfigurationAsync(main, themes, configDir, () => server.Requests);
-        await CheckDailyReadingAsync(main, reading, () => openedArticle, output, () => server.Requests);
+        await CheckDailyReadingAsync(main, reading, () => openedArticle, output, () => server.Requests, articleContent, wordTranslations, vm, themes);
         Check(main.Icon != null, "main window has the application icon");
         Check(Descendants<Image>(main).Any(image => image.IsVisible && image.Source is not null), "header shows the application icon");
         Check(Control<FrameworkElement>(main,"PreviewEmptyState").IsVisible, "empty preview explains what to do before a word is generated");

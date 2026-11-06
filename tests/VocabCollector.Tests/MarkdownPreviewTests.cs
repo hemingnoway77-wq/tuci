@@ -11,6 +11,39 @@ namespace VocabCollector.Tests;
 public sealed class MarkdownPreviewTests
 {
     [Fact]
+    public void OrdinaryMouseHoverRaisesPreviewWithoutControlKeyOrPathTooltip() => OnSta(() =>
+    {
+        using var preview = new MarkdownPreview { Markdown = "[[名词/introduce|introduce]]", ImmediateLinks = true };
+        PreviewLinkEventArgs? hovered = null;
+        var ended = 0;
+        preview.LinkHovered += (_, args) => hovered = args;
+        preview.HoverEnded += (_, _) => ended++;
+        var link = Inlines(preview.Document).OfType<Hyperlink>().Single();
+        MoveMouseOver(link);
+        Assert.Equal("名词/introduce", hovered?.Target);
+        Assert.Null(link.ToolTip);
+        preview.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount) { RoutedEvent = Mouse.MouseLeaveEvent });
+        Assert.Equal(1, ended);
+    });
+
+    [Fact]
+    public void VocabularyQuotesKeepSoftLineMeaningsSeparateWithCompactSansHeadings() => OnSta(() =>
+    {
+        const string markdown = "# introduced\n\n**释义**：\n\n> v. 介绍；把某人介绍给别人认识\n> v. 引进；首次引入某事物\n> v. 推行；开始采用\n\n#### 例句\n\n1. She **introduced** me.\n   - 她介绍了我。";
+        var document = MarkdownDocumentRenderer.Render(markdown);
+        var quote = document.Blocks.OfType<Section>().Single();
+        var quoteText = new TextRange(quote.ContentStart, quote.ContentEnd).Text.Replace("\r\n", "\n");
+        Assert.Contains("v. 介绍；把某人介绍给别人认识\nv. 引进；首次引入某事物\nv. 推行；开始采用", quoteText);
+        Assert.True(quote.BorderThickness.Left > 0);
+        var heading = Assert.IsType<Paragraph>(document.Blocks.FirstBlock);
+        Assert.DoesNotContain("Sitka", heading.FontFamily.Source);
+        Assert.InRange(heading.FontSize, 22, 28);
+        Assert.True(heading.FontWeight >= FontWeights.SemiBold);
+    });
+
+    internal static void MoveMouseOver(FrameworkContentElement source) => source.RaiseEvent(
+        new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount) { RoutedEvent = Mouse.MouseMoveEvent });
+    [Fact]
     public void ImmediateLinksDispatchMouseSingleClickBeforeDoubleClickDelay() => OnSta(() =>
     {
         using var preview = new MarkdownPreview { Markdown = "[[target]]", ImmediateLinks = true };

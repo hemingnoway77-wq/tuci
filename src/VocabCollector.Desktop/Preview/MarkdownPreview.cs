@@ -18,7 +18,6 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
     private Point _pressedAt;
     private bool _doubleClick;
     private bool _disposed;
-    private bool _watchingInput;
     public static readonly DependencyProperty MarkdownProperty = DependencyProperty.Register(
         nameof(Markdown), typeof(string), typeof(MarkdownPreview), new PropertyMetadata("", OnMarkdownChanged));
 
@@ -41,9 +40,8 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
         _singleClickTimer.Tick += OnSingleClick;
         AddHandler(Mouse.PreviewMouseDownEvent, new MouseButtonEventHandler(OnLinkMouseDown), true);
         AddHandler(Mouse.PreviewMouseUpEvent, new MouseButtonEventHandler(OnLinkMouseUp), true);
-        Loaded += (_, _) => { if (!_disposed && !_watchingInput) { InputManager.Current.PreProcessInput += OnHoverKeyboard; _watchingInput = true; } };
-        Unloaded += (_, _) => { CancelPendingLink(); EndHover(); StopWatchingInput(); };
-        PreviewKeyUp += (_, _) => { if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) EndHover(); };
+        Unloaded += (_, _) => { CancelPendingLink(); EndHover(); };
+        IsVisibleChanged += (_, _) => { if (!IsVisible) EndHover(); };
         IsReadOnly = true;
         IsDocumentEnabled = true;
         IsReadOnlyCaretVisible = false;
@@ -68,7 +66,7 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
     }
 
     private FlowDocument Render(string markdown) => MarkdownDocumentRenderer.Render(markdown,
-        link => { if (!_disposed) LinkRequested?.Invoke(this, new PreviewLinkEventArgs(link.Target, link.IsWikiLink, modifiers: Keyboard.Modifiers)); });
+        link => { EndHover(); if (!_disposed) LinkRequested?.Invoke(this, new PreviewLinkEventArgs(link.Target, link.IsWikiLink, modifiers: Keyboard.Modifiers)); });
 
     protected override void OnMouseMove(MouseEventArgs args)
     {
@@ -78,7 +76,7 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
 
     private void UpdateHover(object? source)
     {
-        var link = ImmediateLinks && Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? FindLink(source) : null;
+        var link = !_disposed ? FindLink(source) : null;
         if (link is not null)
         {
             DependencyObject? parent = link;
@@ -92,18 +90,6 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
             LinkHovered?.Invoke(this, new PreviewLinkEventArgs(target.Target, target.IsWikiLink, modifiers: Keyboard.Modifiers));
     }
 
-    private void OnHoverKeyboard(object sender, PreProcessInputEventArgs args)
-    {
-        if (args.StagingItem.Input is not KeyEventArgs key || key.Key is not (Key.LeftCtrl or Key.RightCtrl)) return;
-        if (key.IsUp) EndHover();
-        else Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => { if (!_disposed && IsLoaded) UpdateHover(Mouse.DirectlyOver); }));
-    }
-
-    private void StopWatchingInput()
-    {
-        if (!_watchingInput) return;
-        InputManager.Current.PreProcessInput -= OnHoverKeyboard; _watchingInput = false;
-    }
 
     protected override void OnMouseLeave(MouseEventArgs args) { base.OnMouseLeave(args); EndHover(); }
 
@@ -118,6 +104,7 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
     {
         if (_disposed || args.ChangedButton != MouseButton.Left || FindLink(args.OriginalSource) is not { } link) return;
         _pressedLink = link;
+        EndHover();
         _pressedAt = args.GetPosition(this);
         _doubleClick = args.ClickCount == 2 && ReferenceEquals(link, _pendingLink);
         // Suppress Hyperlink's immediate Click. Keyboard/automation Click remains immediate.
@@ -173,6 +160,7 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
 
     private void RaiseLink(Hyperlink link, bool isDoubleClick)
     {
+        EndHover();
         if (!_disposed && link.Tag is PreviewLink target)
             LinkRequested?.Invoke(this, new PreviewLinkEventArgs(target.Target, target.IsWikiLink, isDoubleClick, Keyboard.Modifiers));
     }
@@ -191,7 +179,6 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
         _disposed = true;
         CancelPendingLink();
         EndHover();
-        StopWatchingInput();
         _singleClickTimer.Tick -= OnSingleClick;
     }
 

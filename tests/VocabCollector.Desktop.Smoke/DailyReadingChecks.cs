@@ -9,7 +9,9 @@ namespace VocabCollector.Desktop.Smoke;
 public sealed partial class SmokeRunner
 {
     private async Task CheckDailyReadingAsync(MainWindow main, RecordingReadingService service,
-        Func<string?> openedArticle, string output, Func<int> modelRequests)
+        Func<string?> openedArticle, string output, Func<int> modelRequests,
+        RecordingArticleContentService content, RecordingWordTranslationService translations,
+        MainViewModel capture, ThemeManager themes)
     {
         var before = modelRequests();
         await SelectPageAsync(main, "ReadingTab");
@@ -31,26 +33,31 @@ public sealed partial class SmokeRunner
             "returning to reading reuses the loaded page and articles");
 
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-        var openButton = Descendants<Button>(page).First(button => button.Name == "OpenArticleButton");
-        Invoke(openButton);
-        await Until(() => openedArticle() is not null);
-        Check(openedArticle() == service.Articles[0].Url, "article button opens the original URL");
-        Check(modelRequests() == before, "opening original article uses no model requests");
+        CheckReadingDirectory(page);
         Snapshot(main, Path.Combine(output, "daily-reading.png"));
-
         main.Width = main.MinWidth;
         main.Height = main.MinHeight;
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         main.UpdateLayout();
-        var refresh = Descendants<Button>(main).Single(button => button.Name == "DailyReadingRefreshButton");
-        Check(refresh.IsVisible, "refresh remains reachable at minimum reading size");
-        var scroll = Descendants<ScrollViewer>(main).First(viewer => viewer.Name == "ReadingArticlesScroll");
+        var refresh = Descendants<Button>(page).Single(button => button.Name == "DailyReadingRefreshButton");
+        CheckReachable(refresh, main, "refresh remains reachable at minimum reading size");
+        var scroll = Descendants<ScrollViewer>(page).Single(viewer => viewer.Name == "ReadingArticlesScroll");
         Check(AutoHideScrollbars.GetIsEnabled(scroll), "reading uses shared auto-hiding scrollbars");
         scroll.ScrollToEnd();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-        Check(Descendants<Button>(page).Where(button => button.Name == "OpenArticleButton").Last().IsVisible,
-            "last article remains reachable by scrolling");
+        var openButton = Descendants<Button>(page).Where(button => button.Name == "OpenArticleButton").Last();
+        CheckReachable(openButton, main, "last article remains reachable by scrolling");
+        Check(scroll.VerticalOffset > 0, "minimum directory fixture exercises a real reading-list scroll position");
+        var directoryOffset = scroll.VerticalOffset;
         Snapshot(main, Path.Combine(output, "daily-reading-minimum.png"));
+        Invoke(openButton);
+        await Until(() => page.IsArticleOpen && page.CurrentArticle?.Url == service.Articles[^1].Url &&
+            ReadingControl<System.Windows.Controls.RichTextBox>(page, "ArticleBodyReader").Document.Blocks.Count == content.Paragraphs.Count);
+        await CheckPureReadingArticleAsync(main, page, service.Articles[^1], content, translations, capture,
+            themes, openedArticle, output, modelRequests);
+        Check(!page.IsArticleOpen && Math.Abs(scroll.VerticalOffset - directoryOffset) <= 3,
+            "returning from full text restores the article directory's previous scroll position");
+        Check(modelRequests() == before, "pure full-text reading and word actions use no model requests");
 
         Invoke(refresh);
         await Until(() => service.Calls == 2 && !viewModel.IsBusy);
@@ -93,7 +100,7 @@ public sealed partial class SmokeRunner
                 try { await Task.Delay(Timeout.Infinite, cancellationToken); }
                 catch (OperationCanceledException) { Cancelled = true; throw; }
             }
-            return new(new DateOnly(2026, 10, 28), Articles, false, false, "今日文章已准备好，点击即可阅读原文。");
+            return new(new DateOnly(2026, 10, 28), Articles, false, false, "今日文章已准备好，点击即可阅读纯净全文。");
         }
     }
 }

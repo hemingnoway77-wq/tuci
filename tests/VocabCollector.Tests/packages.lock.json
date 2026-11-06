@@ -29,6 +29,11 @@
         "resolved": "3.1.1",
         "contentHash": "gNu2zhnuwjq5vQlU4S7yK/lfaKZDLmtcu+vTjnhfTlMAUYn+Hmgu8IIX0UCwWepYkk+Szx03DHx1bDnc9Fd+9w=="
       },
+      "AngleSharp": {
+        "type": "Transitive",
+        "resolved": "1.9.1",
+        "contentHash": "QgOLaoPvDofo66KBOHlI9WLH+L/3xGDDd1joM4CrsFsxm0knRu/6ZoiWU0DUOhBZzSCa13zYKAeVPS/CxnF12Q=="
+      },
       "Markdig": {
         "type": "Transitive",
         "resolved": "1.4.2",
@@ -112,7 +117,10 @@
         }
       },
       "vocabcollector.core": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "AngleSharp": "[1.9.1, )"
+        }
       }
     }
   }

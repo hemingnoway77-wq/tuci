@@ -29,7 +29,6 @@ public static class MarkdownDocumentRenderer
     private static readonly MarkdownPipeline Pipeline = CreatePipeline();
     private static readonly ResourceDictionary MonoFallback = ThemePalette.Create(AppTheme.Mono);
     private const string ContentFont = "Segoe UI, Microsoft YaHei UI, Microsoft YaHei";
-    private const string DisplayFont = "Sitka Display, Georgia, Microsoft YaHei UI, Microsoft YaHei";
     private const string CodeFont = "Cascadia Mono, Consolas, Microsoft YaHei UI, Microsoft YaHei";
 
     public static FlowDocument Render(string markdown, Action<PreviewLink>? onLink = null)
@@ -37,8 +36,8 @@ public static class MarkdownDocumentRenderer
         var document = new FlowDocument
         {
             FontFamily = new FontFamily(ContentFont),
-            FontSize = 14,
-            LineHeight = 25,
+            FontSize = 16,
+            LineHeight = 26,
             PagePadding = new Thickness(0),
             TextAlignment = TextAlignment.Left,
             ColumnWidth = double.PositiveInfinity
@@ -69,21 +68,11 @@ public static class MarkdownDocumentRenderer
                 var paragraph = Paragraph(heading.Inline, onLink);
                 SetHeadingLevel(paragraph, heading.Level);
                 SetHeadingSourceOffset(paragraph, heading.Span.Start);
-                paragraph.FontFamily = new FontFamily(heading.Level == 1 ? DisplayFont : ContentFont);
-                paragraph.FontSize = heading.Level switch { 1 => 32, 2 => 21, 3 => 18, 4 => 16, _ => 14 };
-                paragraph.FontWeight = heading.Level == 1 ? FontWeights.Medium : FontWeights.SemiBold;
-                ThemeBrush(paragraph, TextElement.ForegroundProperty, heading.Level == 1 ? "Ink" : heading.Level == 5 ? "InkSecondary" : "Accent");
-                if (heading.Level == 1) paragraph.Margin = new Thickness(0, 0, 0, 10);
-                else if (heading.Level == 5) paragraph.Margin = new Thickness(0, 12, 0, 6);
-                else if (heading.Level >= 4)
-                {
-                    // Section labels behave like a printed subhead with a hairline above it.
-                    paragraph.BorderThickness = new Thickness(0, 1, 0, 0);
-                    ThemeBrush(paragraph, WpfBlock.BorderBrushProperty, "LineSoft");
-                    paragraph.Padding = new Thickness(0, 12, 0, 0);
-                    paragraph.Margin = new Thickness(0, 15, 0, 7);
-                }
-                else paragraph.Margin = new Thickness(0, 16, 0, 7);
+                paragraph.FontFamily = new FontFamily(ContentFont);
+                paragraph.FontSize = heading.Level switch { 1 => 26, 2 => 22, 3 => 19, 4 => 18, _ => 16 };
+                paragraph.FontWeight = FontWeights.SemiBold;
+                ThemeBrush(paragraph, TextElement.ForegroundProperty, "Ink");
+                paragraph.Margin = heading.Level == 1 ? new Thickness(0, 0, 0, 8) : new Thickness(0, 12, 0, 6);
                 return paragraph;
             }
             case ParagraphBlock paragraph:
@@ -93,12 +82,16 @@ public static class MarkdownDocumentRenderer
                 var section = new Section
                 {
                     BorderThickness = new Thickness(2, 0, 0, 0),
-                    Padding = new Thickness(15, 4, 4, 4),
-                    Margin = new Thickness(0, 0, 0, 14)
+                    Padding = new Thickness(14, 2, 4, 2),
+                    Margin = new Thickness(0, 0, 0, 10)
                 };
-                ThemeBrush(section, WpfBlock.BorderBrushProperty, "Margin");
-                AddChildren(section.Blocks, quote, onLink);
-                foreach (var child in section.Blocks) child.Margin = new Thickness(0);
+                ThemeBrush(section, WpfBlock.BorderBrushProperty, "Line");
+                foreach (var child in quote)
+                {
+                    var rendered = child is ParagraphBlock quotedParagraph ? Paragraph(quotedParagraph.Inline, onLink, preserveSoftBreaks: true) : RenderBlock(child, onLink);
+                    if (rendered is not null) section.Blocks.Add(rendered);
+                }
+                foreach (var child in section.Blocks) child.Margin = new Thickness(0, 0, 0, 3);
                 return section;
             }
             case ListBlock list:
@@ -113,7 +106,7 @@ public static class MarkdownDocumentRenderer
                 if (list.IsOrdered && int.TryParse(list.OrderedStart, out var start) && start > 0) rendered.StartIndex = start;
                 foreach (var child in list.OfType<ListItemBlock>())
                 {
-                    var item = new ListItem { Margin = new Thickness(0, 0, 0, 4) };
+                    var item = new ListItem { Margin = new Thickness(0, 0, 0, 8) };
                     AddChildren(item.Blocks, child, onLink);
                     foreach (var itemBlock in item.Blocks) itemBlock.Margin = new Thickness(0, 0, 0, 3);
                     rendered.ListItems.Add(item);
@@ -147,10 +140,10 @@ public static class MarkdownDocumentRenderer
         }
     }
 
-    private static Paragraph Paragraph(ContainerInline? source, Action<PreviewLink>? onLink)
+    private static Paragraph Paragraph(ContainerInline? source, Action<PreviewLink>? onLink, bool preserveSoftBreaks = false)
     {
-        var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 12) };
-        AddInlines(paragraph.Inlines, source, onLink);
+        var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 8) };
+        AddInlines(paragraph.Inlines, source, onLink, preserveSoftBreaks: preserveSoftBreaks);
         return paragraph;
     }
 
@@ -160,7 +153,7 @@ public static class MarkdownDocumentRenderer
             if (RenderBlock(child, onLink) is { } rendered) target.Add(rendered);
     }
 
-    private static void AddInlines(InlineCollection target, ContainerInline? source, Action<PreviewLink>? onLink, bool allowLinks = true)
+    private static void AddInlines(InlineCollection target, ContainerInline? source, Action<PreviewLink>? onLink, bool allowLinks = true, bool preserveSoftBreaks = false)
     {
         if (source is null) return;
         foreach (var inline in source)
@@ -174,7 +167,7 @@ public static class MarkdownDocumentRenderer
                     target.Add(new Run(entity.Transcoded.ToString()));
                     break;
                 case LineBreakInline lineBreak:
-                    target.Add(lineBreak.IsHard ? new LineBreak() : new Run(" "));
+                    target.Add(lineBreak.IsHard || preserveSoftBreaks ? new LineBreak() : new Run(" "));
                     break;
                 case CodeInline code:
                     target.Add(ThemeBrush(new Run(code.Content) { FontFamily = new FontFamily(CodeFont), FontSize = 13 }, TextElement.BackgroundProperty, "AccentSoft"));
@@ -185,27 +178,27 @@ public static class MarkdownDocumentRenderer
                 case LinkInline { IsImage: true } image:
                     // Display alt text only. Preview must never fetch a remote resource.
                     var alternate = ThemeBrush(new Span(), TextElement.ForegroundProperty, "InkTertiary");
-                    AddInlines(alternate.Inlines, image, onLink, allowLinks: false);
+                    AddInlines(alternate.Inlines, image, onLink, allowLinks: false, preserveSoftBreaks);
                     target.Add(alternate);
                     break;
                 case LinkInline link:
                     var label = new Span();
                     // WPF forbids Hyperlink descendants even through formatting spans.
-                    AddInlines(label.Inlines, link, onLink, allowLinks: false);
+                    AddInlines(label.Inlines, link, onLink, allowLinks: false, preserveSoftBreaks);
                     target.Add(allowLinks ? Link(new PreviewLink(link.Url ?? "", false), label, onLink) : label);
                     break;
                 case AutolinkInline link:
                     target.Add(allowLinks ? Link(new PreviewLink(link.Url, false), new Run(link.Url), onLink) : new Run(link.Url));
                     break;
                 case EmphasisInline emphasis:
-                    Span formatting = emphasis.DelimiterCount >= 2 ? ThemeBrush(new Bold(), TextElement.ForegroundProperty, "Accent") : new Italic();
-                    AddInlines(formatting.Inlines, emphasis, onLink, allowLinks);
+                    Span formatting = emphasis.DelimiterCount >= 2 ? ThemeBrush(new Bold(), TextElement.ForegroundProperty, "Ink") : new Italic();
+                    AddInlines(formatting.Inlines, emphasis, onLink, allowLinks, preserveSoftBreaks);
                     target.Add(formatting);
                     break;
                 case HtmlInline:
                     break;
                 case ContainerInline container:
-                    AddInlines(target, container, onLink, allowLinks);
+                    AddInlines(target, container, onLink, allowLinks, preserveSoftBreaks);
                     break;
             }
         }
@@ -217,7 +210,6 @@ public static class MarkdownDocumentRenderer
         {
             TextDecorations = TextDecorations.Underline,
             Cursor = Cursors.Hand,
-            ToolTip = target.Target,
             Tag = target
         };
         ThemeBrush(link, TextElement.ForegroundProperty, "Accent");

@@ -14,8 +14,16 @@
         "resolved": "1.0.4314.35",
         "contentHash": "x5MFf2W03xueU1mMNvivXfHSsQ+ODo7vJ36qw/dLtU5Gs+8d7+7N7zzmNNDoT3ffosmcvZNBtUnlzyiDUuBkSQ=="
       },
+      "AngleSharp": {
+        "type": "Transitive",
+        "resolved": "1.9.1",
+        "contentHash": "QgOLaoPvDofo66KBOHlI9WLH+L/3xGDDd1joM4CrsFsxm0knRu/6ZoiWU0DUOhBZzSCa13zYKAeVPS/CxnF12Q=="
+      },
       "vocabcollector.core": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "AngleSharp": "[1.9.1, )"
+        }
       }
     }
   }

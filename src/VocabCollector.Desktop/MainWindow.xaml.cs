@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     private readonly IAppNavigator _navigator;
     private readonly IDailyReadingService? _readingService;
     private readonly Action<string>? _openArticle;
+    private readonly IArticleContentService? _articleContentService;
+    private readonly IWordTranslationService? _wordTranslationService;
     private readonly ThemeManager _themes;
     private readonly DesktopSync? _sync;
     private readonly string? _learningStateDirectory;
@@ -31,12 +33,14 @@ public partial class MainWindow : Window
 
     public MainWindow(MainViewModel viewModel, ISettingsStore settingsStore, IAppNavigator navigator,
         IDailyReadingService? readingService = null, Action<string>? openArticle = null, ThemeManager? themeManager = null,
-        DesktopSync? sync = null, string? learningStateDirectory = null)
+        DesktopSync? sync = null, string? learningStateDirectory = null,
+        IArticleContentService? articleContentService = null, IWordTranslationService? wordTranslationService = null)
     {
         _themes = themeManager ?? new ThemeManager(Application.Current.Resources);
         _viewModel = viewModel; _store = settingsStore; _navigator = navigator;
         _readingService = readingService; _openArticle = openArticle; _sync = sync;
         _learningStateDirectory = learningStateDirectory;
+        _articleContentService = articleContentService; _wordTranslationService = wordTranslationService;
         InitializeComponent();
         DataContext = viewModel;
         SyncButton.Visibility = sync == null ? Visibility.Collapsed : Visibility.Visible;
@@ -134,12 +138,27 @@ public partial class MainWindow : Window
             }
             _readingViewModel = new DailyReadingViewModel(service);
             _readingViewModel.PropertyChanged += ViewModel_PropertyChanged;
-            _readingPage = new ReadingPage(_readingViewModel, OpenArticle);
+            _readingPage = new ReadingPage(_readingViewModel, OpenArticle, _articleContentService, _wordTranslationService);
+            _readingPage.WordCaptureRequested += ReadingWordCaptureRequested;
             PageHost.Children.Add(_readingPage);
         }
         SelectPage("reading");
         try { await _readingPage.EnsureLoadedAsync(); }
         catch (Exception) { if (_readingViewModel != null) _readingViewModel.Message = "文章获取失败，请点击「刷新文章」重试。"; }
+    }
+    private void ReadingWordCaptureRequested(object? sender, ReadingWordSelection word)
+    {
+        if (_closed) return;
+        if (_viewModel.IsBusy)
+        {
+            if (_readingViewModel != null) _readingViewModel.Message = "请等待当前收录完成，再收录这个单词。";
+            return;
+        }
+        _viewModel.Word = word.Word;
+        _viewModel.Context = word.Context;
+        _viewModel.Message = "已带入阅读中的单词和原句，点击「解析并保存」收录。";
+        SelectPage("capture");
+        WordBox.Focus(); WordBox.SelectAll();
     }
     private void OpenArticle(string url)
     {
@@ -226,6 +245,7 @@ public partial class MainWindow : Window
         if (_readingViewModel != null) _readingViewModel.PropertyChanged -= ViewModel_PropertyChanged;
         if (_sync != null) _sync.Updated -= SyncStatusChanged;
         _learningPage?.Dispose(); NotePreview.Dispose();
-        _readingPage?.Cancel(); _readingClient?.Dispose();
+        if (_readingPage != null) { _readingPage.WordCaptureRequested -= ReadingWordCaptureRequested; _readingPage.Dispose(); }
+        _readingClient?.Dispose();
     }
 }

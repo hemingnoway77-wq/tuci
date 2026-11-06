@@ -1,6 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Documents;
+using System.Windows.Controls.Primitives;
+using System.Reflection;
 using VocabCollector.Core;
 using VocabCollector.Core.Library;
 using VocabCollector.Desktop;
@@ -11,6 +14,68 @@ namespace VocabCollector.Tests;
 
 public sealed class NoteReaderTests
 {
+    [Fact]
+    public void SwitchingWarmToMonoRecolorsNestedLinksEmphasisAndQuoteRulesWithoutChangingSource() => Run((reader, owner, notes) =>
+    {
+        var themes = new ThemeManager(owner.Resources);
+        var markdown = "# introduced\n\n**释义**：\n\n> v. 介绍\n> v. 引进\n\n#### 例句\n\n1. She **introduced** her [[second]].\n   - 中文翻译。";
+        reader.DirectLinks = true; reader.OpenNote(notes[0] with { Markdown = markdown });
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(60));
+        var preview = Descendants<MarkdownPreview>(reader).Single();
+        var document = preview.Document;
+        themes.Apply(AppTheme.Mono);
+        foreach (var element in TextElements(document))
+        {
+            var color = Assert.IsType<SolidColorBrush>(element.Foreground).Color;
+            Assert.InRange(Math.Max(color.R, Math.Max(color.G, color.B)) - Math.Min(color.R, Math.Min(color.G, color.B)), 0, 6);
+            if (element is Bold) Assert.Same(owner.Resources["Ink"], element.Foreground);
+            if (element is Hyperlink) Assert.Same(owner.Resources["Accent"], element.Foreground);
+        }
+        var quote = document.Blocks.OfType<Section>().Single();
+        Assert.Same(owner.Resources["Line"], quote.BorderBrush);
+        Assert.Equal(markdown, reader.Note?.Markdown);
+        Assert.Same(document, preview.Document);
+    });
+
+    private static IEnumerable<TextElement> TextElements(FlowDocument document)
+    {
+        for (var pointer = document.ContentStart; pointer is not null && pointer.CompareTo(document.ContentEnd) < 0; pointer = pointer.GetNextContextPosition(LogicalDirection.Forward))
+            if (pointer.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.ElementStart && pointer.GetAdjacentElement(LogicalDirection.Forward) is TextElement element)
+                yield return element;
+    }
+    [Fact]
+    public void OrdinaryLocalHoverShowsFocusSafeCardAndHidesWhenLeavingPage() => Run((reader, owner, notes) =>
+    {
+        reader.DirectLinks = true; reader.OpenNote(notes[0]);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(50));
+        var preview = Descendants<MarkdownPreview>(reader).Single();
+        preview.Focus(); var focused = System.Windows.Input.Keyboard.FocusedElement;
+        var link = preview.Document.Blocks.OfType<Paragraph>().SelectMany(paragraph => paragraph.Inlines.OfType<Hyperlink>()).First();
+        MarkdownPreviewTests.MoveMouseOver(link);
+        var card = Assert.IsType<Popup>(HoverPopup(reader));
+        Assert.True(card.IsOpen);
+        Assert.False(card.Focusable);
+        Assert.False(card.IsHitTestVisible);
+        Assert.Contains(Descendants<TextBlock>(card.Child), block => block.Text == "second");
+        var surface = Assert.IsType<Border>(card.Child);
+        Assert.Same(owner.FindResource("Sheet"), surface.Background);
+        new ThemeManager(owner.Resources).Apply(AppTheme.Mono);
+        Assert.Same(owner.FindResource("Sheet"), surface.Background);
+        Assert.Same(owner.FindResource("Ink"), Descendants<TextBlock>(surface).Single(block => block.Text == "second").Foreground);
+        Assert.Same(focused, System.Windows.Input.Keyboard.FocusedElement);
+        reader.Visibility = Visibility.Collapsed;
+        Assert.False(card.IsOpen);
+        Assert.Null(HoverPopup(reader));
+        reader.Visibility = Visibility.Visible;
+        reader.OpenNote(notes[0] with { Markdown = "# first\n\n[second](https://example.com/second)" });
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(30));
+        var web = preview.Document.Blocks.OfType<Paragraph>().SelectMany(paragraph => paragraph.Inlines.OfType<Hyperlink>()).Single();
+        MarkdownPreviewTests.MoveMouseOver(web);
+        Assert.Null(HoverPopup(reader));
+    });
+
+    private static Popup? HoverPopup(NoteReader reader) => (Popup?)typeof(NoteReader)
+        .GetField("_hover", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(reader);
     [Fact]
     public void DirectReadingFollowsClientThemesWithoutRebuildingDocumentOrScalingFonts() => Run((reader, owner, notes) =>
     {

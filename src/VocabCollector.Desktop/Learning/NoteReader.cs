@@ -53,6 +53,7 @@ public sealed class NoteReader : UserControl, IDisposable
         _preview.HoverEnded += (_, _) => CloseHover();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+        IsVisibleChanged += (_, _) => { if (!IsVisible) CloseHover(); };
     }
 
     public LibraryNote? Note { get; private set; }
@@ -74,7 +75,7 @@ public sealed class NoteReader : UserControl, IDisposable
             _preview.ImmediateLinks = value;
             _toolbar.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
             _preview.Margin = value ? new Thickness(0) : new Thickness(0, 14, 0, 0);
-            _preview.Padding = value ? new Thickness(30, 20, 30, 40) : new Thickness(0);
+            _preview.Padding = value ? new Thickness(24, 12, 24, 20) : new Thickness(0);
             _preview.MaxWidth = value ? 900 : double.PositiveInfinity;
             if (value) ApplyReadingTypography();
         }
@@ -368,7 +369,7 @@ public sealed class NoteReader : UserControl, IDisposable
     {
         _preview.Document.FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI");
         _preview.Document.FontSize = 16;
-        _preview.Document.LineHeight = 28;
+        _preview.Document.LineHeight = 26;
         foreach (var paragraph in HeadingParagraphs())
         {
             paragraph.FontFamily = _preview.Document.FontFamily;
@@ -390,19 +391,22 @@ public sealed class NoteReader : UserControl, IDisposable
 
     private void OnLinkHovered(object? sender, PreviewLinkEventArgs args)
     {
-        if (!DirectLinks || _catalog is null) return;
+        CloseHover();
+        if (_catalog is null || (!args.IsWikiLink && Uri.TryCreate(args.Target, UriKind.Absolute, out _))) return;
         var matches = _catalog.Resolve(args.Target, Note, _notes);
         if (matches.Count != 1) return;
         var note = matches[0];
         var panel = new StackPanel { Margin = new Thickness(16), MaxWidth = 360 };
         panel.Children.Add(Text(note.Title, 19, "Ink"));
         if (note.Phonetics.Length > 0) panel.Children.Add(Text(note.Phonetics, 13, "Accent"));
-        panel.Children.Add(Text(note.Meaning.Length > 0 ? note.Meaning : note.Excerpt, 14, "InkSecondary"));
+        var summary = note.Meaning.Length > 0 ? note.Meaning : note.Excerpt;
+        panel.Children.Add(Text(summary.Length > 360 ? summary[..360] + "…" : summary, 14, "InkSecondary"));
         var border = new Border { Child = panel, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4) };
         border.SetResourceReference(Border.BackgroundProperty, "Sheet");
         border.SetResourceReference(Border.BorderBrushProperty, "Line");
         _hover = new Popup { Child = border, PlacementTarget = _preview, Placement = PlacementMode.MousePoint,
-            StaysOpen = true, AllowsTransparency = true, Focusable = false, IsHitTestVisible = false, IsOpen = true };
+            HorizontalOffset = 12, VerticalOffset = 18, StaysOpen = true, AllowsTransparency = true,
+            Focusable = false, IsHitTestVisible = false, IsOpen = true };
     }
 
     private void CloseHover()
