@@ -19,10 +19,12 @@
    <Border x:Name="RoamingWordCard" Style="{DynamicResource SheetCard}" Padding="34,26,34,24">
     <Grid>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-     <StackPanel><TextBlock Text="FOLLOW YOUR MEMORY" Style="{DynamicResource Eyebrow}"/><TextBlock Text="漫游复习" Style="{DynamicResource PageTitle}" FontSize="25" Margin="0,7,0,0"/><TextBlock Text="旧词、新词和今天的每一次回想，在这里重新相遇。" Style="{DynamicResource HintText}" Margin="0,9,0,0"/></StackPanel>
+     <TextBlock Text="漫游复习" Style="{DynamicResource PageTitle}" FontSize="25"/>
      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,24,0,16">
       <StackPanel x:Name="RoamingCardBody">
-       <TextBlock Text="{Binding RememberedLabel}" Style="{DynamicResource MetaText}" Margin="0,0,0,10"/>
+       <TextBlock Text="{Binding RememberedLabel}" Margin="0,0,0,10" Foreground="{DynamicResource InkTertiary}">
+        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="FontSize" Value="12"/><Style.Triggers><DataTrigger Binding="{Binding RememberedLabel}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+       </TextBlock>
        <TextBlock x:Name="RoamingWordText" Text="{Binding RoamingTitle}" FontFamily="{DynamicResource ContentFont}" FontSize="38" Foreground="{DynamicResource Ink}" TextWrapping="Wrap"/>
        <TextBlock Text="{Binding RoamingPhonetics}" Style="{DynamicResource BodyText}" Margin="0,12,0,0"/>
        <Border Height="1" Background="{DynamicResource Line}" Margin="0,18,0,18"/>
@@ -37,34 +39,32 @@
     </Grid>
    </Border>
    <Border x:Name="RoamingStatusPanel" Grid.Column="2" Style="{DynamicResource SheetCard}" Padding="22,26,22,20">
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel>
-     <TextBlock Text="YOUR REVIEW, AT A GLANCE" Style="{DynamicResource Eyebrow}" TextWrapping="Wrap"/>
-     <TextBlock Text="漫游状态" FontFamily="{DynamicResource DisplayFont}" FontSize="21" Foreground="{DynamicResource Ink}" Margin="0,9,0,18"/>
-     <TextBlock Text="本次抽取倾向" Style="{DynamicResource FieldLabel}"/>
-     <TextBlock Text="{Binding WeightDescription}" Style="{DynamicResource MetaText}" Margin="0,7,0,8"/>
-     <ProgressBar x:Name="RoamingWeightBar" Style="{StaticResource RoamingMeter}" Value="{Binding WeightLevel, Mode=OneWay}" Maximum="1" Height="7" AutomationProperties.Name="本次抽取倾向"/>
-     <TextBlock Text="相对本轮最高权重；条越长，抽取倾向越高。" Style="{DynamicResource HintText}" Margin="0,9,0,0"/>
-     <Border Height="1" Background="{DynamicResource Line}" Margin="0,18,0,18"/>
-     <TextBlock Text="复习覆盖" Style="{DynamicResource FieldLabel}"/>
-     <StackPanel Orientation="Horizontal" Margin="0,6,0,10">
-      <RadioButton x:Name="RoamingWeekButton" Content="本周" Tag="week" GroupName="RoamingPeriod" IsChecked="True" Checked="StatisticsPeriod_Checked" Style="{DynamicResource NavTab}" Padding="4,6" MinWidth="54"/>
-      <RadioButton x:Name="RoamingMonthButton" Content="本月" Tag="month" GroupName="RoamingPeriod" Checked="StatisticsPeriod_Checked" Style="{DynamicResource NavTab}" Padding="4,6" MinWidth="54"/>
+    <Grid x:Name="RoamingStatusBody" ClipToBounds="True" SizeChanged="RoamingStatusBody_SizeChanged">
+     <StackPanel VerticalAlignment="Top">
+     <TextBlock x:Name="RoamingStatusHeader" Text="漫游状态" FontFamily="{DynamicResource DisplayFont}" FontSize="21" Foreground="{DynamicResource Ink}" Margin="0,0,0,24"/>
+     <StackPanel x:Name="RoamingWeightSection">
+      <TextBlock Text="本次抽取倾向" Style="{DynamicResource FieldLabel}"/>
+      <TextBlock Text="{Binding WeightDescription}" Style="{DynamicResource MetaText}" Margin="0,7,0,8"/>
+      <ProgressBar x:Name="RoamingWeightBar" Style="{StaticResource RoamingMeter}" Value="{Binding WeightLevel, Mode=OneWay}" Maximum="1" Height="7" AutomationProperties.Name="本次抽取倾向"/>
      </StackPanel>
-     <TextBlock Text="{Binding CoverageLabel}" FontSize="20" Foreground="{DynamicResource Ink}" Margin="0,0,0,9"/>
-     <ProgressBar x:Name="RoamingCoverageBar" Style="{StaticResource RoamingMeter}" Value="{Binding Coverage, Mode=OneWay}" Maximum="1" Height="7" AutomationProperties.Name="复习覆盖进度"/>
-     <TextBlock Text="{Binding CoverageDescription}" Style="{DynamicResource HintText}" Margin="0,9,0,0"/>
-     <Border Height="1" Background="{DynamicResource Line}" Margin="0,18,0,14"/>
-     <TextBlock Text="每日漫游" Style="{DynamicResource FieldLabel}"/>
-     <TextBlock Text="近 12 周 · 每格一天" Style="{DynamicResource MetaText}" Margin="0,7,0,10"/>
+     <StackPanel x:Name="RoamingCoverageSection">
+      <Border Height="1" Background="{DynamicResource Line}" Margin="0,22,0,20"/>
+      <TextBlock Text="复习覆盖" Style="{DynamicResource FieldLabel}"/>
+      <local:PeriodSelector x:Name="RoamingPeriodSelector" Margin="0,5,0,9" HorizontalAlignment="Left"/>
+      <TextBlock Text="{Binding CoverageLabel}" FontSize="20" Foreground="{DynamicResource Ink}" Margin="0,0,0,9"/>
+      <ProgressBar x:Name="RoamingCoverageBar" Style="{StaticResource RoamingMeter}" Value="{Binding Coverage, Mode=OneWay}" Maximum="1" Height="7" AutomationProperties.Name="复习覆盖进度"/>
+     </StackPanel>
+     <StackPanel x:Name="RoamingActivitySection">
+     <Border Height="1" Background="{DynamicResource Line}" Margin="0,22,0,20"/>
+     <TextBlock Text="每日漫游" Style="{DynamicResource FieldLabel}" Margin="0,0,0,12"/>
      <ItemsControl x:Name="RoamingActivityGrid" ItemsSource="{Binding ActivityDays}" Focusable="False" FocusVisualStyle="{x:Null}" HorizontalAlignment="Left">
       <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Rows="7" Columns="12"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
       <ItemsControl.ItemTemplate><DataTemplate>
        <Border Width="11" Height="11" Margin="0,0,3,3" Background="{Binding Fill}" BorderBrush="{DynamicResource Line}" BorderThickness="0.5" CornerRadius="2" Opacity="{Binding Opacity}" ToolTip="{Binding Tooltip}" ToolTipService.InitialShowDelay="100" AutomationProperties.Name="{Binding Tooltip}"/>
       </DataTemplate></ItemsControl.ItemTemplate>
      </ItemsControl>
-     <TextBlock Text="浅色较少 · 深色较多" Style="{DynamicResource MetaText}" Margin="0,5,0,0"/>
-     <TextBlock Text="{Binding TrackingHint}" Style="{DynamicResource HintText}" Margin="0,14,0,0"/>
-    </StackPanel></ScrollViewer>
+     </StackPanel>
+    </StackPanel></Grid>
    </Border>
    <Border x:Name="RoamingPreviewPane" Grid.Column="4" Style="{DynamicResource SheetCard}" Visibility="Collapsed" Padding="0">
     <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>

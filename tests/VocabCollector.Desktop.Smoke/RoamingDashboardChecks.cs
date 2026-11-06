@@ -7,6 +7,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using VocabCollector.Core;
 using VocabCollector.Core.Ai;
@@ -88,6 +90,8 @@ public sealed partial class SmokeRunner
         Check(first.Remembered == 0 && first.Skipped == 0, "first displayed roaming card is not a completed review");
         var revealed = LearningControl<HoldToReveal>(page, "RoamingMeaningReveal");
         Check(revealed.CanReveal && revealed.Text.Length > 0 && !revealed.IsRevealed, "roaming initially masks a real meaning until the user holds to reveal");
+        CheckRoamingVisualSimplicity(page);
+        CheckRoamingStatusFits(main, page);
         Check(page.AllNotes.Any(note => note.Id == RoamingNoteId(stateFile) && note.IsWord), "roaming chooses an English word rather than a root or Chinese note");
         var visits = new HashSet<string> { RoamingNoteId(stateFile) };
         CheckRoamingStatistics(page, visits.Count, expectedVisits: 1);
@@ -108,17 +112,16 @@ public sealed partial class SmokeRunner
         visits.Add(RoamingNoteId(stateFile));
         Check(remembered.Skipped == 1 && remembered.Remembered == 1 && !revealed.IsRevealed, "remember records one completion, draws again and leaves the new meaning masked");
         CheckRoamingStatistics(page, visits.Count, expectedVisits: 3);
-        await SelectTabAsync(LearningControl<RadioButton>(page, "RoamingMonthButton"));
-        Check(page.CoverageDescription.StartsWith("本月", StringComparison.Ordinal), "month selector changes the real coverage period");
+        await CheckRoamingPeriodSwitchAsync(page, monthly: true);
         CheckRoamingStatistics(page, visits.Count, expectedVisits: 3);
-        await SelectTabAsync(LearningControl<RadioButton>(page, "RoamingWeekButton"));
-        Check(page.CoverageDescription.StartsWith("本周", StringComparison.Ordinal), "week selector restores the real weekly coverage period");
+        await CheckRoamingPeriodSwitchAsync(page, monthly: false);
         Check(ReviewSnapshot(stateFile).Json == remembered.Json, "statistics switching never writes another exposure or completion");
 
         var title = page.RoamingTitle;
         await OpenRoamingPreviewAsync(main, page);
         Check(page.RoamingReaderControl.Note?.Id == RoamingNoteId(stateFile), "third pane starts with the current roaming card's complete note");
         CheckRoamingColumns(main, page);
+        CheckRoamingStatusFits(main, page);
         var preview = RoamingReadingPreview(page);
         preview.SelectAll();
         Check(preview.Selection.Text.Length > 0, "third-column Markdown reading permits selecting and copying text");
@@ -175,11 +178,14 @@ public sealed partial class SmokeRunner
         var reveal = LearningControl<HoldToReveal>(page, "RoamingMeaningReveal");
         reveal.BringIntoView();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        CheckBareReveal(reveal);
         RevealMouse(reveal, down: true);
         Check(reveal.IsRevealed, "real routed mouse-down reveals the meaning while held");
+        CheckBareReveal(reveal);
         Snapshot(main, Path.Combine(output, "roaming-meaning-held.png"));
         RevealMouse(reveal, down: false);
         Check(!reveal.IsRevealed, "mouse release immediately masks the meaning");
+        Check(Descendants<TextBlock>(reveal).Any(text => text.Name == "RoamingMeaningText" && text.Effect is BlurEffect), "unheld meaning is represented by bare blurred text");
         reveal.Focus();
         RevealKey(reveal, down: true);
         Check(reveal.IsRevealed, "holding Space reveals the focused meaning control");
@@ -272,6 +278,8 @@ public sealed partial class SmokeRunner
                 await SwitchThemeAsync(Control<RadioButton>(main, option), themes, target);
                 await OpenRoamingPreviewAsync(main, page);
                 CheckRoamingColumns(main, page);
+                CheckRoamingVisualSimplicity(page);
+                CheckRoamingStatusFits(main, page);
                 Snapshot(main, Path.Combine(output, "roaming-dashboard-" + slug + ".png"));
                 Invoke(LearningControl<Button>(page, "CloseRoamingPreviewButton"));
                 await Until(() => !page.IsRoamingPreviewOpen);
@@ -281,6 +289,8 @@ public sealed partial class SmokeRunner
             await OpenRoamingPreviewAsync(main, page);
             main.UpdateLayout();
             CheckRoamingColumns(main, page);
+            CheckRoamingVisualSimplicity(page);
+            CheckRoamingStatusFits(main, page);
             CheckRoamingMeter(LearningControl<ProgressBar>(page, "RoamingWeightBar"));
             CheckRoamingMeter(LearningControl<ProgressBar>(page, "RoamingCoverageBar"));
             CheckReachable(LearningControl<Button>(page, "RoamingSkipButton"), main, "next card remains reachable with a third pane at minimum size");
@@ -288,16 +298,8 @@ public sealed partial class SmokeRunner
             CheckReachable(LearningControl<Button>(page, "CloseRoamingPreviewButton"), main, "independent preview close remains reachable at minimum size");
             Check(RoamingReadingPreview(page).ActualWidth >= 240 && RoamingReadingPreview(page).ActualHeight >= 180, "minimum three-column layout retains a useful text-reading area");
             Snapshot(main, Path.Combine(output, "roaming-dashboard-minimum.png"));
-            var statisticsScroll = Descendants<ScrollViewer>(LearningControl<Border>(page, "RoamingStatusPanel")).Single();
-            statisticsScroll.ScrollToEnd();
-            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-            var activityGrid = LearningControl<ItemsControl>(page, "RoamingActivityGrid");
-            CheckReachable(activityGrid, main, "all 84 activity cells remain reachable without horizontal clipping at minimum size");
-            var lastWeek = page.ActivityDays[0].Day.AddDays(77);
-            var rightmostWeek = Descendants<Border>(activityGrid).Where(cell => cell.DataContext is RoamingActivityCell day && day.Day >= lastWeek).ToArray();
-            Check(rightmostWeek.Length == 7, "rightmost heatmap column contains the seven current-week dates");
-            foreach (var cell in rightmostWeek) CheckReachable(cell, main, "rightmost activity cell stays fully inside the status viewport: " + cell.ToolTip);
             Snapshot(main, Path.Combine(output, "roaming-dashboard-activity-minimum.png"));
+            await CheckRoamingAdaptiveHeightAsync(main, page, output);
         }
         finally
         {
@@ -305,6 +307,125 @@ public sealed partial class SmokeRunner
             await themes.SetThemeAsync(theme);
         }
     }
+
+    private static void CheckRoamingVisualSimplicity(LearningPage page)
+    {
+        var surface = LearningControl<Grid>(page, "RoamingSurface");
+        var banned = new[] { "旧词、新词", "相对本轮", "重复遇见", "遇见的不同单词", "近 12 周", "每格一天", "浅色较少", "深色较多", "旧版未记录每日历史", "每日记录实际漫游次数", "记录保存在本机" };
+        foreach (var text in Descendants<TextBlock>(surface).Where(text => text.IsVisible))
+            Check(!banned.Any(fragment => text.Text.Contains(fragment, StringComparison.Ordinal)), "roaming omits explanatory copy removed from the compact dashboard: " + text.Text);
+        CheckBareReveal(LearningControl<HoldToReveal>(page, "RoamingMeaningReveal"));
+        Check(!Descendants<ScrollViewer>(LearningControl<Border>(page, "RoamingStatusPanel")).Any(), "statistics modules use their available height without a scroll viewer");
+    }
+
+    private static void CheckBareReveal(HoldToReveal reveal)
+    {
+        Check(Descendants<Border>(reveal).All(border => border.BorderThickness == new Thickness(0)), "hold-to-reveal has no frame or focus border");
+        Check(Descendants<TextBlock>(reveal).Where(text => text.IsVisible).All(text => text.Text == reveal.Text), "bare blurred meaning has no visible reveal instruction or hint overlay");
+    }
+
+    private static void CheckRoamingStatusFits(MainWindow main, LearningPage page)
+    {
+        var panel = LearningControl<Border>(page, "RoamingStatusPanel");
+        Check(!Descendants<ScrollViewer>(panel).Any(), "status panel contains no hidden or visible scrolling surface");
+        foreach (var name in new[] { "RoamingWeightSection", "RoamingCoverageSection", "RoamingActivitySection" })
+        {
+            var section = LearningControl<StackPanel>(page, name);
+            Check(section.Visibility == Visibility.Visible, "normal and minimum-height dashboards show the complete statistics module: " + name);
+            CheckReachable(section, main, "whole statistics module fits without scrolling: " + name);
+        }
+        var grid = LearningControl<ItemsControl>(page, "RoamingActivityGrid");
+        CheckReachable(grid, main, "all 84 activity cells fit without scrolling or horizontal clipping");
+        var lastWeek = page.ActivityDays[0].Day.AddDays(77);
+        var rightmost = Descendants<Border>(grid).Where(cell => cell.DataContext is RoamingActivityCell day && day.Day >= lastWeek).ToArray();
+        Check(rightmost.Length == 7, "rightmost heatmap column contains seven current-week dates");
+        foreach (var cell in rightmost) CheckReachable(cell, main, "rightmost activity cell is fully visible: " + cell.ToolTip);
+    }
+
+    private static async Task CheckRoamingAdaptiveHeightAsync(MainWindow main, LearningPage page, string output)
+    {
+        var panel = LearningControl<Border>(page, "RoamingStatusPanel");
+        var body = LearningControl<Grid>(page, "RoamingStatusBody");
+        var header = LearningControl<FrameworkElement>(page, "RoamingStatusHeader");
+        var weight = LearningControl<StackPanel>(page, "RoamingWeightSection");
+        var coverage = LearningControl<StackPanel>(page, "RoamingCoverageSection");
+        var activity = LearningControl<StackPanel>(page, "RoamingActivitySection");
+        var previousHeight = panel.Height;
+        var padding = panel.Padding.Top + panel.Padding.Bottom + panel.BorderThickness.Top + panel.BorderThickness.Bottom;
+        foreach (var element in new FrameworkElement[] { header, weight, coverage, activity })
+            element.Measure(new Size(Math.Max(1, body.ActualWidth), double.PositiveInfinity));
+        var fixedHeight = header.DesiredSize.Height + weight.DesiredSize.Height;
+        var coverageHeight = coverage.DesiredSize.Height;
+        var activityHeight = activity.DesiredSize.Height;
+        Check(fixedHeight > 0 && coverageHeight > 0 && activityHeight > 0, "adaptive height checks use the measured content heights of actual modules");
+        try
+        {
+            panel.Height = padding + fixedHeight + coverageHeight + activityHeight / 2;
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            main.UpdateLayout();
+            await Until(() => activity.Visibility == Visibility.Collapsed && coverage.Visibility == Visibility.Visible);
+            Check(weight.Visibility == Visibility.Visible, "reducing height first hides daily activity while retaining weight and coverage");
+            CheckReachable(coverage, main, "remaining coverage is fully visible at the intermediate height");
+            Snapshot(main, Path.Combine(output, "roaming-status-short.png"));
+
+            panel.Height = padding + fixedHeight + coverageHeight / 2;
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            main.UpdateLayout();
+            await Until(() => activity.Visibility == Visibility.Collapsed && coverage.Visibility == Visibility.Collapsed);
+            Check(weight.Visibility == Visibility.Visible && !Descendants<ScrollViewer>(panel).Any(), "further height reduction hides coverage second while keeping the weight module and no scrollbar");
+            CheckReachable(weight, main, "weight remains fully visible at the shortest checked height");
+            Snapshot(main, Path.Combine(output, "roaming-status-shortest.png"));
+        }
+        finally { panel.Height = previousHeight; }
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        main.UpdateLayout();
+        await Until(() => activity.Visibility == Visibility.Visible && coverage.Visibility == Visibility.Visible);
+        CheckRoamingStatusFits(main, page);
+        Snapshot(main, Path.Combine(output, "roaming-status-restored.png"));
+    }
+
+    private static async Task CheckRoamingPeriodSwitchAsync(LearningPage page, bool monthly)
+    {
+        var week = LearningControl<RadioButton>(page, "RoamingWeekButton");
+        var month = LearningControl<RadioButton>(page, "RoamingMonthButton");
+        var (selector, line) = PeriodUnderline(week, month);
+        var before = UnderlineBounds(selector, line);
+        var target = monthly ? month : week;
+        await SelectTabAsync(target);
+        var samples = new List<Rect>();
+        var watch = Stopwatch.StartNew();
+        Rect current;
+        do
+        {
+            selector.UpdateLayout();
+            current = UnderlineBounds(selector, line);
+            samples.Add(current);
+            var targetBounds = target.TransformToAncestor(selector).TransformBounds(new Rect(0, 0, target.ActualWidth, target.ActualHeight));
+            if (Math.Abs(current.Left + current.Width / 2 - targetBounds.Left - targetBounds.Width / 2) <= 3 && current.Width <= before.Width + 1) break;
+            if (watch.Elapsed > TimeSpan.FromSeconds(2)) throw new TimeoutException("Shared period underline failed to settle beneath the selected period.");
+            await Task.Delay(20);
+        } while (true);
+        Check(target.IsChecked == true && (monthly ? week : month).IsChecked == false, "period selector changes one real weekly/monthly selection");
+        Check(current.Height <= 2.5 && current.Width > 4 && current.Width < target.ActualWidth * 0.75, "period selector settles as one thin short underline beneath its selected label");
+        Check(Math.Abs(current.Left - before.Left) > 10, "shared underline moves to the newly selected period");
+        if (SystemParameters.ClientAreaAnimation)
+            Check(samples.Any(sample => sample.Width > Math.Max(before.Width, current.Width) + 1), "shared period underline visibly extends then shrinks during selection");
+    }
+
+    private static (FrameworkElement Selector, FrameworkElement Line) PeriodUnderline(RadioButton week, RadioButton month)
+    {
+        for (DependencyObject? element = week; element is not null; element = VisualTreeHelper.GetParent(element))
+        {
+            if (element is not FrameworkElement parent) continue;
+            var lines = Descendants<FrameworkElement>(parent).Where(child => child.Name == "PeriodUnderline").ToArray();
+            if (lines.Length == 0 || !Descendants<RadioButton>(parent).Contains(month)) continue;
+            Check(lines.Length == 1, "week and month share a single underline rather than independent full-width tab borders");
+            return (parent, lines.Single());
+        }
+        throw new InvalidOperationException("Period selector must expose its real shared PeriodUnderline element.");
+    }
+    private static Rect UnderlineBounds(FrameworkElement selector, FrameworkElement line) =>
+        line.TransformToAncestor(selector).TransformBounds(new Rect(0, 0, line.ActualWidth, line.ActualHeight));
 
     private static string RoamingNoteId(string path)
     {

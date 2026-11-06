@@ -233,9 +233,12 @@ public sealed partial class SmokeRunner
             await SelectPageAsync(main, "RoamingTab");
             await Until(() => !page.IsBusy && page.HasExposure);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            CheckRoamingVisualSimplicity(page);
+            CheckRoamingStatusFits(main, page);
             Snapshot(main, Path.Combine(output, "learning-roaming-" + slug + ".png"));
             await OpenRoamingPreviewAsync(main, page);
             CheckRoamingColumns(main, page);
+            CheckRoamingStatusFits(main, page);
             Snapshot(main, Path.Combine(output, "learning-roaming-preview-" + slug + ".png"));
             Invoke(LearningControl<Button>(page, "CloseRoamingPreviewButton"));
             await Until(() => !page.IsRoamingPreviewOpen);
@@ -270,6 +273,7 @@ public sealed partial class SmokeRunner
         Snapshot(main, Path.Combine(output, "learning-roaming-card-minimum.png"));
         await OpenRoamingPreviewAsync(main, page);
         CheckRoamingColumns(main, page);
+        CheckRoamingStatusFits(main, page);
         CheckReachable(LearningControl<Button>(page, "CloseRoamingPreviewButton"), main, "minimum third-column preview has a reachable close action");
         Check(RoamingReadingPreview(page).ActualWidth >= 240 && RoamingReadingPreview(page).ActualHeight >= 180,
             "minimum roaming window retains a usable independent Markdown reader");

@@ -19,11 +19,6 @@ public sealed class HoldToReveal : UserControl
     public bool IsRevealed => (bool)GetValue(IsRevealedProperty);
     private readonly BlurEffect _blur = new() { Radius = 8, KernelType = KernelType.Gaussian, RenderingBias = RenderingBias.Quality };
     private readonly TextBlock _meaning = new() { Name = "RoamingMeaningText", TextWrapping = TextWrapping.Wrap, FontSize = 17, LineHeight = 28, Focusable = false, IsHitTestVisible = false };
-    private readonly Border _frost = new() { Name = "FrostedOverlay", Opacity = 0.68, CornerRadius = new CornerRadius(3), IsHitTestVisible = false };
-    private readonly TextBlock _hint = new() { Name = "RevealHint", Text = "按住查看释义", FontSize = 14, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center,
-        TextWrapping = TextWrapping.Wrap, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 4, 12, 4), IsHitTestVisible = false };
-    private readonly Border _surface = new() { Name = "MeaningSurface", Padding = new Thickness(16, 12, 16, 12), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), ClipToBounds = true };
-    private readonly Border _focusRing = new() { Name = "FocusRing", BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4), IsHitTestVisible = false, Visibility = Visibility.Collapsed };
     private Window? _window;
     private bool _mouseHeld, _spaceHeld, _hiding;
 
@@ -31,17 +26,14 @@ public sealed class HoldToReveal : UserControl
     {
         _blur.Freeze();
         NameScope.SetNameScope(this, new NameScope());
-        foreach (var element in new FrameworkElement[] { _meaning, _frost, _hint, _surface, _focusRing }) RegisterName(element.Name, element);
+        RegisterName(_meaning.Name, _meaning);
         SetResourceReference(FontFamilyProperty, "UiFont");
         _meaning.SetResourceReference(TextBlock.ForegroundProperty, "Ink");
-        _frost.SetResourceReference(Border.BackgroundProperty, "Sheet");
-        _hint.SetResourceReference(TextBlock.ForegroundProperty, "InkSecondary");
-        _surface.SetResourceReference(Border.BackgroundProperty, "Sheet");
-        _surface.SetResourceReference(Border.BorderBrushProperty, "Line");
-        _focusRing.SetResourceReference(Border.BorderBrushProperty, "Accent");
-        var grid = new Grid(); grid.Children.Add(_meaning); grid.Children.Add(_frost); grid.Children.Add(_hint);
-        _surface.Child = grid;
-        var layers = new Grid(); layers.Children.Add(_surface); layers.Children.Add(_focusRing); Content = layers;
+        Background = Brushes.Transparent; Padding = new Thickness(0); BorderThickness = new Thickness(0);
+        HorizontalContentAlignment = HorizontalAlignment.Stretch; VerticalContentAlignment = VerticalAlignment.Top;
+        VerticalAlignment = VerticalAlignment.Top; FocusVisualStyle = null; ClipToBounds = true;
+        var hitSurface = new Grid { Background = Brushes.Transparent };
+        hitSurface.Children.Add(_meaning); Content = hitSurface;
         AutomationProperties.SetName(this, "释义，按住查看");
         AutomationProperties.SetHelpText(this, "按住鼠标左键或空格查看释义，松开后隐藏。");
         AutomationProperties.SetName(_meaning, "释义内容");
@@ -53,7 +45,6 @@ public sealed class HoldToReveal : UserControl
         IsKeyboardFocusWithinChanged += (_, _) =>
         {
             if (!IsKeyboardFocusWithin) Hide();
-            UpdateFocusRing();
         };
         UpdateVisualState();
     }
@@ -134,18 +125,9 @@ public sealed class HoldToReveal : UserControl
     {
         var hidden = CanReveal && !IsRevealed;
         _meaning.Effect = hidden ? _blur : null;
-        _frost.Visibility = _hint.Visibility = hidden ? Visibility.Visible : Visibility.Collapsed;
         Focusable = CanReveal && IsEnabled;
         Cursor = CanReveal && IsEnabled ? Cursors.Hand : Cursors.Arrow;
         AutomationProperties.SetName(this, IsRevealed ? "释义已显示，松开后隐藏" : CanReveal ? "释义，按住查看" : "复习提示");
-        UpdateFocusRing();
-    }
-    private void UpdateFocusRing()
-    {
-        // Keep both brush resource expressions stable for the control's lifetime.
-        // Rebinding a DynamicResource while app resources are being torn down can
-        // resolve a disposed DeferredAppResourceReference during focus cleanup.
-        _focusRing.Visibility = IsLoaded && IsVisible && IsEnabled && CanReveal && IsKeyboardFocusWithin ? Visibility.Visible : Visibility.Collapsed;
     }
     private void OnLoaded(object sender, RoutedEventArgs args)
     {

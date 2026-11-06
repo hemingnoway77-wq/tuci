@@ -23,9 +23,11 @@ public partial class LearningPage
     private DispatcherTimer? _statisticsTimer;
     private bool _monthly, _previewOpen;
     private string _previewTitle = "当前词条";
+    private bool _arrangingStatus;
+    private bool _statusLayoutPending;
 
     public double WeightLevel => _exposure?.WeightLevel ?? 0;
-    public string WeightDescription => _exposure is null ? "等待一次相遇" : WeightLevel switch { < 0.34 => "较低", < 0.67 => "适中", _ => "较高" };
+    public string WeightDescription => _exposure is null ? "—" : WeightLevel switch { < 0.34 => "较低", < 0.67 => "适中", _ => "较高" };
     public double Coverage => (_monthly ? _statistics?.MonthCoverage : _statistics?.WeekCoverage) ?? 0;
     public string CoverageLabel => $"{(_monthly ? _statistics?.MonthReviewed : _statistics?.WeekReviewed) ?? 0} / {_statistics?.TotalWords ?? 0} 词";
     public string CoverageDescription => (_monthly ? "本月" : "本周") + "遇见的不同单词，占当前词库的比例；重复遇见只计一个。";
@@ -39,6 +41,10 @@ public partial class LearningPage
 
     private void InitializeRoaming()
     {
+        RegisterName("RoamingWeekButton", RoamingPeriodSelector.WeekButton);
+        RegisterName("RoamingMonthButton", RoamingPeriodSelector.MonthButton);
+        RoamingPeriodSelector.SelectionChanged += (_, _) => SetStatisticsPeriod(RoamingPeriodSelector.IsMonthly);
+        Loaded += (_, _) => UpdateStatusSections();
         RoamingPreviewReader.DirectLinks = true;
         RoamingPreviewReader.NoteChanged += (_, note) =>
         {
@@ -76,17 +82,44 @@ public partial class LearningPage
                 .Select(day => new RoamingActivityCell(day.Day, day.Count, day.UniqueWords, day.IsFuture)).ToArray()
             : [];
         foreach (var name in new[] { nameof(Coverage), nameof(CoverageLabel), nameof(CoverageDescription), nameof(ActivityDays), nameof(TrackingHint) }) Changed(name);
+        ScheduleStatusSections();
     }
 
     public void SetStatisticsPeriod(bool monthly)
     {
+        if (_monthly == monthly && RoamingPeriodSelector.IsMonthly == monthly) return;
         _monthly = monthly;
-        if (RoamingWeekButton is not null) RoamingWeekButton.IsChecked = !monthly;
-        if (RoamingMonthButton is not null) RoamingMonthButton.IsChecked = monthly;
+        RoamingPeriodSelector.IsMonthly = monthly;
         Changed(nameof(Coverage)); Changed(nameof(CoverageLabel)); Changed(nameof(CoverageDescription));
+        ScheduleStatusSections();
     }
-    private void StatisticsPeriod_Checked(object sender, RoutedEventArgs e)
-    { if (sender is RadioButton button) SetStatisticsPeriod((string)button.Tag == "month"); }
+
+    private void RoamingStatusBody_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateStatusSections();
+    private void ScheduleStatusSections()
+    {
+        if (_disposed || _statusLayoutPending) return;
+        _statusLayoutPending = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => { _statusLayoutPending = false; UpdateStatusSections(); }));
+    }
+    private void UpdateStatusSections()
+    {
+        if (_disposed || _arrangingStatus || RoamingStatusBody.ActualWidth <= 0 || RoamingStatusBody.ActualHeight <= 0) return;
+        _arrangingStatus = true;
+        try
+        {
+            var available = new Size(RoamingStatusBody.ActualWidth, double.PositiveInfinity);
+            // Measure natural content, including modules hidden at the previous height.
+            RoamingCoverageSection.Visibility = RoamingActivitySection.Visibility = Visibility.Visible;
+            foreach (var section in new FrameworkElement[] { RoamingStatusHeader, RoamingWeightSection, RoamingCoverageSection, RoamingActivitySection }) section.Measure(available);
+            var fixedHeight = RoamingStatusHeader.DesiredSize.Height + RoamingWeightSection.DesiredSize.Height;
+            var coverageHeight = fixedHeight + RoamingCoverageSection.DesiredSize.Height;
+            var activityHeight = coverageHeight + RoamingActivitySection.DesiredSize.Height;
+            RoamingCoverageSection.Visibility = RoamingStatusBody.ActualHeight + 0.5 >= coverageHeight ? Visibility.Visible : Visibility.Collapsed;
+            RoamingActivitySection.Visibility = RoamingCoverageSection.Visibility == Visibility.Visible && RoamingStatusBody.ActualHeight + 0.5 >= activityHeight
+                ? Visibility.Visible : Visibility.Collapsed;
+        }
+        finally { _arrangingStatus = false; }
+    }
 
     public void OpenRoamingPreview()
     {
@@ -133,6 +166,6 @@ public partial class LearningPage
     private void RoamingPreviewForward_Click(object sender, RoutedEventArgs e) => RoamingPreviewReader.GoForward();
     private void DisposeRoaming()
     {
-        _statisticsTimer?.Stop(); RoamingMeaningReveal.Hide(); RoamingPreviewReader.Dispose();
+        _statisticsTimer?.Stop(); RoamingMeaningReveal.Hide(); RoamingPreviewReader.Dispose(); RoamingPeriodSelector.Dispose();
     }
 }

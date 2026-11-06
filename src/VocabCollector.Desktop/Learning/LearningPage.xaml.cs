@@ -75,8 +75,8 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     public Visibility ReaderEmptyVisibility => Browser.Reader.Note == null ? Visibility.Visible : Visibility.Collapsed;
     public string RoamingTitle => _exposure?.Note.Title ?? "还没有可复习的单词";
     public string RoamingPhonetics => _exposure?.Note.Phonetics ?? "";
-    public string RoamingMeaning => _exposure is { } card ? (card.Note.Meaning.Length > 0 ? card.Note.Meaning : card.Note.Excerpt) : "先收录一个英文单词，或把已有词卡导入词库。词根和普通说明笔记可阅读，不参与随机复习。";
-    public string RememberedLabel => _exposure?.RememberedToday == true ? "✓ 今天记住过" : "从这里开始一次回想";
+    public string RoamingMeaning => _exposure is { } card ? (card.Note.Meaning.Length > 0 ? card.Note.Meaning : card.Note.Excerpt) : "";
+    public string RememberedLabel => _exposure?.RememberedToday == true ? "✓ 今天记住过" : "";
     public string RoamingCountLabel => $"词库里有 {_notes.Count(n => n.IsWord)} 个词，随时可以继续。";
     public string RoamingWeightLabel => WeightDescription;
 
@@ -217,7 +217,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
             UpdateCard();
             UpdateRoamingStatistics();
             if (_previewOpen && next is not null) DisplayRoamingPreview(next.Note);
-            Message = WithWarnings(next == null ? "还没有可复习的英文词条。" : "按权重漫游 · 记住后仍可能再次遇见。");
+            Message = WithWarnings(next == null ? "还没有可复习的英文词条。" : "");
         }
         catch (OperationCanceledException) { }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException or InvalidDataException)

@@ -28,28 +28,26 @@ public sealed class HoldToRevealTests
     });
 
     [Fact]
-    public void FocusUsesASeparateThemeRingAndDoesNotRebindSurfaceResourcesDuringTeardown() => Run((control, owner, other) =>
+    public void FocusAndTeardownKeepPlainTextWithoutChromeOrRebindingResources() => Run((control, owner, other) =>
     {
         var themes = new ThemeManager(owner.Resources);
-        var surface = Assert.IsType<Border>(control.FindName("MeaningSurface"));
-        var lineReference = surface.ReadLocalValue(Border.BorderBrushProperty);
+        var meaning = Meaning(control);
+        var inkReference = meaning.ReadLocalValue(TextBlock.ForegroundProperty);
         control.Focus();
-        Assert.Same(owner.Resources["Line"], surface.BorderBrush);
-        var ring = Assert.IsType<Border>(control.FindName("FocusRing"));
-        Assert.Equal(Visibility.Visible, ring.Visibility);
-        Assert.Same(owner.Resources["Accent"], ring.BorderBrush);
+        AssertPlainMeaning(control);
         themes.Apply(AppTheme.Pink);
-        Assert.Same(owner.Resources["Accent"], ring.BorderBrush);
+        Assert.Same(owner.Resources["Ink"], meaning.Foreground);
         MouseDown(control);
         other.Focus();
-        Assert.Equal(Visibility.Collapsed, ring.Visibility);
-        Assert.Same(lineReference, surface.ReadLocalValue(Border.BorderBrushProperty));
+        Assert.False(control.IsRevealed);
+        AssertPlainMeaning(control);
+        Assert.Same(inkReference, meaning.ReadLocalValue(TextBlock.ForegroundProperty));
         owner.Resources.Clear();
         owner.Resources.MergedDictionaries.Clear();
         owner.Content = null;
         control.Hide();
         Assert.False(control.IsRevealed);
-        Assert.Same(lineReference, surface.ReadLocalValue(Border.BorderBrushProperty));
+        Assert.Same(inkReference, meaning.ReadLocalValue(TextBlock.ForegroundProperty));
     });
     [Fact]
     public void MouseReleaseStillConcealsWhenSpaceWasAlsoPressed() => Run((control, owner, other) =>
@@ -69,15 +67,24 @@ public sealed class HoldToRevealTests
         Assert.InRange(Assert.IsType<BlurEffect>(meaning.Effect).Radius, 6, 9);
         Assert.Equal(1, meaning.Opacity);
         Assert.False(control.IsRevealed);
+        AssertPlainMeaning(control);
+        owner.UpdateLayout();
+        var size = new Size(meaning.ActualWidth, meaning.ActualHeight);
+        Assert.InRange(Math.Abs(control.ActualWidth - size.Width), 0, 0.1);
+        Assert.InRange(Math.Abs(control.ActualHeight - size.Height), 0, 0.1);
         MouseDown(control);
+        owner.UpdateLayout();
         Assert.Same(control, Mouse.Captured);
         Assert.True(control.IsRevealed);
         Assert.Null(meaning.Effect);
+        Assert.Equal(size, new Size(meaning.ActualWidth, meaning.ActualHeight));
         MouseUp(control);
+        owner.UpdateLayout();
         Assert.False(control.IsRevealed);
         Assert.IsType<BlurEffect>(meaning.Effect);
         Assert.NotSame(control, Mouse.Captured);
-        Assert.Equal("按住查看释义", Assert.IsType<TextBlock>(control.FindName("RevealHint")).Text);
+        Assert.Equal(size, new Size(meaning.ActualWidth, meaning.ActualHeight));
+        Assert.Equal(control.Text, meaning.Text);
     });
 
     [Fact]
@@ -154,25 +161,38 @@ public sealed class HoldToRevealTests
     });
 
     [Fact]
-    public void EmptyStateRemainsReadableAndAllThreeThemesUpdateTheSameSurface() => Run((control, owner, other) =>
+    public void EmptyStateRemainsReadableAndAllThreeThemesUpdateTheSamePlainText() => Run((control, owner, other) =>
     {
         control.CanReveal = false; control.Text = "还没有可复习词条。";
         Assert.Null(Meaning(control).Effect);
         MouseDown(control); Assert.False(control.IsRevealed);
-        Assert.Equal(Visibility.Collapsed, Assert.IsType<TextBlock>(control.FindName("RevealHint")).Visibility);
+        AssertPlainMeaning(control);
         var themes = new ThemeManager(owner.Resources);
         var meaning = Meaning(control);
-        var surface = Assert.IsType<Border>(control.FindName("MeaningSurface"));
         foreach (var theme in new[] { AppTheme.WarmNeutral, AppTheme.Mono, AppTheme.Pink })
         {
             themes.Apply(theme);
             Assert.Same(owner.Resources["Ink"], meaning.Foreground);
-            Assert.Same(owner.Resources["Sheet"], surface.Background);
             Assert.Equal(1, meaning.Opacity);
+            AssertPlainMeaning(control);
         }
         control.CanReveal = true;
         Assert.IsType<BlurEffect>(meaning.Effect);
     });
+
+    private static void AssertPlainMeaning(HoldToReveal control)
+    {
+        Assert.Same(Meaning(control), Assert.Single(Descendants<TextBlock>(control)));
+        Assert.All(Descendants<Border>(control), border =>
+        {
+            Assert.Equal(new Thickness(0), border.BorderThickness);
+            Assert.Equal(new Thickness(0), border.Padding);
+            Assert.True(border.Background is null || border.Background is SolidColorBrush { Color.A: 0 });
+        });
+        Assert.All(Descendants<Panel>(control), panel =>
+            Assert.True(panel.Background is null || panel.Background is SolidColorBrush { Color.A: 0 }));
+        Assert.Null(control.FocusVisualStyle);
+    }
 
     [Fact]
     public void HiddenMeaningDoesNotBecomeAnAutomationNameOrASelectableTextBox() => Run((control, owner, other) =>

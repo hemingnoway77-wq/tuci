@@ -12,6 +12,40 @@ namespace VocabCollector.Tests;
 public sealed class RoamingPanelTests
 {
     [Fact]
+    public void ShortStatusPanelHidesActivityThenCoverageAndRestoresTheSelectedPeriod() => Run((page, root) =>
+    {
+        var panel = Find<Border>(page, "RoamingStatusPanel");
+        var body = Find<Grid>(page, "RoamingStatusBody");
+        var header = Find<TextBlock>(page, "RoamingStatusHeader");
+        var weight = Find<StackPanel>(page, "RoamingWeightSection");
+        var coverage = Find<StackPanel>(page, "RoamingCoverageSection");
+        var activity = Find<StackPanel>(page, "RoamingActivitySection");
+        var stateFile = Directory.GetFiles(root, "roaming.json", SearchOption.AllDirectories).Single();
+        var before = File.ReadAllText(stateFile);
+        Assert.Empty(Descendants<ScrollViewer>(panel));
+        Assert.True(activity.IsVisible && coverage.IsVisible);
+        page.SetStatisticsPeriod(true);
+        var chrome = panel.ActualHeight - body.ActualHeight;
+        var fixedHeight = header.DesiredSize.Height + weight.DesiredSize.Height;
+        var coverageHeight = coverage.DesiredSize.Height;
+        var activityHeight = activity.DesiredSize.Height;
+        panel.Height = chrome + fixedHeight + coverageHeight + activityHeight / 2;
+        Pump();
+        Assert.False(activity.IsVisible);
+        Assert.True(coverage.IsVisible && weight.IsVisible);
+        panel.Height = chrome + fixedHeight + coverageHeight / 2;
+        Pump();
+        Assert.False(activity.IsVisible || coverage.IsVisible);
+        Assert.True(weight.IsVisible);
+        panel.Height = double.NaN;
+        Pump();
+        Assert.True(activity.IsVisible && coverage.IsVisible && weight.IsVisible);
+        Assert.True(Find<PeriodSelector>(page, "RoamingPeriodSelector").IsMonthly);
+        Assert.Equal(84, page.ActivityDays.Count);
+        Assert.Equal(before, File.ReadAllText(stateFile));
+    });
+
+    [Fact]
     public void PreviewIsAnIndependentThirdPaneAndNavigationDoesNotCompleteReview() => Run((page, root) =>
     {
         var stateFile = Directory.GetFiles(root, "roaming.json", SearchOption.AllDirectories).Single();
