@@ -373,7 +373,7 @@ public sealed class NoteReader : UserControl, IDisposable
         {
             paragraph.FontFamily = _preview.Document.FontFamily;
             paragraph.FontWeight = FontWeights.SemiBold;
-            paragraph.SetResourceReference(TextElement.ForegroundProperty, "NotebookText");
+            paragraph.SetResourceReference(TextElement.ForegroundProperty, "Ink");
         }
     }
 
@@ -395,12 +395,12 @@ public sealed class NoteReader : UserControl, IDisposable
         if (matches.Count != 1) return;
         var note = matches[0];
         var panel = new StackPanel { Margin = new Thickness(16), MaxWidth = 360 };
-        panel.Children.Add(Text(note.Title, 19, "NotebookText"));
-        if (note.Phonetics.Length > 0) panel.Children.Add(Text(note.Phonetics, 13, "NotebookMuted"));
-        panel.Children.Add(Text(note.Meaning.Length > 0 ? note.Meaning : note.Excerpt, 14, "NotebookText"));
+        panel.Children.Add(Text(note.Title, 19, "Ink"));
+        if (note.Phonetics.Length > 0) panel.Children.Add(Text(note.Phonetics, 13, "Accent"));
+        panel.Children.Add(Text(note.Meaning.Length > 0 ? note.Meaning : note.Excerpt, 14, "InkSecondary"));
         var border = new Border { Child = panel, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4) };
-        border.SetResourceReference(Border.BackgroundProperty, "NotebookRaised");
-        border.SetResourceReference(Border.BorderBrushProperty, "NotebookBorder");
+        border.SetResourceReference(Border.BackgroundProperty, "Sheet");
+        border.SetResourceReference(Border.BorderBrushProperty, "Line");
         _hover = new Popup { Child = border, PlacementTarget = _preview, Placement = PlacementMode.MousePoint,
             StaysOpen = true, AllowsTransparency = true, Focusable = false, IsHitTestVisible = false, IsOpen = true };
     }

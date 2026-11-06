@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using VocabCollector.Core;
 using VocabCollector.Core.Library;
+using VocabCollector.Desktop;
 using VocabCollector.Desktop.Learning;
 using VocabCollector.Desktop.Preview;
 
@@ -10,6 +11,42 @@ namespace VocabCollector.Tests;
 
 public sealed class NoteReaderTests
 {
+    [Fact]
+    public void DirectReadingFollowsClientThemesWithoutRebuildingDocumentOrScalingFonts() => Run((reader, owner, notes) =>
+    {
+        // A separate workspace palette must not override the client's reading colors.
+        owner.Resources["NotebookText"] = Brushes.Magenta;
+        reader.DirectLinks = true;
+        reader.OpenNote(notes[0]);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(50));
+        reader.DirectLinks = true;
+        var preview = Descendants<MarkdownPreview>(reader).Single();
+        var document = preview.Document;
+        var heading = document.Blocks.OfType<System.Windows.Documents.Paragraph>()
+            .Single(paragraph => MarkdownDocumentRenderer.GetHeadingLevel(paragraph) == 1);
+        preview.SelectAll();
+        var selection = preview.Selection.Text;
+        var content = preview.RenderedText;
+        var bodySize = document.FontSize;
+        var headingSize = heading.FontSize;
+        ResourceDictionary? previous = null;
+        foreach (var theme in new[] { AppTheme.WarmNeutral, AppTheme.Mono, AppTheme.Pink })
+        {
+            if (previous is not null) owner.Resources.MergedDictionaries.Remove(previous);
+            var palette = ThemePalette.Create(theme);
+            owner.Resources.MergedDictionaries.Add(palette);
+            previous = palette;
+            preview.UpdateLayout();
+            Assert.Same(palette["Ink"], heading.Foreground);
+            Assert.Same(palette["Ink"], document.Foreground);
+            Assert.Same(document, preview.Document);
+            Assert.Equal(content, preview.RenderedText);
+            Assert.Equal(selection, preview.Selection.Text);
+            Assert.Equal(bodySize, document.FontSize);
+            Assert.Equal(headingSize, heading.FontSize);
+            Assert.Equal(notes[0].Markdown, reader.Note?.Markdown);
+        }
+    });
     [Fact]
     public void OutlineUsesRenderedHeadingsIncludingQuotesAndExcludesHiddenHtmlAndBoldText() => Run((reader, owner, notes) =>
     {

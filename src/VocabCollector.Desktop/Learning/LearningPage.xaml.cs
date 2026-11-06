@@ -40,13 +40,12 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
         _stateDirectory = stateDirectory;
         InitializeComponent();
         DataContext = this;
-        Notebook.Documents.NoteChanged += Reader_NoteChanged;
-        Notebook.Documents.NavigationRequested += (_, _) => { if (!_refreshingReader) { ShowLibrary(); ReaderRequested?.Invoke(this, EventArgs.Empty); } };
-        Notebook.MessageChanged += (_, message) => Message = message;
-        Notebook.Documents.WebLinkRequested += (_, url) => WebLinkRequested?.Invoke(this, url);
-        Notebook.ReloadRequested += (_, _) => RequestReload();
-        Notebook.PageRequested += (_, page) => PageRequested?.Invoke(this, page);
-        Notebook.ThemeChanged += (_, dark) => NotebookThemeChanged?.Invoke(this, dark);
+        Browser.NoteChanged += Reader_NoteChanged;
+        Browser.NavigationRequested += (_, _) => { if (!_refreshingReader) { ShowLibrary(); ReaderRequested?.Invoke(this, EventArgs.Empty); } };
+        Browser.MessageChanged += (_, message) => Message = message;
+        Browser.WebLinkRequested += (_, url) => WebLinkRequested?.Invoke(this, url);
+        Browser.ReloadRequested += (_, _) => RequestReload();
+        Browser.ImportRequested += async (_, files) => await ImportAsync(files);
         _refreshTimer = new(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(600) };
         _refreshTimer.Tick += async (_, _) => { _refreshTimer.Stop(); await ReloadAsync(); };
     }
@@ -55,12 +54,8 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     public event EventHandler? StatusChanged;
     public event EventHandler? ReaderRequested;
     public event EventHandler<string>? WebLinkRequested;
-    public event EventHandler<string>? PageRequested;
-    public event EventHandler<bool>? NotebookThemeChanged;
-    public LibraryShell NotebookControl => Notebook;
-    public NoteReader ReaderControl => Notebook.Documents.ActiveReader;
-    public bool HasUnsavedChanges => Notebook.Documents.HasUnsavedChanges;
-    public Task<bool> SaveAllAsync() => Notebook.Documents.SaveAllAsync();
+    public LibraryBrowser BrowserControl => Browser;
+    public NoteReader ReaderControl => Browser.Reader;
     public IReadOnlyList<LibraryNote> AllNotes => _notes;
     public IReadOnlyList<LibraryFolder> Folders => _folders;
     public ObservableCollection<LibraryNote> VisibleNotes { get; } = [];
@@ -75,8 +70,8 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     public string Summary => $"{VisibleNotes.Count} 篇笔记 · {_notes.Count(n => n.IsWord)} 个可复习词条";
     public string EmptyMessage => _notes.Count == 0 ? "还没有笔记。可以先收录单词，或导入已有 Markdown。" : "当前目录没有匹配的笔记。";
     public Visibility EmptyVisibility => VisibleNotes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-    public string ReaderTitle => Notebook.Documents.Note?.Title ?? "笔记阅读";
-    public Visibility ReaderEmptyVisibility => Notebook.Documents.Note == null ? Visibility.Visible : Visibility.Collapsed;
+    public string ReaderTitle => Browser.Reader.Note?.Title ?? "笔记阅读";
+    public Visibility ReaderEmptyVisibility => Browser.Reader.Note == null ? Visibility.Visible : Visibility.Collapsed;
     public string RoamingTitle => _exposure?.Note.Title ?? "还没有可复习的单词";
     public string RoamingPhonetics => _exposure?.Note.Phonetics ?? "";
     public string RoamingMeaning => _exposure is { } card ? (card.Note.Meaning.Length > 0 ? card.Note.Meaning : card.Note.Excerpt) : "先收录一个英文单词，或把已有词卡导入词库。词根和普通说明笔记可阅读，不参与随机复习。";
@@ -118,19 +113,19 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
             _folders = BuildFolders(_notes);
             Changed(nameof(Folders)); Changed(nameof(AllNotes));
             _refreshingReader = true;
-            try { Notebook.Configure(_catalog, _notes, VaultPaths.WordRoot(_vault)); }
+            try { Browser.Configure(_catalog, _notes, VaultPaths.WordRoot(_vault)); }
             finally { _refreshingReader = false; }
             Filter();
             Changed(nameof(ReaderTitle)); Changed(nameof(ReaderEmptyVisibility));
             Changed(nameof(RoamingCountLabel));
             _libraryWarnings = string.Join(" ", snapshot.Warnings);
             Message = WithWarnings($"词库已更新：{_notes.Count} 篇笔记。");
-            Notebook.SetMessage(Message);
+            Browser.SetMessage(Message);
             StartWatching();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or System.Text.Json.JsonException)
-        { Message = "词库暂时无法读取，请检查设置中的目录和文件权限。已有笔记保持不变。"; Notebook.SetMessage(Message); }
+        { Message = "词库暂时无法读取，请检查设置中的目录和文件权限。已有笔记保持不变。"; Browser.SetMessage(Message); }
         finally { _loading = false; _scanGate.Release(); BusyChanged(); }
     }
 
@@ -177,7 +172,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     {
         if (_disposed || _catalog == null) return;
         ShowLibrary();
-        Notebook.Documents.OpenNote(note);
+        Browser.OpenNote(note);
     }
     public void ShowLibrary()
     {
@@ -200,7 +195,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     {
         if (_catalog == null) return;
         var current = source == null ? null : _notes.FirstOrDefault(n => string.Equals(n.AbsolutePath, source.AbsolutePath, StringComparison.OrdinalIgnoreCase));
-        Notebook.Documents.HandleLink(args, current, placementTarget);
+        Browser.HandleLink(args, current, placementTarget);
     }
 
     private async Task AdvanceAsync(Guid? finishing, bool remembered)
@@ -286,6 +281,6 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     {
         if (_disposed) return;
         _disposed = true;
-        _stop.Cancel(); _refreshTimer.Stop(); _watcher?.Dispose(); Notebook.Dispose();
+        _stop.Cancel(); _refreshTimer.Stop(); _watcher?.Dispose(); Browser.Dispose();
     }
 }

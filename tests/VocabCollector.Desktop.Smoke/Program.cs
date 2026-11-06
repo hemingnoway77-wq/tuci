@@ -30,7 +30,7 @@ public static class Program
                 if (args.Contains("--notebook-only", StringComparer.Ordinal))
                 {
                     await runner.RunNotebookChecksOnlyAsync();
-                    Console.WriteLine("PASS: isolated real WPF notebook tree/search, pickers, tabs/history, safe editing/conflicts, relations, panels/themes, graph and file operations");
+                    Console.WriteLine("PASS: isolated real WPF two-pane library reader, file tree/search/refresh/import, reading navigation, themes, transitions and minimum window");
                 }
                 else if (args.Contains("--article-only", StringComparer.Ordinal))
                 {
@@ -40,7 +40,7 @@ public static class Program
                 else
                 {
                     await runner.RunChecksAsync();
-                    Console.WriteLine("PASS: real WPF controls, rendered note preview, single-click in-app full-note navigation, Obsidian-style notebook tree/search/tabs/editing/relations/graph without API, weighted roaming and persistent completion counts, learning themes and minimum-size screenshots, real WebView2 local HTTP articles and retry, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, spelling correction, corrected duplicate, uncertain and invalid spelling, required spelling metadata, duplicate, 401, malformed JSON and cancellation");
+                    Console.WriteLine("PASS: real WPF controls, rendered note preview, single-click in-app full-note navigation, two-pane file tree and Markdown reader/search/import/navigation without API, weighted roaming and persistent completion counts, learning themes and minimum-size screenshots, real WebView2 local HTTP articles and retry, auto-hiding scrollbars, app icon, encrypted settings, HTTP capture, local link refresh without API, spelling correction, corrected duplicate, uncertain and invalid spelling, required spelling metadata, duplicate, 401, malformed JSON and cancellation");
                 }
                 exitCode = 0;
             }
