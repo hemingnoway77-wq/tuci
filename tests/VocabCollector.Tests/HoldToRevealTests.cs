@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using VocabCollector.Desktop;
 using VocabCollector.Desktop.Learning;
 
@@ -13,6 +14,64 @@ namespace VocabCollector.Tests;
 [Collection("Hold-to-reveal WPF input")]
 public sealed class HoldToRevealTests
 {
+    [Fact]
+    public void BlurHaloFadesAcrossTheTextBoundaryInsteadOfBeingCutAtTheControlEdge() => MarkdownPreviewTests.OnSta(() =>
+    {
+        var canvas = RenderCanvas();
+        var control = new HoldToReveal { Text = "MMMM meaning", Width = 180 };
+        Canvas.SetLeft(control, 32); Canvas.SetTop(control, 32); canvas.Children.Add(control);
+        var pixels = Snapshot(canvas);
+        var left = Enumerable.Range(0, 300).First(x => ColumnAlpha(pixels, x) > 0);
+        Assert.True(left < 32, $"The blur was clipped at the text/control edge: first alpha column {left}.");
+        Assert.InRange(ColumnAlpha(pixels, left), 1, 12);
+        Assert.True(ColumnAlpha(pixels, left) < ColumnAlpha(pixels, 34));
+        Assert.True(ColumnAlpha(pixels, 31) > 0);
+        Assert.Equal(new Point(32, 32), Meaning(control).TranslatePoint(new Point(), canvas));
+        Assert.Equal(control.Text, Meaning(control).Text);
+    });
+
+    [Fact]
+    public void WiderScrollViewportPreservesHaloWhileMeaningKeepsItsOriginalAlignmentAndWidth() => MarkdownPreviewTests.OnSta(() =>
+    {
+        var clipped = ScrollHost(bleed: false);
+        var clippedPixels = Snapshot(clipped.Canvas);
+        var padded = ScrollHost(bleed: true);
+        var paddedPixels = Snapshot(padded.Canvas);
+        Assert.Equal(0, ColumnAlpha(clippedPixels, 31));
+        Assert.True(ColumnAlpha(paddedPixels, 31) > 0, "A 10-DIP viewport allowance must preserve the 8-DIP blur halo.");
+        Assert.Equal(Meaning(clipped.Control).TranslatePoint(new Point(), clipped.Canvas), Meaning(padded.Control).TranslatePoint(new Point(), padded.Canvas));
+        Assert.Equal(Meaning(clipped.Control).ActualWidth, Meaning(padded.Control).ActualWidth);
+        Assert.Equal(Meaning(clipped.Control).ActualHeight, Meaning(padded.Control).ActualHeight);
+    });
+
+    private static Canvas RenderCanvas()
+    {
+        var canvas = new Canvas { Width = 300, Height = 120, Background = Brushes.Transparent };
+        canvas.Resources["Ink"] = Brushes.Black;
+        canvas.Resources["UiFont"] = new FontFamily("Segoe UI");
+        return canvas;
+    }
+    private static (Canvas Canvas, HoldToReveal Control) ScrollHost(bool bleed)
+    {
+        var canvas = RenderCanvas();
+        var frame = new Grid { Width = 220, Height = 70 };
+        Canvas.SetLeft(frame, 32); Canvas.SetTop(frame, 32);
+        var viewport = new ScrollViewer { Style = null, BorderThickness = new Thickness(0), Padding = new Thickness(0),
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Margin = new Thickness(bleed ? -10 : 0, 0, bleed ? -10 : 0, 0) };
+        var content = new StackPanel { Margin = new Thickness(bleed ? 10 : 0, 0, bleed ? 10 : 0, 0) };
+        var control = new HoldToReveal { Text = "MMMM meaning" };
+        content.Children.Add(control); viewport.Content = content; frame.Children.Add(viewport); canvas.Children.Add(frame);
+        return (canvas, control);
+    }
+    private static byte[] Snapshot(FrameworkElement element)
+    {
+        element.Measure(new Size(300, 120)); element.Arrange(new Rect(0, 0, 300, 120)); element.UpdateLayout();
+        var bitmap = new RenderTargetBitmap(300, 120, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(element);
+        var pixels = new byte[300 * 120 * 4]; bitmap.CopyPixels(pixels, 300 * 4, 0); return pixels;
+    }
+    private static int ColumnAlpha(byte[] pixels, int column) => Enumerable.Range(0, 120).Max(row => pixels[(row * 300 + column) * 4 + 3]);
     [Fact]
     public void LeavingMeaningAreaConcealsEvenWhileInputRemainsHeld() => Run((control, owner, other) =>
     {

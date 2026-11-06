@@ -5,6 +5,33 @@ namespace VocabCollector.Tests;
 public class MainViewModelTests
 {
     [Fact]
+    public async Task PreparingReadingDraftClearsStalePreviewWithoutGeneratingOrSaving()
+    {
+        var calls = 0;
+        var vm = new MainViewModel(new TestService((_, _) =>
+        {
+            calls++;
+            return Task.FromResult(new CaptureResult(CaptureStatus.Saved, "old", "# old", [], "saved"));
+        }), AppSettings.Default) { Word = "old" };
+        await vm.GenerateAsync();
+        Assert.True(vm.PrepareDraft("apple", "An apple grows."));
+        Assert.Equal("apple", vm.Word);
+        Assert.Equal("An apple grows.", vm.Context);
+        Assert.Empty(vm.Markdown); Assert.Empty(vm.Notes); Assert.Null(vm.SelectedNote);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task PreparingAnotherWordCannotOverwriteAnInFlightCapture()
+    {
+        var pending = new TaskCompletionSource<CaptureResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var vm = new MainViewModel(new TestService((_, ct) => pending.Task.WaitAsync(ct)), AppSettings.Default) { Word = "old", Context = "old context" };
+        var task = vm.GenerateAsync();
+        Assert.False(vm.PrepareDraft("apple", "new context"));
+        Assert.Equal("old", vm.Word); Assert.Equal("old context", vm.Context);
+        vm.CancelCommand.Execute(null); await task;
+    }
+    [Fact]
     public async Task ExistingWordLoadsItsOriginalMarkdownWithoutCallingAiAgain()
     {
         using var vault = new TempVault();

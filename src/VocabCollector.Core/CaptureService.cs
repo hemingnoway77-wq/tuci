@@ -38,7 +38,7 @@ public sealed class CaptureService(IWordAnalyzer analyzer, IVocabularyStore stor
             markdown = Render(index);
             ct.ThrowIfCancellationRequested(); progress?.Report(CaptureStage.Saving);
             var saved = await store.SaveNewAsync(word, analysis.PrimaryPartOfSpeech, Render, settings.Vault, ct);
-            var message = CorrectionPrefix(correctedFrom, word) + $"已保存，可以在 Obsidian 中复习。AI 解析用时 {aiTime.Elapsed.TotalSeconds:F1} 秒。";
+            var message = CorrectionPrefix(correctedFrom, word) + $"已保存。AI 解析用时 {aiTime.Elapsed.TotalSeconds:F1} 秒。";
             if (saved.Warning.Length > 0) message += " " + saved.Warning;
             // A successful commit remains saved even if the optional local maintenance is cancelled or fails.
             if (store is ILinkMaintenance maintenance)

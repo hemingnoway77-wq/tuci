@@ -20,8 +20,8 @@
     <Grid>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <TextBlock Text="漫游复习" Style="{DynamicResource PageTitle}" FontSize="25"/>
-     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,24,0,16">
-      <StackPanel x:Name="RoamingCardBody">
+     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="-10,24,-10,16">
+      <StackPanel x:Name="RoamingCardBody" Margin="10,0,10,0">
        <TextBlock Text="{Binding RememberedLabel}" Margin="0,0,0,10" Foreground="{DynamicResource InkTertiary}">
         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="FontSize" Value="12"/><Style.Triggers><DataTrigger Binding="{Binding RememberedLabel}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
        </TextBlock>
@@ -71,7 +71,7 @@
      <Border BorderBrush="{DynamicResource LineSoft}" BorderThickness="0,0,0,1" Padding="15,12">
       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
        <StackPanel><TextBlock Text="笔记预览" Style="{DynamicResource Eyebrow}"/><TextBlock Text="{Binding RoamingPreviewTitle}" Foreground="{DynamicResource Ink}" FontSize="16" TextTrimming="CharacterEllipsis" Margin="0,5,0,0"/></StackPanel>
-       <Button x:Name="CloseRoamingPreviewButton" Grid.Column="1" Content="关闭 ×" Style="{DynamicResource QuietAction}" Click="CloseRoamingPreview_Click" VerticalAlignment="Top" AutomationProperties.Name="关闭笔记预览"/>
+       <controls:PaneCloseButton xmlns:controls="clr-namespace:VocabCollector.Desktop.Controls" x:Name="CloseRoamingPreviewButton" Grid.Column="1" Click="CloseRoamingPreview_Click" VerticalAlignment="Top" AutomationProperties.Name="关闭笔记预览"/>
       </Grid>
      </Border>
      <Grid Grid.Row="1"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>

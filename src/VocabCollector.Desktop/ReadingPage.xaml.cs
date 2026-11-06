@@ -6,8 +6,11 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Threading;
+using System.Windows.Media;
 using VocabCollector.Core.Reading;
 using VocabCollector.Desktop.Reading;
+using VocabCollector.Desktop.Preview;
+using System.Windows.Media.Animation;
 
 namespace VocabCollector.Desktop;
 
@@ -45,6 +48,7 @@ public partial class ReadingPage : UserControl, IDisposable
         _popupOpen.AddValueChanged(ReadingWordPopup, OnWordPopupOpenChanged);
         IsVisibleChanged += (_, _) => { if (!IsVisible) CloseWordActions(); };
         Unloaded += (_, _) => Cancel();
+        SizeChanged += (_, _) => { if (IsCapturePreviewOpen) ReadingCaptureColumn.Width = new GridLength(Math.Clamp(ActualWidth * .32, 310, 370)); };
     }
 
     public DailyReadingViewModel ViewModel => _viewModel;
@@ -52,6 +56,11 @@ public partial class ReadingPage : UserControl, IDisposable
     public ReadingArticle? CurrentArticle { get; private set; }
     public Popup WordActionsPopup => ReadingWordPopup;
     public event EventHandler<ReadingWordSelection>? WordCaptureRequested;
+    public event EventHandler<PreviewLinkEventArgs>? CaptureLinkRequested;
+    private MainViewModel? _capturePreviewViewModel;
+    private bool _captureGenerating;
+    public bool IsCapturePreviewOpen => ReadingCapturePane.Visibility == Visibility.Visible;
+    public MainViewModel? CapturePreviewViewModel => _capturePreviewViewModel;
 
     public async Task EnsureLoadedAsync()
     {
@@ -64,6 +73,7 @@ public partial class ReadingPage : UserControl, IDisposable
     public async Task OpenArticleAsync(ReadingArticle article, bool forceRefresh = false)
     {
         if (_disposed) return;
+        CloseCapturePreview();
         if (!IsArticleOpen) _directoryOffset = ReadingArticlesScroll.VerticalOffset;
         CancelArticle(); CloseWordActions();
         var version = ++_articleVersion;
@@ -87,8 +97,7 @@ public partial class ReadingPage : UserControl, IDisposable
             ArticleBodyReader.SetParagraphs(content.Paragraphs);
             _hasBody = true;
             ArticleBodyReader.Visibility = Visibility.Visible; ArticleLoadState.Visibility = Visibility.Collapsed;
-            ArticleStatusText.Text = content.IsOffline ? "离线缓存 · " + content.Message
-                : "纯净全文 · 点选正文单词，可翻译或收录。";
+            ArticleStatusText.Text = content.IsOffline ? "离线缓存" : "";
             _viewModel.Message = content.IsOffline ? "正在阅读已缓存的全文。" : "全文已载入。";
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
@@ -111,6 +120,7 @@ public partial class ReadingPage : UserControl, IDisposable
 
     public void ReturnToDirectory()
     {
+        CloseCapturePreview();
         CancelArticle(); CloseWordActions();
         CurrentArticle = null; _hasBody = false;
         ArticleSurface.Visibility = Visibility.Collapsed; ReadingDirectory.Visibility = Visibility.Visible;
@@ -123,6 +133,7 @@ public partial class ReadingPage : UserControl, IDisposable
 
     public void Cancel()
     {
+        CloseCapturePreview();
         _viewModel.Cancel(); CancelArticle(); CloseWordActions();
         if (IsArticleOpen && !_hasBody)
         {
@@ -167,7 +178,19 @@ public partial class ReadingPage : UserControl, IDisposable
             owner.SizeChanged += OnWordOwnerResized;
         }
     }
-    private void OnWordOutsideClick(object sender, MouseButtonEventArgs e) => CloseWordActions();
+    private void OnWordOutsideClick(object sender, MouseButtonEventArgs e)
+    {
+        // Popup children still route input through their logical owner. They are
+        // inside clicks even though the popup uses a separate presentation source.
+        for (var node = e.OriginalSource as DependencyObject; node is not null;)
+        {
+            if (ReferenceEquals(node, ReadingWordPopup.Child)) return;
+            node = node is FrameworkContentElement content ? content.Parent
+                : node is Visual ? VisualTreeHelper.GetParent(node) ?? LogicalTreeHelper.GetParent(node)
+                : LogicalTreeHelper.GetParent(node);
+        }
+        CloseWordActions();
+    }
     private void OnWordOwnerDeactivated(object? sender, EventArgs e) => CloseWordActions();
     private void OnWordOwnerResized(object sender, SizeChangedEventArgs e) => CloseWordActions();
     private void CloseWordOnEscape(object sender, KeyEventArgs e)
@@ -214,6 +237,42 @@ public partial class ReadingPage : UserControl, IDisposable
         CloseWordActions();
         WordCaptureRequested?.Invoke(this, word);
     }
+    public void OpenCapturePreview(MainViewModel viewModel, ReadingWordSelection word)
+    {
+        if (_disposed) return;
+        if (!viewModel.PrepareDraft(word.Word, word.Context))
+        { _viewModel.Message = "请等待当前收录完成。"; return; }
+        CloseWordActions();
+        _capturePreviewViewModel = viewModel;
+        ReadingCapturePane.DataContext = viewModel;
+        var opening = !IsCapturePreviewOpen;
+        ReadingCaptureGap.Width = new GridLength(14);
+        ReadingCaptureColumn.Width = new GridLength(Math.Clamp(ActualWidth * .32, 310, 370));
+        ReadingCapturePane.Visibility = Visibility.Visible;
+        if (opening && SystemParameters.ClientAreaAnimation)
+        {
+            var movement = new TranslateTransform(); ReadingCapturePane.RenderTransform = movement;
+            movement.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(12, 0, TimeSpan.FromMilliseconds(180))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, FillBehavior = FillBehavior.Stop });
+        }
+    }
+    public void CloseCapturePreview()
+    {
+        if (_captureGenerating) _capturePreviewViewModel?.CancelCommand.Execute(null);
+        ReadingCapturePane.Visibility = Visibility.Collapsed;
+        ReadingCaptureColumn.Width = new GridLength(0); ReadingCaptureGap.Width = new GridLength(0);
+        ReadingCapturePane.DataContext = null;
+        _capturePreviewViewModel = null;
+    }
+    private void CloseReadingCapture_Click(object sender, RoutedEventArgs e) => CloseCapturePreview();
+    private async void GenerateCapture_Click(object sender, RoutedEventArgs e)
+    {
+        if (_capturePreviewViewModel is not { IsBusy: false } capture || _captureGenerating) return;
+        _captureGenerating = true;
+        try { await capture.GenerateAsync(); }
+        finally { _captureGenerating = false; }
+    }
+    private void CapturePreview_LinkRequested(object? sender, PreviewLinkEventArgs e) => CaptureLinkRequested?.Invoke(sender, e);
     private void ReadingWordPopup_Closed(object? sender, EventArgs e)
     {
         if (ReadingWordPopup.IsOpen) return; // A quick next-word click may reopen during the fade-out.
@@ -243,6 +302,7 @@ public partial class ReadingPage : UserControl, IDisposable
         _disposed = true; Cancel();
         _popupOpen.RemoveValueChanged(ReadingWordPopup, OnWordPopupOpenChanged);
         ArticleBodyReader.WordClicked -= OnWordClicked;
+        ReadingCapturePreview.Dispose();
         if (_ownsContent && _contentService is IDisposable content) content.Dispose();
         if (_ownsTranslation && _translationService is IDisposable translation) translation.Dispose();
     }

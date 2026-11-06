@@ -140,6 +140,7 @@ public partial class MainWindow : Window
             _readingViewModel.PropertyChanged += ViewModel_PropertyChanged;
             _readingPage = new ReadingPage(_readingViewModel, OpenArticle, _articleContentService, _wordTranslationService);
             _readingPage.WordCaptureRequested += ReadingWordCaptureRequested;
+            _readingPage.CaptureLinkRequested += Preview_LinkRequested;
             PageHost.Children.Add(_readingPage);
         }
         SelectPage("reading");
@@ -154,11 +155,7 @@ public partial class MainWindow : Window
             if (_readingViewModel != null) _readingViewModel.Message = "请等待当前收录完成，再收录这个单词。";
             return;
         }
-        _viewModel.Word = word.Word;
-        _viewModel.Context = word.Context;
-        _viewModel.Message = "已带入阅读中的单词和原句，点击「解析并保存」收录。";
-        SelectPage("capture");
-        WordBox.Focus(); WordBox.SelectAll();
+        _readingPage?.OpenCapturePreview(_viewModel, word);
     }
     private void OpenArticle(string url)
     {
@@ -169,8 +166,8 @@ public partial class MainWindow : Window
     private void UpdateStatus()
     {
         if (_initializingUi || _closed) return;
-        StatusMessageText.Text = _page switch { "reading" => _readingViewModel?.Message ?? "", "library" or "roaming" => _learningPage?.Message ?? "", _ => _viewModel.Message };
-        var busy = _page switch { "reading" => _readingViewModel?.IsBusy == true, "library" or "roaming" => _learningPage?.IsBusy == true, _ => _viewModel.IsBusy };
+        StatusMessageText.Text = _page switch { "reading" => _readingPage?.CapturePreviewViewModel is { IsBusy: true } capture ? capture.Message : _readingViewModel?.Message ?? "", "library" or "roaming" => _learningPage?.Message ?? "", _ => _viewModel.Message };
+        var busy = _page switch { "reading" => _readingViewModel?.IsBusy == true || _readingPage?.CapturePreviewViewModel?.IsBusy == true, "library" or "roaming" => _learningPage?.IsBusy == true, _ => _viewModel.IsBusy };
         StatusProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
     }
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -227,7 +224,7 @@ public partial class MainWindow : Window
         var learning = EnsureLearningPage();
         await learning.ReloadAsync();
         if (!_closed && ReferenceEquals(learning, _learningPage) && source == _viewModel.SelectedNote && page == _page)
-            learning.HandleLink(e, source, NotePreview);
+            learning.HandleLink(e, source, sender as FrameworkElement ?? NotePreview);
     }
     private void OnClosing(object? sender, CancelEventArgs e)
     {
@@ -245,7 +242,7 @@ public partial class MainWindow : Window
         if (_readingViewModel != null) _readingViewModel.PropertyChanged -= ViewModel_PropertyChanged;
         if (_sync != null) _sync.Updated -= SyncStatusChanged;
         _learningPage?.Dispose(); NotePreview.Dispose();
-        if (_readingPage != null) { _readingPage.WordCaptureRequested -= ReadingWordCaptureRequested; _readingPage.Dispose(); }
+        if (_readingPage != null) { _readingPage.WordCaptureRequested -= ReadingWordCaptureRequested; _readingPage.CaptureLinkRequested -= Preview_LinkRequested; _readingPage.Dispose(); }
         _readingClient?.Dispose();
     }
 }

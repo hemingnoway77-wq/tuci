@@ -27,7 +27,12 @@ public static class Program
             try
             {
                 var runner = new SmokeRunner(app);
-                if (args.Contains("--roaming-only", StringComparer.Ordinal))
+                if (args.Contains("--reading-manual", StringComparer.Ordinal))
+                {
+                    await runner.RunManualReadingChecksAsync();
+                    Console.WriteLine("CLOSED: isolated manual reading session");
+                }
+                else if (args.Contains("--roaming-only", StringComparer.Ordinal))
                 {
                     await runner.RunRoamingChecksOnlyAsync();
                     Console.WriteLine("PASS: isolated roaming hold-to-reveal, stable background refresh actions, independent third-pane reading, weekly/monthly coverage, activity grid, themes and minimum window without model requests");

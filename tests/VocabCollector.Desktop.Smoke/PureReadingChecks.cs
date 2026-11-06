@@ -12,6 +12,7 @@ using VocabCollector.Core;
 using VocabCollector.Core.Ai;
 using VocabCollector.Core.Reading;
 using VocabCollector.Core.Storage;
+using VocabCollector.Desktop.Preview;
 using VocabCollector.Desktop.Reading;
 
 namespace VocabCollector.Desktop.Smoke;
@@ -109,7 +110,7 @@ public sealed partial class SmokeRunner
         var popup = (FrameworkElement)page.WordActionsPopup.Child;
         var translate = Descendants<Button>(popup).Single(button => button.Name == "ReadingTranslateButton");
         Check(translations.Calls == 0, "opening word actions does not run a translation before the explicit action");
-        Invoke(translate);
+        InvokePopupAfterPointerRoute(page, translate);
         await Until(() => translations.Calls == 1 && Descendants<TextBlock>(popup).Any(text => text.Name == "WordTranslationText" &&
             text.IsVisible && text.Text.Contains(RecordingWordTranslationService.Meaning, StringComparison.Ordinal)));
         Check(translations.LastWord == selected.Word && modelRequests() == beforeRequests,
@@ -117,19 +118,42 @@ public sealed partial class SmokeRunner
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         SnapshotWordPopup(popup, Path.Combine(output, "pure-reading-word.png"));
         var readingOffset = body.VerticalOffset;
-        Invoke(Descendants<Button>(popup).Single(button => button.Name == "ReadingCaptureButton"));
-        await Until(() => Control<RadioButton>(main, "CaptureTab").IsChecked == true && capture.Word == selected.Word && capture.Context == selected.Context);
-        Check(Control<TextBox>(main, "WordBox").Text == selected.Word && Control<TextBox>(main, "ContextBox").Text == selected.Context,
-            "capture navigation prefills the selected word and its actual article sentence");
+        InvokePopupAfterPointerRoute(page, Descendants<Button>(popup).Single(button => button.Name == "ReadingCaptureButton"));
+        await Until(() => page.IsCapturePreviewOpen && capture.Word == selected.Word && capture.Context == selected.Context);
+        Check(Control<RadioButton>(main, "ReadingTab").IsChecked == true && Control<RadioButton>(main, "CaptureTab").IsChecked == false &&
+            ReferenceEquals(page.CapturePreviewViewModel, capture), "capture stays inside the reading page in its own right-hand panel");
+        Check(ReadingControl<TextBox>(page, "ReadingCaptureWordBox").Text == selected.Word &&
+            ReadingControl<TextBox>(page, "ReadingCaptureContextBox").Text == selected.Context,
+            "reading capture panel prefills the selected word and its actual article sentence");
         Check(selected.Context.Contains(selected.Word, StringComparison.OrdinalIgnoreCase) && selected.Context.Length > selected.Word.Length,
             "capture receives sentence context rather than only the selected word");
         Check(!capture.IsBusy && capture.Notes.Count == noteCount && modelRequests() == beforeRequests &&
             ReadingMarkdownFiles(capture.Settings.Vault).SequenceEqual(savedFiles), "capture action only prefills input without saving a note or starting generation");
+        Check(ReadingControl<Button>(page, "ReadingCaptureGenerateButton").IsEnabled &&
+            string.IsNullOrWhiteSpace(ReadingControl<MarkdownPreview>(page, "ReadingCapturePreview").RenderedText),
+            "capture panel waits for an explicit generate-and-save action and initially contains no stale note");
+        CheckReachable(ReadingControl<TextBox>(page, "ReadingCaptureWordBox"), main, "reading capture word remains reachable at minimum size");
+        CheckReachable(ReadingControl<TextBox>(page, "ReadingCaptureContextBox"), main, "reading capture context remains reachable at minimum size");
+        CheckReachable(ReadingControl<Button>(page, "ReadingCaptureGenerateButton"), main, "reading capture action remains reachable at minimum size");
+        CheckReachable(ReadingControl<Button>(page, "CloseReadingCaptureButton"), main, "reading capture panel has an independently reachable close action");
+        Check(body.IsVisible && body.ActualWidth >= 250 && body.ActualHeight >= 150, "capture panel keeps a usable full-text reader visible alongside it");
+        Snapshot(main, Path.Combine(output, "pure-reading-capture-minimum.png"));
+        Invoke(ReadingControl<Button>(page, "CloseReadingCaptureButton"));
+        await Until(() => !page.IsCapturePreviewOpen);
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Check(ReferenceEquals(body.Document, document) && Math.Abs(body.VerticalOffset - readingOffset) <= 3 && content.Calls == 1,
+            "closing the reading capture panel restores the same article document and reading position without refetching");
+
+        selected = await OpenPureWordActionsAsync(page, body, "resilient");
+        InvokePopupAfterPointerRoute(page, Descendants<Button>(page.WordActionsPopup.Child).Single(button => button.Name == "ReadingCaptureButton"));
+        await Until(() => page.IsCapturePreviewOpen);
+        await SelectPageAsync(main, "CaptureTab");
+        await Until(() => !page.IsCapturePreviewOpen && !page.IsVisible);
         await SelectPageAsync(main, "ReadingTab");
         await Until(() => page.IsVisible && page.IsArticleOpen && page.CurrentArticle?.Url == article.Url);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         Check(ReferenceEquals(body.Document, document) && Math.Abs(body.VerticalOffset - readingOffset) <= 3 && content.Calls == 1,
-            "returning from capture retains the same article, document and reading position without refetching");
+            "leaving reading dismisses its capture panel; returning retains the article, document and reading position without refetching");
 
         main.Width = 1140;
         main.Height = 800;
@@ -148,6 +172,15 @@ public sealed partial class SmokeRunner
                 "native article ink follows the shared application palette");
             CheckReachable(Control<FrameworkElement>(main, "MainHeader"), main, "pure article retains the shared navigation header");
             Snapshot(main, Path.Combine(output, "pure-reading-" + slug + ".png"));
+            page.OpenCapturePreview(capture, selected);
+            await Until(() => page.IsCapturePreviewOpen);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            CheckReachable(ReadingControl<Button>(page, "ReadingCaptureGenerateButton"), main, "capture action follows the active palette and remains visible");
+            Check(ReadingControl<MarkdownPreview>(page, "ReadingCapturePreview").Markdown.Length == 0 && modelRequests() == beforeRequests,
+                "opening the reading capture panel during a theme switch never starts generation or restores an old note");
+            Snapshot(main, Path.Combine(output, "pure-reading-capture-" + slug + ".png"));
+            page.CloseCapturePreview();
+            await Until(() => !page.IsCapturePreviewOpen);
         }
         await themes.SetThemeAsync(initialTheme);
         Invoke(ReadingControl<Button>(page, "ArticleSourceButton"));
@@ -172,7 +205,28 @@ public sealed partial class SmokeRunner
         await Until(() => !page.IsArticleOpen && ReadingControl<FrameworkElement>(page, "ReadingDirectory").IsVisible);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         CheckReadingDirectory(page);
-        Console.WriteLine("PURE READING: native full text, word translation, capture prefill, retained position, themes, source and retry passed");
+        Console.WriteLine("PURE READING: native full text, pointer-route word actions, translation, in-page capture prefill, retained position, themes, source and retry passed");
+    }
+
+    private static void InvokePopupAfterPointerRoute(ReadingPage page, Button button)
+    {
+        var clicked = false;
+        RoutedEventHandler observedClick = (_, _) => clicked = true;
+        button.Click += observedClick;
+        try
+        {
+            foreach (var routedEvent in new[] { Mouse.PreviewMouseDownEvent, Mouse.MouseDownEvent, Mouse.PreviewMouseUpEvent, Mouse.MouseUpEvent })
+            {
+                button.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = routedEvent });
+                if (routedEvent == Mouse.PreviewMouseDownEvent)
+                    Check(page.WordActionsPopup.IsOpen, "popup action pointer-down survives its owner preview route before invocation: " + button.Name);
+            }
+            // Routed input covers owner dismissal. When the global pointer is
+            // elsewhere UIA supplies the click, without invoking it twice if
+            // the native ButtonBase input path already fired one.
+            if (!clicked) Invoke(button);
+        }
+        finally { button.Click -= observedClick; }
     }
 
     private static async Task<ReadingWordSelection> OpenPureWordActionsAsync(ReadingPage page, RichTextBox body, string word)

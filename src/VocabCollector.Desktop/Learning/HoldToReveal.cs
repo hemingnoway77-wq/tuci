@@ -31,7 +31,10 @@ public sealed class HoldToReveal : UserControl
         _meaning.SetResourceReference(TextBlock.ForegroundProperty, "Ink");
         Background = Brushes.Transparent; Padding = new Thickness(0); BorderThickness = new Thickness(0);
         HorizontalContentAlignment = HorizontalAlignment.Stretch; VerticalContentAlignment = VerticalAlignment.Top;
-        VerticalAlignment = VerticalAlignment.Top; FocusVisualStyle = null; ClipToBounds = true;
+        // Blur expands its rendered bounds beyond the glyphs. Do not trim that
+        // halo to the unblurred text rectangle or move the clear text inward.
+        // A scroll host must likewise reserve bleed outside its aligned content.
+        VerticalAlignment = VerticalAlignment.Top; FocusVisualStyle = null; ClipToBounds = false;
         var hitSurface = new Grid { Background = Brushes.Transparent };
         hitSurface.Children.Add(_meaning); Content = hitSurface;
         AutomationProperties.SetName(this, "释义，按住查看");

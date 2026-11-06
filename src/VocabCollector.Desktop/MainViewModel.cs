@@ -39,6 +39,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public AsyncCommand GenerateCommand { get; }
     public AsyncCommand RefreshLinksCommand { get; }
     public ActionCommand CancelCommand { get; }
+    public bool PrepareDraft(string word, string context)
+    {
+        if (IsBusy) return false;
+        Word = word; Context = context;
+        Markdown = ""; Notes.Clear(); SelectedNote = null; Message = "";
+        return true;
+    }
     public async Task RefreshLinksAsync()
     {
         if (IsBusy || _maintenance == null) return;

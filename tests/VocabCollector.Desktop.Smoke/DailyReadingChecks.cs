@@ -55,8 +55,8 @@ public sealed partial class SmokeRunner
             ReadingControl<System.Windows.Controls.RichTextBox>(page, "ArticleBodyReader").Document.Blocks.Count == content.Paragraphs.Count);
         await CheckPureReadingArticleAsync(main, page, service.Articles[^1], content, translations, capture,
             themes, openedArticle, output, modelRequests);
-        Check(!page.IsArticleOpen && Math.Abs(scroll.VerticalOffset - directoryOffset) <= 3,
-            "returning from full text restores the article directory's previous scroll position");
+        Check(!page.IsArticleOpen && !page.IsCapturePreviewOpen && Math.Abs(scroll.VerticalOffset - directoryOffset) <= 3,
+            "returning from full text dismisses its capture panel and restores the article directory's previous scroll position");
         Check(modelRequests() == before, "pure full-text reading and word actions use no model requests");
 
         Invoke(refresh);
