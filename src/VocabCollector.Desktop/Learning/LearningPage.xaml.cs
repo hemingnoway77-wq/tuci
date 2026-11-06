@@ -46,6 +46,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
         Browser.WebLinkRequested += (_, url) => WebLinkRequested?.Invoke(this, url);
         Browser.ReloadRequested += (_, _) => RequestReload();
         Browser.ImportRequested += async (_, files) => await ImportAsync(files);
+        InitializeRoaming();
         _refreshTimer = new(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(600) };
         _refreshTimer.Tick += async (_, _) => { _refreshTimer.Stop(); await ReloadAsync(); };
     }
@@ -64,7 +65,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     public bool IsBusy => _loading || _advancing;
     public bool CanInteract => !IsBusy;
     public bool HasExposure => _exposure != null;
-    public bool CanAdvance => HasExposure && !IsBusy;
+    public bool CanAdvance => HasExposure && !_advancing && !_disposed;
     public string Message { get => _message; private set { _message = value; StatusChanged?.Invoke(this, EventArgs.Empty); } }
     public string FolderLabel => _folder.Length == 0 ? "全部笔记" : _folder;
     public string Summary => $"{VisibleNotes.Count} 篇笔记 · {_notes.Count(n => n.IsWord)} 个可复习词条";
@@ -77,7 +78,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     public string RoamingMeaning => _exposure is { } card ? (card.Note.Meaning.Length > 0 ? card.Note.Meaning : card.Note.Excerpt) : "先收录一个英文单词，或把已有词卡导入词库。词根和普通说明笔记可阅读，不参与随机复习。";
     public string RememberedLabel => _exposure?.RememberedToday == true ? "✓ 今天记住过" : "从这里开始一次回想";
     public string RoamingCountLabel => $"词库里有 {_notes.Count(n => n.IsWord)} 个词，随时可以继续。";
-    public string RoamingWeightLabel => _exposure is { } e ? $"本次抽取权重 {e.Weight:F2}\n每张卡片的抽取机会，按它在全部词条中的权重占比分配。" : "所有词的权重保持为正，因此记住后仍可能再次抽中。";
+    public string RoamingWeightLabel => WeightDescription;
 
     public async Task ReloadAsync()
     {
@@ -118,6 +119,8 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
             Filter();
             Changed(nameof(ReaderTitle)); Changed(nameof(ReaderEmptyVisibility));
             Changed(nameof(RoamingCountLabel));
+            RoamingPreviewReader.Configure(_catalog, _notes);
+            UpdateRoamingStatistics();
             _libraryWarnings = string.Join(" ", snapshot.Warnings);
             Message = WithWarnings($"词库已更新：{_notes.Count} 篇笔记。");
             Browser.SetMessage(Message);
@@ -176,6 +179,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     }
     public void ShowLibrary()
     {
+        RoamingMeaningReveal.Hide();
         LibrarySurface.Visibility = Visibility.Visible;
         RoamingSurface.Visibility = Visibility.Collapsed;
     }
@@ -203,12 +207,16 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
         if (_advancing || _disposed) return;
         if (_session == null) { Message = _reviewError.Length > 0 ? _reviewError : "复习记录暂时不可用，请刷新词库后重试。"; return; }
         _advancing = true; BusyChanged();
+        RoamingMeaningReveal.Hide();
         try
         {
             var next = await _session.NextAsync(_notes, finishing, remembered, _stop.Token);
             if (_disposed) return;
             _exposure = next;
+            RoamingMeaningReveal.Hide();
             UpdateCard();
+            UpdateRoamingStatistics();
+            if (_previewOpen && next is not null) DisplayRoamingPreview(next.Note);
             Message = WithWarnings(next == null ? "还没有可复习的英文词条。" : "按权重漫游 · 记住后仍可能再次遇见。");
         }
         catch (OperationCanceledException) { }
@@ -218,10 +226,11 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     }
     private async void Skip_Click(object sender, RoutedEventArgs e) { if (_exposure is { } card) await AdvanceAsync(card.Id, false); }
     private async void Remember_Click(object sender, RoutedEventArgs e) { if (_exposure is { } card) await AdvanceAsync(card.Id, true); }
-    private void RoamingRead_Click(object sender, RoutedEventArgs e) { if (_exposure is { } card) OpenNote(card.Note); }
+    private void RoamingRead_Click(object sender, RoutedEventArgs e) => OpenRoamingPreview();
     private void UpdateCard()
     {
         foreach (var name in new[] { nameof(HasExposure), nameof(CanAdvance), nameof(RoamingTitle), nameof(RoamingPhonetics), nameof(RoamingMeaning), nameof(RememberedLabel), nameof(RoamingWeightLabel), nameof(RoamingCountLabel) }) Changed(name);
+        Changed(nameof(WeightLevel)); Changed(nameof(WeightDescription));
     }
     private async void Reload_Click(object sender, RoutedEventArgs e) => await ReloadAsync();
     private async void Import_Click(object sender, RoutedEventArgs e)
@@ -282,5 +291,6 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
         if (_disposed) return;
         _disposed = true;
         _stop.Cancel(); _refreshTimer.Stop(); _watcher?.Dispose(); Browser.Dispose();
+        DisposeRoaming();
     }
 }

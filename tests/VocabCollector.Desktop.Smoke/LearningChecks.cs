@@ -196,34 +196,7 @@ public sealed partial class SmokeRunner
     }
 
     private static async Task CheckRoamingAsync(MainWindow main, LearningPage page, string learningState, string output)
-    {
-        await SelectPageAsync(main, "RoamingTab");
-        await Until(() => page.HasExposure && !page.IsBusy && LearningControl<Grid>(page, "RoamingSurface").IsVisible);
-        var stateFile = Directory.GetFiles(learningState, "roaming.json", SearchOption.AllDirectories).Single();
-        var first = ReviewSnapshot(stateFile);
-        Check(first.Remembered == 0 && first.Skipped == 0, "initial roaming card has exposure but no completed review");
-        Check(page.AllNotes.Any(note => note.Title == page.RoamingTitle && note.IsWord), "roaming presents an English word rather than a Chinese note or root");
-        Check(LearningControl<TextBlock>(page, "RoamingMeaningText").Text.Length > 0, "roaming card presents meaning or a readable excerpt");
-        Snapshot(main, Path.Combine(output, "learning-roaming.png"));
-        Invoke(LearningControl<Button>(page, "RoamingSkipButton"));
-        await Until(() => !page.IsBusy && ReviewSnapshot(stateFile).Exposure != first.Exposure);
-        var skipped = ReviewSnapshot(stateFile);
-        Check(skipped.Skipped == 1 && skipped.Remembered == 0, "next-card action completes the current exposure once as skipped");
-        Invoke(LearningControl<Button>(page, "RoamingRememberButton"));
-        await Until(() => !page.IsBusy && ReviewSnapshot(stateFile).Exposure != skipped.Exposure);
-        var remembered = ReviewSnapshot(stateFile);
-        Check(remembered.Skipped == 1 && remembered.Remembered == 1, "remember action records one remembered exposure before drawing again");
-        var title = page.RoamingTitle;
-        Invoke(LearningControl<Button>(page, "RoamingReadNoteButton"));
-        await Until(() => Control<RadioButton>(main, "LibraryTab").IsChecked == true && page.ReaderControl.Note?.Title == title);
-        Check(ReviewSnapshot(stateFile).Json == remembered.Json, "reading a roaming card in full does not complete or redraw its exposure");
-        await SelectPageAsync(main, "CaptureTab");
-        await SelectPageAsync(main, "LibraryTab");
-        await Until(() => !page.IsBusy);
-        await SelectPageAsync(main, "RoamingTab");
-        await Until(() => !page.IsBusy && page.HasExposure && LearningControl<Grid>(page, "RoamingSurface").IsVisible);
-        Check(page.RoamingTitle == title && ReviewSnapshot(stateFile).Json == remembered.Json, "leaving and returning to roaming keeps the same exposure without adding review counts");
-    }
+        => await CheckRoamingDashboardAsync(main, page, learningState, output, requirePreviewLink: false);
 
     private static ReviewStateSnapshot ReviewSnapshot(string path)
     {
@@ -261,6 +234,11 @@ public sealed partial class SmokeRunner
             await Until(() => !page.IsBusy && page.HasExposure);
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             Snapshot(main, Path.Combine(output, "learning-roaming-" + slug + ".png"));
+            await OpenRoamingPreviewAsync(main, page);
+            CheckRoamingColumns(main, page);
+            Snapshot(main, Path.Combine(output, "learning-roaming-preview-" + slug + ".png"));
+            Invoke(LearningControl<Button>(page, "CloseRoamingPreviewButton"));
+            await Until(() => !page.IsRoamingPreviewOpen);
         }
         Check(ReviewSnapshot(stateFile).Json == before, "theme changes and repeated learning-page rendering do not create extra exposures or counts");
         main.Width = main.MinWidth;
@@ -285,11 +263,19 @@ public sealed partial class SmokeRunner
         CheckReachable(skip, main, "next-card button remains reachable at minimum size");
         CheckReachable(remember, main, "remember button remains reachable at minimum size");
         Check(!VisibleBounds(skip, main).IntersectsWith(VisibleBounds(remember, main)), "minimum-size roaming actions do not overlap");
-        var cardScroll = Descendants<ScrollViewer>(LearningControl<Grid>(page, "RoamingSurface")).First();
+        var cardScroll = Descendants<ScrollViewer>(LearningControl<Border>(page, "RoamingWordCard")).Single();
         cardScroll.ScrollToEnd();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         CheckReachable(LearningControl<Button>(page, "RoamingReadNoteButton"), main, "full-note action remains reachable by scrolling the minimum roaming card");
+        Snapshot(main, Path.Combine(output, "learning-roaming-card-minimum.png"));
+        await OpenRoamingPreviewAsync(main, page);
+        CheckRoamingColumns(main, page);
+        CheckReachable(LearningControl<Button>(page, "CloseRoamingPreviewButton"), main, "minimum third-column preview has a reachable close action");
+        Check(RoamingReadingPreview(page).ActualWidth >= 240 && RoamingReadingPreview(page).ActualHeight >= 180,
+            "minimum roaming window retains a usable independent Markdown reader");
         Snapshot(main, Path.Combine(output, "learning-roaming-minimum.png"));
+        Invoke(LearningControl<Button>(page, "CloseRoamingPreviewButton"));
+        await Until(() => !page.IsRoamingPreviewOpen);
         Check(ReviewSnapshot(stateFile).Json == before, "resizing and scrolling the roaming card never complete it");
     }
 

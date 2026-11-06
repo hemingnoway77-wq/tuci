@@ -27,7 +27,12 @@ public static class Program
             try
             {
                 var runner = new SmokeRunner(app);
-                if (args.Contains("--reading-only", StringComparer.Ordinal))
+                if (args.Contains("--roaming-only", StringComparer.Ordinal))
+                {
+                    await runner.RunRoamingChecksOnlyAsync();
+                    Console.WriteLine("PASS: isolated roaming hold-to-reveal, stable background refresh actions, independent third-pane reading, weekly/monthly coverage, activity grid, themes and minimum window without model requests");
+                }
+                else if (args.Contains("--reading-only", StringComparer.Ordinal))
                 {
                     await runner.RunPureReadingChecksOnlyAsync();
                     Console.WriteLine("PASS: isolated pure article reading, shared directory, word translation and capture prefill without model calls, retained reading positions, retry, themes and minimum window");

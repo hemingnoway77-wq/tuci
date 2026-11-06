@@ -17,7 +17,7 @@ public sealed record ReviewRecord(DateTimeOffset? LastShown = null, DateOnly? Da
     }
 }
 
-public sealed record RoamingExposure(Guid Id, LibraryNote Note, bool RememberedToday, double Weight);
+public sealed record RoamingExposure(Guid Id, LibraryNote Note, bool RememberedToday, double Weight, double WeightLevel = 0.5);
 
 public sealed class RoamingSession
 {
@@ -27,6 +27,30 @@ public sealed class RoamingSession
     private readonly SemaphoreSlim _gate = new(1, 1);
     private ReviewState _state;
     public RoamingExposure? Current { get; private set; }
+
+    public RoamingStatistics GetStatistics(IReadOnlyList<LibraryNote> notes)
+    {
+        ArgumentNullException.ThrowIfNull(notes);
+        // Published states are never mutated; a single snapshot is safe during an awaited save.
+        var state = _state;
+        var today = LocalDate(_clock.GetUtcNow(), _clock.LocalTimeZone);
+        var weekStart = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
+        var monthStart = new DateOnly(today.Year, today.Month, 1);
+        var gridStart = DateOnly.FromDayNumber(Math.Max(0, weekStart.DayNumber - 77));
+        var words = notes.Where(note => note.IsWord).Select(note => note.Id).ToHashSet(StringComparer.Ordinal);
+        var activity = state.Activity ?? [];
+        int CoveredSince(DateOnly start) => activity.Where(day => day.Key >= start && day.Key <= today)
+            .SelectMany(day => day.Value.Keys).Where(words.Contains).Distinct(StringComparer.Ordinal).Count();
+        var days = Enumerable.Range(0, 84).Select(index =>
+        {
+            var day = gridStart.AddDays(index);
+            var future = day > today;
+            var counts = !future ? activity.GetValueOrDefault(day) : null;
+            return new RoamingDayCount(day, counts?.Values.Sum() ?? 0, future, counts?.Count ?? 0);
+        }).ToArray();
+        return new(CoveredSince(weekStart), CoveredSince(monthStart), words.Count, today, weekStart, monthStart,
+            gridStart, days, state.HasLegacyHistory, state.TrackingStartedOn);
+    }
 
     public RoamingSession(string stateFile, TimeProvider? clock = null, Func<double>? random = null)
     {
@@ -39,8 +63,19 @@ public sealed class RoamingSession
             _state = File.Exists(_stateFile) ? JsonSerializer.Deserialize<ReviewState>(File.ReadAllText(_stateFile))
                 ?? throw new JsonException("学习记录为空。") : new([], null, null);
             if (_state.Records is null || _state.Records.Any(pair => pair.Value is null || pair.Value.Remembered < 0 || pair.Value.Skipped < 0) ||
-                (_state.CurrentExposure is null) != (_state.CurrentNoteId is null))
+                _state.Records.Keys.Any(string.IsNullOrWhiteSpace) ||
+                (_state.CurrentExposure is null) != (_state.CurrentNoteId is null) ||
+                (_state.CurrentNoteId is not null && string.IsNullOrWhiteSpace(_state.CurrentNoteId)) ||
+                (_state.CurrentWeight is { } weight && (!double.IsFinite(weight) || weight <= 0)) ||
+                (_state.CurrentWeightLevel is { } level && (!double.IsFinite(level) || level < 0 || level > 1)))
                 throw new JsonException("学习记录格式无效。");
+            if (_state.Activity is not null)
+                foreach (var day in _state.Activity)
+                    if (day.Value is null || day.Value.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || pair.Value <= 0) ||
+                        day.Value.Values.Sum(count => (long)count) > int.MaxValue)
+                        throw new JsonException("漫游活动记录计数无效。");
+            if (_state.Activity is null && (_state.Records.Count > 0 || _state.CurrentExposure is not null))
+                _state = _state with { HasLegacyHistory = true };
         }
         catch (JsonException error) { throw new IOException("无法读取本机学习记录，请检查文件：" + _stateFile, error); }
     }
@@ -52,6 +87,7 @@ public sealed class RoamingSession
         {
             var now = _clock.GetUtcNow();
             var timeZone = _clock.LocalTimeZone;
+            var today = LocalDate(now, timeZone);
             var existing = notes.FirstOrDefault(note => note.Id == _state.CurrentNoteId && note.IsWord);
             if (finishingExposure is not null && finishingExposure != _state.CurrentExposure)
                 return Current ?? RestoreExposure(existing, now, timeZone);
@@ -77,6 +113,10 @@ public sealed class RoamingSession
 
             var choices = notes.Where(note => note.IsWord).Select(note =>
                 (Note: note, Weight: records.GetValueOrDefault(note.Id, new ReviewRecord()).Weight(note.AddedAt, now, timeZone))).ToArray();
+            var oldest = DateOnly.FromDayNumber(Math.Max(0, today.DayNumber - 399));
+            var activity = (_state.Activity ?? []).Where(day => day.Key >= oldest && day.Key <= today)
+                .ToDictionary(day => day.Key, day => new Dictionary<string, int>(day.Value, StringComparer.Ordinal));
+            var trackingStartedOn = _state.TrackingStartedOn;
             RoamingExposure? next = null;
             if (choices.Length > 0)
             {
@@ -89,12 +129,19 @@ public sealed class RoamingSession
                     if (needle < 0) { selected = choice; break; }
                 }
                 var record = records.GetValueOrDefault(selected.Note.Id, new ReviewRecord());
-                next = new(Guid.NewGuid(), selected.Note, record.Counts(now, timeZone).Remembered > 0, selected.Weight);
+                var weightLevel = Math.Clamp(selected.Weight / choices.Max(choice => choice.Weight), 0, 1);
+                next = new(Guid.NewGuid(), selected.Note, record.Counts(now, timeZone).Remembered > 0, selected.Weight, weightLevel);
                 records[selected.Note.Id] = record with { LastShown = now };
+                if (!activity.TryGetValue(today, out var counts)) activity[today] = counts = new(StringComparer.Ordinal);
+                if (counts.Values.Sum(count => (long)count) >= int.MaxValue)
+                    throw new IOException("当天漫游计数已达到上限，当前卡片尚未推进。");
+                counts[selected.Note.Id] = checked(counts.GetValueOrDefault(selected.Note.Id) + 1);
+                trackingStartedOn ??= today;
             }
 
             if (next is null && _state.CurrentExposure is null && finishingExposure is null) return null;
-            var candidate = new ReviewState(records, next?.Id, next?.Note.Id);
+            var candidate = new ReviewState(records, next?.Id, next?.Note.Id, activity, _state.HasLegacyHistory,
+                trackingStartedOn, next?.Weight, next?.WeightLevel);
             try { await LocalLibraryState.WriteAsync(_stateFile, candidate, cancellationToken); }
             catch (Exception error) when (LocalLibraryState.IsStorageError(error))
             { throw new IOException("无法保存本机学习记录，当前卡片尚未推进。" + error.Message, error); }
@@ -109,7 +156,13 @@ public sealed class RoamingSession
 
     private RoamingExposure? RestoreExposure(LibraryNote? note, DateTimeOffset now, TimeZoneInfo timeZone) =>
         note is null || _state.CurrentExposure is not { } exposure ? null : new(exposure, note,
-            Record(note.Id).Counts(now, timeZone).Remembered > 0, Record(note.Id).Weight(note.AddedAt, now, timeZone));
+            Record(note.Id).Counts(now, timeZone).Remembered > 0,
+            _state.CurrentWeight ?? Record(note.Id).Weight(note.AddedAt, now, timeZone), _state.CurrentWeightLevel ?? 0.5);
 
-    private sealed record ReviewState(Dictionary<string, ReviewRecord> Records, Guid? CurrentExposure, string? CurrentNoteId);
+    private static DateOnly LocalDate(DateTimeOffset now, TimeZoneInfo timeZone) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, timeZone).DateTime);
+
+    private sealed record ReviewState(Dictionary<string, ReviewRecord> Records, Guid? CurrentExposure, string? CurrentNoteId,
+        Dictionary<DateOnly, Dictionary<string, int>>? Activity = null, bool HasLegacyHistory = false,
+        DateOnly? TrackingStartedOn = null, double? CurrentWeight = null, double? CurrentWeightLevel = null);
 }
