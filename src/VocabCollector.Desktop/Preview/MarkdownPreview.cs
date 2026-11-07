@@ -59,6 +59,7 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
     private static void OnMarkdownChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         var preview = (MarkdownPreview)sender;
+        SmoothScroll.Cancel(preview);
         preview.CancelPendingLink();
         preview.EndHover();
         preview.Document = preview.Render(args.NewValue as string ?? "");
@@ -175,6 +176,7 @@ public sealed class MarkdownPreview : RichTextBox, IDisposable
 
     public void Dispose()
     {
+        SmoothScroll.Cancel(this);
         if (_disposed) return;
         _disposed = true;
         CancelPendingLink();

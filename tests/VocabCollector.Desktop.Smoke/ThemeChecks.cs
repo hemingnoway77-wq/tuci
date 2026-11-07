@@ -109,11 +109,16 @@ public sealed partial class SmokeRunner
 
     private static async Task SelectTabAsync(RadioButton tab)
     {
-        if (tab.IsChecked == true) return;
-        var provider = (ISelectionItemProvider)new RadioButtonAutomationPeer(tab).GetPattern(PatternInterface.SelectionItem)!;
-        provider.Select();
-        await Until(() => tab.IsChecked == true);
+        if (tab.IsChecked != true)
+        {
+            var provider = (ISelectionItemProvider)new RadioButtonAutomationPeer(tab).GetPattern(PatternInterface.SelectionItem)!;
+            provider.Select();
+            await Until(() => tab.IsChecked == true);
+        }
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        if (Window.GetWindow(tab) is MainWindow main)
+            await Until(() => Control<Grid>(main, "PageHost").Children.OfType<FrameworkElement>().Where(view => view.IsVisible)
+                .All(view => !view.HasAnimatedProperties && !view.RenderTransform.HasAnimatedProperties));
     }
 
     private static async Task SwitchThemeAsync(RadioButton option, ThemeManager themes, AppTheme target)

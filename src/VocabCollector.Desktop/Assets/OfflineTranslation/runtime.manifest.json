@@ -1,0 +1,77 @@
+{
+  "formatVersion": 1,
+  "name": "Mozilla Bergamot local WebView2 runtime",
+  "license": "MPL-2.0",
+  "runtimeVersion": "v0.6.0",
+  "loaderBuild": "v0.6.0+eea6e5a8",
+  "wasmRecord": {
+    "revision": "1de4a085d3a7afb625c51a60aabb5ad298e4059f",
+    "version": "3.0",
+    "collectionUrl": "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-wasm/records",
+    "license": "MPL-2.0",
+    "id": "4fd32605-9889-4dd9-9fc7-577ad1136746"
+  },
+  "adapterSource": {
+    "repositoryPath": "src/VocabCollector.Desktop/Assets/OfflineTranslation",
+    "license": "MPL-2.0",
+    "upstreamReference": "https://raw.githubusercontent.com/mozilla-firefox/firefox/d9bd6be9a67efb1c2667ef91a89856f35eb7cf5e/toolkit/components/translations/content/translations-engine.worker.js"
+  },
+  "files": [
+    {
+      "role": "engine",
+      "path": "bergamot-translator.wasm",
+      "bytes": 4960506,
+      "sha256": "a3a89d9ad0a4ed8f27bf3e403701b23f5709816f6376438503f2fa5b0182c2dc",
+      "sourceUrl": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-wasm/05082c31-aee8-4249-9e01-c1865afd7520.wasm"
+    },
+    {
+      "role": "loader",
+      "path": "bergamot-translator.js",
+      "bytes": 100187,
+      "sha256": "faff1ef6285b0d26f01787776fd49299dfb756ecb9688aa990c250e66797b47d",
+      "sourceUrl": "https://raw.githubusercontent.com/mozilla-firefox/firefox/d9bd6be9a67efb1c2667ef91a89856f35eb7cf5e/toolkit/components/translations/bergamot-translator/bergamot-translator.js"
+    },
+    {
+      "role": "license",
+      "path": "LICENSE-MPL-2.0.txt",
+      "bytes": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+      "sourceUrl": "https://raw.githubusercontent.com/mozilla-firefox/firefox/d9bd6be9a67efb1c2667ef91a89856f35eb7cf5e/toolkit/components/translations/bergamot-translator/LICENSE"
+    },
+    {
+      "role": "document",
+      "path": "index.html",
+      "bytes": 442,
+      "sha256": "dd74d329c10e3a9ebb1843c3166bba2f1c61dd4d487da6bc839c6f54a04e4322",
+      "sourceUrl": null
+    },
+    {
+      "role": "host",
+      "path": "runtime.js",
+      "bytes": 1051,
+      "sha256": "0433b50178e5b1021dc58440c2a13356c07a419ff6729a6d4121ad4c2c3f6ee4",
+      "sourceUrl": null
+    },
+    {
+      "role": "worker",
+      "path": "translation-worker.js",
+      "bytes": 4987,
+      "sha256": "63e7c3e934da1b412358201292857a31c44b5bbe63e7b872488a2aa6dcd7cd50",
+      "sourceUrl": null
+    },
+    {
+      "role": "sources",
+      "path": "RUNTIME-SOURCES.md",
+      "bytes": 3038,
+      "sha256": "82c21dd75532ce9b5d10ca8344599fdc5208eb64ea743e0a6ebdfeb661901ca3",
+      "sourceUrl": null
+    },
+    {
+      "role": "thirdPartyNotices",
+      "path": "LICENSES-THIRD-PARTY.txt",
+      "bytes": 39494,
+      "sha256": "847b6286494d40333eeb659c9fa3491ee306ed21e6f9fd130ffb510b6e7b376f",
+      "sourceUrl": null
+    }
+  ]
+}

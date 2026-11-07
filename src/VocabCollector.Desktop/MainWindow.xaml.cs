@@ -3,12 +3,14 @@ using System.IO;
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using VocabCollector.Core;
 using VocabCollector.Core.Reading;
 using VocabCollector.Core.Storage;
 using VocabCollector.Desktop.Learning;
 using VocabCollector.Desktop.Preview;
 using VocabCollector.Desktop.Reading;
+using VocabCollector.Desktop.Controls;
 
 namespace VocabCollector.Desktop;
 
@@ -30,29 +32,33 @@ public partial class MainWindow : Window
     private LearningPage? _learningPage;
     private bool _initializingUi = true, _syncingThemeOption, _changingPage, _closed;
     private string _page = "capture";
+    private readonly Func<Task>? _prepareLocalData;
+    private Task? _preparation;
 
     public MainWindow(MainViewModel viewModel, ISettingsStore settingsStore, IAppNavigator navigator,
         IDailyReadingService? readingService = null, Action<string>? openArticle = null, ThemeManager? themeManager = null,
         DesktopSync? sync = null, string? learningStateDirectory = null,
-        IArticleContentService? articleContentService = null, IWordTranslationService? wordTranslationService = null)
+        IArticleContentService? articleContentService = null, IWordTranslationService? wordTranslationService = null,
+        Func<Task>? prepareLocalData = null)
     {
         _themes = themeManager ?? new ThemeManager(Application.Current.Resources);
         _viewModel = viewModel; _store = settingsStore; _navigator = navigator;
         _readingService = readingService; _openArticle = openArticle; _sync = sync;
         _learningStateDirectory = learningStateDirectory;
         _articleContentService = articleContentService; _wordTranslationService = wordTranslationService;
+        _prepareLocalData = prepareLocalData;
         InitializeComponent();
         DataContext = viewModel;
         SyncButton.Visibility = sync == null ? Visibility.Collapsed : Visibility.Visible;
         if (sync != null) { SyncButton.ToolTip = sync.Status; sync.Updated += SyncStatusChanged; }
-        Activated += (_, _) => { _sync?.Request(); _learningPage?.RequestReload(); };
+        Activated += (_, _) => { _sync?.Request(); _learningPage?.RequestReload(false); };
         SelectThemeOption(_themes.CurrentTheme);
         _themes.ThemeChanged += ThemeChanged;
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         StatusMetaText.Text = DateTime.Now.ToString("yyyy.MM.dd") + " · 兔词";
         _initializingUi = false;
         SourceInitialized += (_, _) => TitleBarTheme.Apply(this);
-        Loaded += (_, _) => UpdateStatus();
+        Loaded += async (_, _) => { UpdateStatus(); AlignNavigation(false); if (_prepareLocalData is not null) await PrepareForUseAsync(); };
         Closing += OnClosing; Closed += OnClosed;
     }
 
@@ -86,6 +92,8 @@ public partial class MainWindow : Window
     private void SelectPage(string page)
     {
         if (_closed) return;
+        var previous = _page;
+        foreach (var surface in PageHost.Children.OfType<FrameworkElement>()) PageMotion.Reset(surface);
         if (_page == "reading" && page != "reading") _readingPage?.Cancel();
         _page = page;
         CapturePage.Visibility = page == "capture" ? Visibility.Visible : Visibility.Collapsed;
@@ -94,7 +102,73 @@ public partial class MainWindow : Window
         _changingPage = true;
         try { (page switch { "library" => LibraryTab, "roaming" => RoamingTab, "reading" => ReadingTab, _ => CaptureTab }).IsChecked = true; }
         finally { _changingPage = false; }
+        AlignNavigation(previous != page);
+        if (previous != page)
+        {
+            var surface = page switch { "capture" => (FrameworkElement)CapturePage, "reading" => _readingPage, _ => _learningPage };
+            if (surface is not null) PageMotion.Enter(surface, PageOrder(page) >= PageOrder(previous));
+        }
         UpdateStatus();
+    }
+    private static int PageOrder(string page) => page switch { "library" => 1, "roaming" => 2, "reading" => 3, _ => 0 };
+    private void Navigation_SizeChanged(object sender, SizeChangedEventArgs e) { if (!_initializingUi) AlignNavigation(false); }
+    private void AlignNavigation(bool animate)
+    {
+        if (_closed || PageUnderline is null) return;
+        var selected = _page switch { "library" => LibraryTab, "roaming" => RoamingTab, "reading" => ReadingTab, _ => CaptureTab };
+        if (selected is null || selected.ActualWidth <= 0) return;
+        var origin = selected.TranslatePoint(new Point(), MainNavigation);
+        PageUnderline.MoveTo(origin.X, selected.ActualWidth, animate);
+    }
+    public Task PrepareForUseAsync() => _preparation ??= PrepareModulesCoreAsync();
+    private async Task PrepareModulesCoreAsync()
+    {
+        if (_closed) return;
+        PreparationOverlay.Visibility = Visibility.Visible;
+        PreparationProgress.IsIndeterminate = true; MainNavigation.IsEnabled = false;
+        try
+        {
+            // Let the shell and its real loading surface paint before local work.
+            await Dispatcher.Yield(DispatcherPriority.Background);
+            if (_closed) return;
+            if (_prepareLocalData is not null) await _prepareLocalData();
+            if (_closed) return;
+            var learning = EnsureLearningPage();
+            var reading = EnsureReadingPage(); // Native UI only; no feed or translation request.
+            await learning.EnsureLoadedAsync();
+            if (_closed) return;
+            // Collapsed controls have data but no generated rows/templates.
+            // Realize their first layout behind the opaque preparation surface,
+            // so the first navigation click does not pay that synchronous cost.
+            await PreparePageLayoutAsync(learning);
+            if (!_closed) await PreparePageLayoutAsync(reading);
+        }
+        catch (Exception) { if (!_closed) SetMessage("本地内容暂未准备好，可以进入词库后重试。"); }
+        finally
+        {
+            PreparationProgress.IsIndeterminate = false; PreparationOverlay.Visibility = Visibility.Collapsed;
+            MainNavigation.IsEnabled = true;
+            if (!_closed) { AlignNavigation(false); PageMotion.Enter(CapturePage); }
+        }
+    }
+    private async Task PreparePageLayoutAsync(FrameworkElement page)
+    {
+        var visibility = page.Visibility;
+        var hitTesting = page.IsHitTestVisible;
+        try
+        {
+            page.IsHitTestVisible = false;
+            page.Visibility = Visibility.Visible;
+            page.UpdateLayout();
+            // Loaded container generation, binding and the first render pass
+            // must finish while the shell still shows its loading surface.
+            await Dispatcher.Yield(DispatcherPriority.ContextIdle);
+        }
+        finally
+        {
+            page.Visibility = visibility;
+            page.IsHitTestVisible = hitTesting;
+        }
     }
     private LearningPage EnsureLearningPage()
     {
@@ -111,21 +185,21 @@ public partial class MainWindow : Window
         var learning = EnsureLearningPage();
         SelectPage(roaming ? "roaming" : "library");
         if (!roaming) learning.ShowLibrary();
-        await learning.ReloadAsync();
+        await learning.EnsureLoadedAsync();
         if (_closed || !ReferenceEquals(learning, _learningPage)) return;
         if (roaming && _page == "roaming") await learning.ShowRoamingAsync();
     }
     private async Task OpenInLibraryAsync(NoteLocation target)
     {
         var learning = EnsureLearningPage();
-        await learning.ReloadAsync();
+        await learning.EnsureLoadedAsync();
         if (_closed || !ReferenceEquals(learning, _learningPage)) return;
         var note = learning.AllNotes.FirstOrDefault(n => n.AbsolutePath.Equals(target.AbsolutePath, StringComparison.OrdinalIgnoreCase));
         if (note == null) { SetMessage("这篇笔记暂时无法读取，请刷新词库或检查目录。"); return; }
         learning.OpenNote(note);
         SelectPage("library");
     }
-    private async Task ShowReadingAsync()
+    private ReadingPage EnsureReadingPage()
     {
         if (_readingPage == null)
         {
@@ -138,13 +212,18 @@ public partial class MainWindow : Window
             }
             _readingViewModel = new DailyReadingViewModel(service);
             _readingViewModel.PropertyChanged += ViewModel_PropertyChanged;
-            _readingPage = new ReadingPage(_readingViewModel, OpenArticle, _articleContentService, _wordTranslationService);
+            _readingPage = new ReadingPage(_readingViewModel, OpenArticle, _articleContentService, _wordTranslationService) { Visibility = Visibility.Collapsed };
             _readingPage.WordCaptureRequested += ReadingWordCaptureRequested;
             _readingPage.CaptureLinkRequested += Preview_LinkRequested;
             PageHost.Children.Add(_readingPage);
         }
+        return _readingPage;
+    }
+    private async Task ShowReadingAsync()
+    {
+        var reading = EnsureReadingPage();
         SelectPage("reading");
-        try { await _readingPage.EnsureLoadedAsync(); }
+        try { await reading.EnsureLoadedAsync(); }
         catch (Exception) { if (_readingViewModel != null) _readingViewModel.Message = "文章获取失败，请点击「刷新文章」重试。"; }
     }
     private void ReadingWordCaptureRequested(object? sender, ReadingWordSelection word)
@@ -222,7 +301,7 @@ public partial class MainWindow : Window
         var source = _viewModel.SelectedNote;
         var page = _page;
         var learning = EnsureLearningPage();
-        await learning.ReloadAsync();
+        await learning.EnsureLoadedAsync();
         if (!_closed && ReferenceEquals(learning, _learningPage) && source == _viewModel.SelectedNote && page == _page)
             learning.HandleLink(e, source, sender as FrameworkElement ?? NotePreview);
     }
@@ -237,6 +316,8 @@ public partial class MainWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         _closed = true;
+        PageUnderline.Dispose();
+        foreach (var surface in PageHost.Children.OfType<FrameworkElement>()) PageMotion.Reset(surface);
         _themes.ThemeChanged -= ThemeChanged;
         _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
         if (_readingViewModel != null) _readingViewModel.PropertyChanged -= ViewModel_PropertyChanged;

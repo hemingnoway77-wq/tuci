@@ -88,8 +88,25 @@ public sealed partial class SmokeRunner
         const string secondText = "# 第二篇\n\n全文搜索唯一口令。\n\n**加粗内容**和普通正文一起显示。\n";
         await File.WriteAllTextAsync(firstPath, firstText);
         await File.WriteAllTextAsync(secondPath, secondText);
-        await ClickLibraryAsync(LearningControl<Button>(page, "ReloadLibraryButton"));
-        await Until(() => !page.IsBusy && page.AllNotes.Any(note => note.AbsolutePath == firstPath) && page.AllNotes.Any(note => note.AbsolutePath == secondPath));
+        var reload = LearningControl<Button>(page, "ReloadLibraryButton");
+        var reloadFooter = (FrameworkElement)((FrameworkElement)reload.Parent).Parent;
+        main.UpdateLayout();
+        var footerHeight = reloadFooter.ActualHeight;
+        var observedHeights = new List<double>();
+        EventHandler observeLayout = (_, _) => observedHeights.Add(reloadFooter.ActualHeight);
+        reloadFooter.LayoutUpdated += observeLayout;
+        try
+        {
+            reload.Focus(); main.UpdateLayout();
+            await ClickLibraryAsync(reload);
+            await Until(() => !page.IsBusy && page.AllNotes.Any(note => note.AbsolutePath == firstPath) && page.AllNotes.Any(note => note.AbsolutePath == secondPath));
+            main.UpdateLayout();
+            Check(Math.Abs(reloadFooter.ActualHeight - footerHeight) < .1 && observedHeights.All(height => Math.Abs(height - footerHeight) < .1),
+                "real focused refresh keeps its footer height stable throughout layout updates");
+            Check(((Border)reload.Template.FindName("Surface", reload)).BorderThickness == new Thickness(0),
+                "focused refresh has no persistent mouse-focus border");
+        }
+        finally { reloadFooter.LayoutUpdated -= observeLayout; }
         var first = page.AllNotes.Single(note => note.AbsolutePath == firstPath);
         var second = page.AllNotes.Single(note => note.AbsolutePath == secondPath);
         Check(FlattenTree(browser.Tree).Any(entry => entry is { IsFolder: true, RelativePath: "两栏验收/空目录" }),

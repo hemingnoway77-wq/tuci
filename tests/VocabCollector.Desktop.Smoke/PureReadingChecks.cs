@@ -86,6 +86,9 @@ public sealed partial class SmokeRunner
         var initialWidth = main.Width;
         var initialHeight = main.Height;
         var body = ReadingControl<RichTextBox>(page, "ArticleBodyReader");
+        var articleSurface = ReadingControl<Grid>(page, "ArticleSurface");
+        await Until(() => !articleSurface.HasAnimatedProperties && !articleSurface.RenderTransform.HasAnimatedProperties &&
+            articleSurface.Opacity == 1 && Math.Abs(articleSurface.RenderTransform.Value.OffsetX) < .01);
         var document = body.Document;
         var articleText = new TextRange(document.ContentStart, document.ContentEnd).Text;
         Check(content.Calls == 1 && content.LastArticle?.Url == article.Url && !content.LastForced,
@@ -149,6 +152,12 @@ public sealed partial class SmokeRunner
         await Until(() => page.IsCapturePreviewOpen);
         await SelectPageAsync(main, "CaptureTab");
         await Until(() => !page.IsCapturePreviewOpen && !page.IsVisible);
+        Check(capture.Context == selected.Context, "switching to capture keeps the selected article word's own sentence");
+        Control<TextBox>(main, "WordBox").Text = "banana";
+        await Until(() => capture.Word == "banana");
+        Check(capture.Context.Length == 0 && Control<TextBox>(main, "ContextBox").Text.Length == 0,
+            "replacing the article word in the main capture input clears its old automatic sentence in the shared UI");
+        Check(modelRequests() == beforeRequests, "changing capture inputs never submits either the old sentence or a model request");
         await SelectPageAsync(main, "ReadingTab");
         await Until(() => page.IsVisible && page.IsArticleOpen && page.CurrentArticle?.Url == article.Url);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);

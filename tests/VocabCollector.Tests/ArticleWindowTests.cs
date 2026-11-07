@@ -48,8 +48,8 @@ public sealed class ArticleWindowTests
             var address = Assert.IsType<TextBox>(window.FindName("AddressBox"));
             Assert.True(address.IsReadOnly);
             Assert.Equal("https://example.invalid/article", address.Text);
-            Assert.False(Assert.IsType<Button>(window.FindName("BackButton")).IsEnabled);
-            Assert.False(Assert.IsType<Button>(window.FindName("ForwardButton")).IsEnabled);
+            Assert.False(Assert.IsAssignableFrom<Button>(window.FindName("BackButton")).IsEnabled);
+            Assert.False(Assert.IsAssignableFrom<Button>(window.FindName("ForwardButton")).IsEnabled);
             Assert.False(Assert.IsType<Button>(window.FindName("ReloadButton")).IsEnabled);
             Assert.Empty(Assert.IsType<Grid>(window.FindName("BrowserHost")).Children);
             window.Measure(new Size(window.MinWidth, window.MinHeight));

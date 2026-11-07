@@ -1,0 +1,261 @@
+{
+  "formatVersion": 1,
+  "name": "ECDICT English-Chinese word details",
+  "entryFormat": [
+    "word",
+    "phonetic",
+    "translation",
+    "exchange"
+  ],
+  "encoding": "UTF-8 JSON Lines, lowercase key, ordinal order, no BOM",
+  "source": {
+    "repository": "https://github.com/skywind3000/ECDICT",
+    "commit": "39cfb9672c0906b63569e0453c2e6abfb9ab182a",
+    "csvUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv",
+    "csvBytes": 66009548,
+    "csvSha256": "d1ecbdf9ee2b920afb6f430ca6b6bb9f559588cf0dff86e04bd255f9390843cc"
+  },
+  "license": {
+    "spdxId": "MIT",
+    "path": "LICENSE.MIT.txt",
+    "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/LICENSE"
+  },
+  "generation": {
+    "script": "scripts/build-offline-dictionary.py",
+    "version": 1,
+    "normalization": "WordInput-compatible lowercase ASCII, internal hyphen/apostrophe, at most 64 characters",
+    "translation": "Source literal backslash-n is decoded to LF; original meanings are retained",
+    "duplicates": "Prefer the original lowercase headword; retain distinct complete translations, phonetics and exchange components"
+  },
+  "statistics": {
+    "sourceRows": 770611,
+    "filteredRows": 370430,
+    "eligibleRows": 400181,
+    "duplicateRows": 0,
+    "duplicateKeys": 0,
+    "malformedRows": 0,
+    "emptyTranslationRows": 201,
+    "entryCount": 400181,
+    "entriesWithoutTranslation": 201
+  },
+  "totals": {
+    "entryBytes": 27939101
+  },
+  "files": [
+    {
+      "role": "entries",
+      "path": "a.jsonl",
+      "bytes": 2027721,
+      "sha256": "a1aa4e1eebb0f6dcf93662d5bce0bb50b2bc159cc38691a4f2de6c1642694bbb",
+      "entryCount": 30024,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "b.jsonl",
+      "bytes": 1608755,
+      "sha256": "2d4f793671119741a603b2dfa99be951db1e0ddc430071de21266ac3c47d5a35",
+      "entryCount": 23121,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "c.jsonl",
+      "bytes": 2502195,
+      "sha256": "751573c5ebf753fb074295ff9755988d4abc70b8c4141229887688016a459df3",
+      "entryCount": 35189,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "d.jsonl",
+      "bytes": 1511062,
+      "sha256": "b256b92fe12c21c9c1589f611553e8444287aaf44c329f9c67a0306480ec8e21",
+      "entryCount": 21159,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "e.jsonl",
+      "bytes": 1124880,
+      "sha256": "551e271f83b227ff93098c2a5912dfd4f590977440543358a86403a54747128c",
+      "entryCount": 16005,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "f.jsonl",
+      "bytes": 983580,
+      "sha256": "404cafff5259a4572e96aff1f8027b83406056cf32ba5c9fe308764263ab6647",
+      "entryCount": 13614,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "g.jsonl",
+      "bytes": 903235,
+      "sha256": "899dbf36e9137a20c943558df261a8cbf98dbea63c0b2beac66d55c41d1121fd",
+      "entryCount": 13244,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "h.jsonl",
+      "bytes": 1262093,
+      "sha256": "5414143911eaf873a0f8020b9f401c0ceacbe841abd080fbfed2d4ee737fb5de",
+      "entryCount": 18946,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "i.jsonl",
+      "bytes": 968218,
+      "sha256": "f6887f7bc15e91f077d51558970c07049ed193bd2f910390aa6a1a422a2f5142",
+      "entryCount": 12967,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "j.jsonl",
+      "bytes": 230475,
+      "sha256": "94e62f08240374d2bac8805a34f2e75dead17b7f094b46a845e26c7ace5aa9bc",
+      "entryCount": 3218,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "k.jsonl",
+      "bytes": 402304,
+      "sha256": "e62ec1bcd09e3abcffba0e76664a2d5e6271f30b42c19934b046b8ea263a89af",
+      "entryCount": 6482,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "l.jsonl",
+      "bytes": 896277,
+      "sha256": "14b1f671deac0ffbafe5b3407bdbee2c937fe3bf01ba9d26cf358dd3eaf22aec",
+      "entryCount": 13469,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "m.jsonl",
+      "bytes": 1805247,
+      "sha256": "0c30dc1b628076cc2593889a76ddf9e36ca49f5d0706d99912b0e750f66a64b5",
+      "entryCount": 27216,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "n.jsonl",
+      "bytes": 794546,
+      "sha256": "9b5202df47e45e35f034ddfc2f6d72f3ef5323c09835ef3c30be057bf6b1d96e",
+      "entryCount": 12009,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "o.jsonl",
+      "bytes": 782104,
+      "sha256": "afa176bc54ac2fa9ea8c040cc2d264cf53678b9abce861b09a0599b8738963d3",
+      "entryCount": 11215,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "p.jsonl",
+      "bytes": 2468179,
+      "sha256": "c36af0e28f45836c8b536340deb054ea11a100d9e41cfb695ed1ac1cb6cf2e7c",
+      "entryCount": 35937,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "q.jsonl",
+      "bytes": 132856,
+      "sha256": "ffdb4f9da5218ce5eab0875c0d9befea33a2b1c0c20c2292e95b00d0918b9c3d",
+      "entryCount": 1836,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "r.jsonl",
+      "bytes": 1319207,
+      "sha256": "b9a29702e0888b535acb3f5c7752beb44b1dc4a9d53dfa1b174103b15e7901aa",
+      "entryCount": 17118,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "s.jsonl",
+      "bytes": 2861842,
+      "sha256": "daed82479b782b2915075c9b41f2ad25334af346bfbdaa4050af2e80bfda0095",
+      "entryCount": 39831,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "t.jsonl",
+      "bytes": 1476973,
+      "sha256": "e619483e2a458995732fd1cf1295eff14d26bc1b1cb73ce805cb8cc790f23041",
+      "entryCount": 21336,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "u.jsonl",
+      "bytes": 617895,
+      "sha256": "86d5879fe619b23f8f63903f89c12b0195b6aca8663b8b56976e5cb0819bf9a6",
+      "entryCount": 8434,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "v.jsonl",
+      "bytes": 412821,
+      "sha256": "ae9016ae5fd3e6854f1de9b74d8f2e198004eb629307a7a0df56b77c2aaf7641",
+      "entryCount": 5926,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "w.jsonl",
+      "bytes": 576181,
+      "sha256": "18e791ca32c76f7bf00874b35351aaca24a2ef2a523c7635dfef6a8339449509",
+      "entryCount": 7651,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "x.jsonl",
+      "bytes": 51587,
+      "sha256": "a9cb9b2a60d961264ec2c97d59eceaa6bd12624e43780d8aa497e1c8afefaa5d",
+      "entryCount": 863,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "y.jsonl",
+      "bytes": 99711,
+      "sha256": "2bf239de2bccc9a526c7047a3771df04d9f35a4a67f25b4ebc88d4f2ea94cae1",
+      "entryCount": 1483,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "entries",
+      "path": "z.jsonl",
+      "bytes": 119157,
+      "sha256": "89098c36b7586b432b839fbe5ae07fa6d5692d9d29721297b5467de5f5855710",
+      "entryCount": 1888,
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/ecdict.csv"
+    },
+    {
+      "role": "license",
+      "path": "LICENSE.MIT.txt",
+      "bytes": 1063,
+      "sha256": "f8552dd246f61a4e064569eae6194a01c6b3d63b03bf27c6ca863593c549ed0f",
+      "sourceUrl": "https://raw.githubusercontent.com/skywind3000/ECDICT/39cfb9672c0906b63569e0453c2e6abfb9ab182a/LICENSE"
+    }
+  ]
+}

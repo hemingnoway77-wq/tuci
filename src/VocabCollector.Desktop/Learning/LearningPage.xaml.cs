@@ -20,9 +20,16 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
 {
     private readonly VaultOptions _vault;
     private readonly string? _stateDirectory;
+    private readonly TimeProvider _clock;
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _scanGate = new(1, 1);
     private readonly DispatcherTimer _refreshTimer;
+    private static readonly TimeSpan FreshnessWindow = TimeSpan.FromSeconds(30);
+    private Task? _loadTask;
+    private long _changeVersion, _loadedVersion = -1, _loadedTimestamp;
+    private int _refreshQueued;
+    private bool _hasLoaded;
+    private string? _watchedWordRoot;
     private FileSystemWatcher? _watcher;
     private LibraryCatalog? _catalog;
     private RoamingSession? _session;
@@ -34,10 +41,11 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     private string _reviewError = "", _libraryWarnings = "";
     private bool _loading, _advancing, _disposed, _refreshingReader;
 
-    public LearningPage(VaultOptions vault, string? stateDirectory = null)
+    public LearningPage(VaultOptions vault, string? stateDirectory = null, TimeProvider? clock = null)
     {
         _vault = vault;
         _stateDirectory = stateDirectory;
+        _clock = clock ?? TimeProvider.System;
         InitializeComponent();
         DataContext = this;
         Browser.NoteChanged += Reader_NoteChanged;
@@ -48,7 +56,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
         Browser.ImportRequested += async (_, files) => await ImportAsync(files);
         InitializeRoaming();
         _refreshTimer = new(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(600) };
-        _refreshTimer.Tick += async (_, _) => { _refreshTimer.Stop(); await ReloadAsync(); };
+        _refreshTimer.Tick += async (_, _) => { _refreshTimer.Stop(); await EnsureLoadedAsync(); };
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -80,36 +88,76 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     public string RoamingCountLabel => $"词库里有 {_notes.Count(n => n.IsWord)} 个词，随时可以继续。";
     public string RoamingWeightLabel => WeightDescription;
 
-    public async Task ReloadAsync()
+    /// <summary>Prepare local notes on the UI dispatcher without drawing a roaming exposure.</summary>
+    public Task EnsureLoadedAsync(bool forceRefresh = false)
     {
-        if (_disposed) return;
+        if (_disposed) return Task.CompletedTask;
+        if (forceRefresh) Interlocked.Increment(ref _changeVersion);
+        if (_loadTask is { IsCompleted: false }) return _loadTask;
+        if (!NeedsReload()) return Task.CompletedTask;
+        _refreshTimer.Stop();
+        return _loadTask = LoadUntilCurrentAsync();
+    }
+
+    public Task ReloadAsync() => EnsureLoadedAsync(forceRefresh: true);
+
+    private bool NeedsReload() => !_hasLoaded || _loadedVersion != Interlocked.Read(ref _changeVersion) ||
+        _clock.GetElapsedTime(_loadedTimestamp) >= FreshnessWindow;
+
+    private async Task LoadUntilCurrentAsync()
+    {
+        _loading = true; BusyChanged();
+        try
+        {
+            do
+            {
+                var version = Interlocked.Read(ref _changeVersion);
+                if (!await ReloadOnceAsync() || _disposed) return;
+                _hasLoaded = true;
+                _loadedVersion = version;
+                _loadedTimestamp = _clock.GetTimestamp();
+                // Changes arriving while a snapshot was read/applied are part of
+                // this same task. Do not publish them as already refreshed.
+            } while (_loadedVersion != Interlocked.Read(ref _changeVersion));
+        }
+        finally { _loading = false; BusyChanged(); }
+    }
+
+    private async Task<bool> ReloadOnceAsync()
+    {
+        if (_disposed) return false;
         try
         {
             await _scanGate.WaitAsync(_stop.Token);
         }
-        catch (OperationCanceledException) { return; }
+        catch (OperationCanceledException) { return false; }
         try
         {
-            if (_disposed) return;
-            _loading = true; BusyChanged();
+            if (_disposed) return false;
             if (_catalog == null)
             {
                 var state = _stateDirectory == null ? null : Path.Combine(_stateDirectory,
                     Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(VaultPaths.WordRoot(_vault).ToUpperInvariant()))));
                 _catalog = new LibraryCatalog(_vault, state);
             }
+            // Watch before scanning, including an empty library whose notes
+            // directory has not been created yet, so first-load changes are seen.
+            try { StartWatching(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { }
             if (_session == null)
             {
                 try
                 {
-                    _session = new RoamingSession(Path.Combine(_catalog.LocalStateDirectory, "roaming.json"));
+                    var session = await Task.Run(() => new RoamingSession(Path.Combine(_catalog.LocalStateDirectory, "roaming.json"), _clock), _stop.Token);
+                    if (_disposed) return false;
+                    _session = session;
                     _reviewError = "";
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException)
                 { _reviewError = "本机复习记录暂时无法读取，原记录已保留；词库仍可正常阅读。请检查文件后刷新词库。"; }
             }
             var snapshot = await Task.Run(() => _catalog.ScanAsync(_stop.Token), _stop.Token);
-            if (_disposed) return;
+            if (_disposed) return false;
             _notes = snapshot.Notes;
             _folders = BuildFolders(_notes);
             Changed(nameof(Folders)); Changed(nameof(AllNotes));
@@ -124,12 +172,13 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
             _libraryWarnings = string.Join(" ", snapshot.Warnings);
             Message = WithWarnings($"词库已更新：{_notes.Count} 篇笔记。");
             Browser.SetMessage(Message);
-            StartWatching();
+            return snapshot.Warnings.Count == 0 && _reviewError.Length == 0;
         }
         catch (OperationCanceledException) { }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or System.Text.Json.JsonException)
         { Message = "词库暂时无法读取，请检查设置中的目录和文件权限。已有笔记保持不变。"; Browser.SetMessage(Message); }
-        finally { _loading = false; _scanGate.Release(); BusyChanged(); }
+        finally { _scanGate.Release(); }
+        return false;
     }
 
     private void Filter()
@@ -185,7 +234,8 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     }
     public async Task ShowRoamingAsync()
     {
-        if (_catalog == null) await ReloadAsync();
+        await EnsureLoadedAsync();
+        if (_disposed) return;
         LibrarySurface.Visibility = Visibility.Collapsed;
         RoamingSurface.Visibility = Visibility.Visible;
         await AdvanceAsync(null, false);
@@ -258,10 +308,14 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
 
     private void StartWatching()
     {
-        if (_watcher != null || _disposed) return;
+        if (_disposed) return;
+        if (_watcher is not null && Directory.Exists(_watcher.Path)) return;
+        _watcher?.Dispose(); _watcher = null;
         var root = VaultPaths.WordRoot(_vault);
-        if (!Directory.Exists(root)) return;
-        _watcher = new(root, "*.md") { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.DirectoryName };
+        var watchRoot = Directory.Exists(root) ? root : _vault.RootPath;
+        if (!Directory.Exists(watchRoot)) return;
+        _watchedWordRoot = root;
+        _watcher = new(watchRoot, "*") { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.DirectoryName };
         _watcher.Changed += Watched;
         _watcher.Created += Watched;
         _watcher.Deleted += Watched;
@@ -271,16 +325,34 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     }
     private void Watched(object sender, FileSystemEventArgs e)
     {
-        if (sender is not FileSystemWatcher watcher || Path.GetRelativePath(watcher.Path, e.FullPath).Split(Path.DirectorySeparatorChar).Any(p => p.StartsWith('.'))) return;
-        RequestReload();
+        if (_disposed || sender is not FileSystemWatcher || _watchedWordRoot is not { } root) return;
+        bool Relevant(string path)
+        {
+            var relative = Path.GetRelativePath(root, path);
+            if (relative == ".") return true;
+            return relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
+                !relative.Split(Path.DirectorySeparatorChar).Any(part => part.StartsWith('.'));
+        }
+        if (Relevant(e.FullPath) || e is RenamedEventArgs renamed && Relevant(renamed.OldFullPath)) RequestReload();
     }
-    public void RequestReload()
+    public void RequestReload(bool forceRefresh = true)
     {
         if (_disposed || Dispatcher.HasShutdownStarted) return;
-        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => { if (!_disposed) { _refreshTimer.Stop(); _refreshTimer.Start(); } }));
+        if (forceRefresh) Interlocked.Increment(ref _changeVersion);
+        // A sync batch can raise hundreds of watcher events before the UI gets
+        // a turn. Queue one dispatcher operation, then debounce the actual scan.
+        if (Interlocked.Exchange(ref _refreshQueued, 1) != 0) return;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            Interlocked.Exchange(ref _refreshQueued, 0);
+            if (_disposed) return;
+            _refreshTimer.Stop();
+            if (NeedsReload()) _refreshTimer.Start();
+        }));
     }
     private void BusyChanged()
     {
+        if (_disposed) return;
         Changed(nameof(IsBusy)); Changed(nameof(CanInteract)); Changed(nameof(CanAdvance));
         StatusChanged?.Invoke(this, EventArgs.Empty);
     }

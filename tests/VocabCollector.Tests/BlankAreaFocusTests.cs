@@ -1,10 +1,16 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using VocabCollector.Desktop;
 
 namespace VocabCollector.Tests;
 
+[CollectionDefinition("Blank-area WPF input", DisableParallelization = true)]
+public sealed class BlankAreaFocusInputCollection;
+
+[Collection("Blank-area WPF input")]
 public sealed class BlankAreaFocusTests
 {
     [Fact]
@@ -17,11 +23,18 @@ public sealed class BlankAreaFocusTests
         var action = new Button { Content = actionText, Width = 70, Height = 30 };
         layout.Children.Add(header); layout.Children.Add(input); layout.Children.Add(action);
         BlankAreaFocus.SetIsEnabled(layout, true);
-        var owner = new Window { Content = layout, Width = 350, Height = 230, ShowInTaskbar = false };
+        // This independent STA must not use another test Application's cached icon decoder.
+        var icon = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[4], 4);
+        icon.Freeze();
+        var owner = new Window { Icon = icon, Content = layout, Width = 350, Height = 230, ShowInTaskbar = false };
         try
         {
-            owner.Show(); owner.Activate(); input.Focus();
+            // Parallel test windows can steal foreground focus while Loaded is pumped.
+            owner.Show();
             MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(30));
+            owner.Activate(); input.Focus();
+            Assert.True(owner.IsActive && input.IsKeyboardFocused,
+                $"Focus setup failed: windowActive={owner.IsActive}, inputFocused={input.IsKeyboardFocused}, keyboardTarget={Keyboard.FocusedElement?.GetType().Name ?? "none"}.");
             Click(input);
             Assert.True(input.IsKeyboardFocused);
             Click(actionText);

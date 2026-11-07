@@ -2,9 +2,12 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using VocabCollector.Core.Reading;
 using VocabCollector.Desktop;
+using VocabCollector.Desktop.Controls;
 using VocabCollector.Desktop.Reading;
 
 namespace VocabCollector.Tests;
@@ -15,6 +18,143 @@ public sealed class ReadingPageTestCollection;
 [Collection("ReadingPage STA")]
 public sealed class ReadingPageTests
 {
+    [Fact]
+    public void ModuleEntranceHasVisibleTravelAndRestoresTheOriginalTransform() => Run(fixture =>
+    {
+        var page = fixture.Page;
+        var original = page.RenderTransform;
+        var opacity = page.Opacity;
+        var maxTravel = 0d;
+        var saved = false;
+        EventHandler frame = (_, _) =>
+        {
+            if (page.RenderTransform is not TransformGroup group) return;
+            var travel = group.Children.OfType<TranslateTransform>().Last().X;
+            maxTravel = Math.Max(maxTravel, travel);
+            if (!saved && travel is > 4 and < 14 && page.Opacity < .98)
+                saved = SaveMotionFrame(page, "module-middle", travel, page.Opacity);
+        };
+        CompositionTarget.Rendering += frame;
+        try
+        {
+            PageMotion.Enter(page);
+            Until(() => !page.HasAnimatedProperties);
+            if (SystemParameters.ClientAreaAnimation)
+                Assert.True(maxTravel >= 8, $"The module should visibly travel before settling; observed {maxTravel:F2} DIP.");
+            Assert.Same(original, page.RenderTransform);
+            Assert.Equal(opacity, page.Opacity);
+            PageMotion.Enter(page, forward: false);
+            PageMotion.Reset(page);
+            Assert.Same(original, page.RenderTransform);
+            Assert.False(page.HasAnimatedProperties);
+        }
+        finally { CompositionTarget.Rendering -= frame; PageMotion.Reset(page); }
+    });
+
+    [Fact]
+    public void ArticleEntranceHasVisibleTravelThenPreservesSelectionAndScrollPosition() => Run(fixture =>
+    {
+        var surface = Find<Grid>(fixture.Page, "ArticleSurface");
+        var movement = Assert.IsType<TranslateTransform>(surface.RenderTransform);
+        var maxTravel = 0d;
+        var saved = false;
+        EventHandler frame = (_, _) =>
+        {
+            maxTravel = Math.Max(maxTravel, movement.X);
+            if (!saved && movement.X is > 6 and < 21 && surface.Opacity < .98)
+                saved = SaveMotionFrame(fixture.Page, "article-middle", movement.X, surface.Opacity);
+        };
+        CompositionTarget.Rendering += frame;
+        try
+        {
+            fixture.Load(fixture.First, Enumerable.Repeat("An apple remains selectable while this article opens.", 60).ToArray());
+            var reader = Find<ArticleTextReader>(fixture.Page, "ArticleBodyReader");
+            var document = reader.Document;
+            var word = WordRun(reader, "apple");
+            reader.Selection.Select(word.ContentStart, word.ContentEnd);
+            reader.ScrollToVerticalOffset(180);
+            Until(() => !surface.HasAnimatedProperties && !movement.HasAnimatedProperties && surface.Opacity == 1 &&
+                movement.X == 0 && reader.VerticalOffset > 100);
+            if (SystemParameters.ClientAreaAnimation)
+                Assert.True(maxTravel >= 12, $"The article should visibly turn into place; observed {maxTravel:F2} DIP.");
+            Assert.Same(document, reader.Document);
+            Assert.Equal("apple", reader.Selection.Text);
+            Assert.Equal(0, movement.X); Assert.Equal(1, surface.Opacity);
+        }
+        finally { CompositionTarget.Rendering -= frame; }
+    });
+
+    // Optional local verification output, never reads or writes application configuration.
+    private static bool SaveMotionFrame(FrameworkElement view, string name, double travel, double opacity)
+    {
+        var directory = Environment.GetEnvironmentVariable("TUCI_MOTION_ARTIFACTS");
+        if (string.IsNullOrWhiteSpace(directory)) return true;
+        Directory.CreateDirectory(directory);
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(view.ActualWidth), (int)Math.Ceiling(view.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(view);
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using (var stream = File.Create(Path.Combine(directory, name + ".png"))) encoder.Save(stream);
+        File.WriteAllText(Path.Combine(directory, name + ".json"), System.Text.Json.JsonSerializer.Serialize(new
+        { travel, opacity, animationEnabled = SystemParameters.ClientAreaAnimation, renderTier = RenderCapability.Tier >> 16 }));
+        return true;
+    }
+
+    [Fact]
+    public void ArticleEntranceUsesAFullWidthViewportAndCancelsItsVisualMotionOnReturn() => Run(fixture =>
+    {
+        fixture.Load(fixture.First, Enumerable.Repeat("An apple remains selectable while this article opens.", 40).ToArray());
+        var reader = Find<ArticleTextReader>(fixture.Page, "ArticleBodyReader");
+        Assert.True(double.IsPositiveInfinity(reader.MaxWidth), "The text column must not constrain the scrollbar viewport.");
+        var surface = Find<Grid>(fixture.Page, "ArticleSurface");
+        var movement = Assert.IsType<System.Windows.Media.TranslateTransform>(surface.RenderTransform);
+        var document = reader.Document;
+        fixture.Page.ReturnToDirectory();
+        Assert.False(movement.HasAnimatedProperties);
+        Assert.False(surface.HasAnimatedProperties);
+        Assert.Equal(0, movement.X); Assert.Equal(1, surface.Opacity);
+        Assert.Same(document, reader.Document);
+    });
+
+    [Fact]
+    public void DefaultTranslationIsOfflineAndDoesNotStartBrowserBeforeARequest() => Run(fixture =>
+    {
+        using var page = new ReadingPage(fixture.Page.ViewModel, articleContentService: fixture.Content);
+        var field = typeof(ReadingPage).GetField("_translationService", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        Assert.Equal("OfflineDictionaryWordTranslationService", field.GetValue(page)!.GetType().Name);
+        Assert.Empty(Find<Grid>(page, "TranslationRuntimeHost").Children);
+    });
+
+    [Fact]
+    public void DictionaryDetailsUseTheNativePopupAndClearWhenTheSelectedWordChanges() => Run(fixture =>
+    {
+        fixture.Load(fixture.First, "A book is on the table. A banana is nearby.");
+        SelectWord(fixture.Page, "book");
+        Click(fixture.Page, "ReadingTranslateButton");
+        fixture.Translations.Requests[0].Result.SetResult(new WordTranslation("book", "n. 书；书籍\nvt. 预订；登记")
+        {
+            Phonetic = "bʊk", Meanings = [new("n.", "书；书籍"), new("vt.", "预订；登记")]
+        });
+        Until(() => Find<Button>(fixture.Page, "ReadingTranslateButton").IsEnabled);
+        var meanings = Find<ItemsControl>(fixture.Page, "WordMeaningsList");
+        Assert.Equal(2, meanings.Items.Count);
+        Assert.Equal("n.", Assert.IsType<WordMeaning>(meanings.Items[0]).PartOfSpeech);
+        Assert.Equal("预订；登记", Assert.IsType<WordMeaning>(meanings.Items[1]).Definition);
+        Assert.Contains("bʊk", Find<TextBlock>(fixture.Page, "WordPhoneticText").Text);
+        Assert.Equal(Visibility.Visible, Find<ScrollViewer>(fixture.Page, "WordDetailsScroll").Visibility);
+        Assert.Equal(Visibility.Collapsed, Find<TextBlock>(fixture.Page, "WordTranslationText").Visibility);
+        Assert.True(fixture.Page.WordActionsPopup.IsOpen);
+
+        SelectWord(fixture.Page, "banana");
+        Assert.Empty(meanings.Items);
+        Assert.Equal(Visibility.Collapsed, Find<TextBlock>(fixture.Page, "WordPhoneticText").Visibility);
+        Assert.Equal(Visibility.Collapsed, Find<ScrollViewer>(fixture.Page, "WordDetailsScroll").Visibility);
+        Click(fixture.Page, "ReadingTranslateButton");
+        fixture.Translations.Requests[1].Result.SetResult(new("banana", "香蕉"));
+        Until(() => Find<TextBlock>(fixture.Page, "WordTranslationText").Text == "香蕉");
+        Assert.Equal(Visibility.Visible, Find<TextBlock>(fixture.Page, "WordTranslationText").Visibility);
+        Assert.Empty(meanings.Items);
+    });
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

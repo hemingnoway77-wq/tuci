@@ -2,6 +2,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
+    & (Join-Path $PSScriptRoot 'get-offline-translation-models.ps1') -VerifyOnly
+    & (Join-Path $PSScriptRoot 'verify-offline-dictionary.ps1')
     & dotnet restore VocabCollector.slnx --locked-mode
     if ($LASTEXITCODE -ne 0) { throw 'Dependency restore failed.' }
     & dotnet test VocabCollector.slnx -c Release --no-restore
@@ -10,5 +12,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
     & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build
     if ($LASTEXITCODE -ne 0) { throw 'WPF smoke checks failed.' }
+    & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --startup-only
+    if ($LASTEXITCODE -ne 0) { throw 'Prepared startup checks failed.' }
+    & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --offline-translation-only
+    if ($LASTEXITCODE -ne 0) { throw 'Bundled offline translation checks failed.' }
     Write-Output 'PASS: all verification checks.'
 } finally { Pop-Location }

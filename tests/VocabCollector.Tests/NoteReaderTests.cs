@@ -15,6 +15,32 @@ namespace VocabCollector.Tests;
 public sealed class NoteReaderTests
 {
     [Fact]
+    public void ExplicitSameNotePreloadAtTopResetsAScrolledSourceWithoutReplacingItsDocument() => Run((reader, _, notes) =>
+    {
+        reader.OpenNote(notes[0], remember: false);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(60));
+        var preview = Descendants<MarkdownPreview>(reader).Single();
+        preview.ScrollToVerticalOffset(280);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(40));
+        Assert.True(preview.VerticalOffset > 100);
+        var document = preview.Document;
+        reader.OpenNote(notes[0], remember: false, initialOffset: 0);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(60));
+        Assert.Same(document, preview.Document);
+        Assert.InRange(preview.VerticalOffset, 0, 1);
+    });
+    [Fact]
+    public void SharedReaderBackActionUsesTheSameAccessibleLineIconAndNativeNavigation() => Run((reader, _, notes) =>
+    {
+        var back = Assert.IsType<NotebookNavigationButton>(Descendants<Button>(reader).Single());
+        Assert.Equal("back", back.Kind); Assert.Equal("后退", System.Windows.Automation.AutomationProperties.GetName(back));
+        Assert.Equal(32, back.Width); Assert.Equal(16, Assert.IsType<NotebookIcon>(back.Content).Width);
+        reader.OpenNote(notes[0]); reader.OpenNote(notes[1]);
+        Assert.True(back.IsEnabled);
+        back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(notes[0].Id, reader.Note?.Id);
+    });
+    [Fact]
     public void SwitchingWarmToMonoRecolorsNestedLinksEmphasisAndQuoteRulesWithoutChangingSource() => Run((reader, owner, notes) =>
     {
         var themes = new ThemeManager(owner.Resources);

@@ -13,7 +13,7 @@ namespace VocabCollector.Desktop.Learning;
 public sealed class NoteReader : UserControl, IDisposable
 {
     private readonly MarkdownPreview _preview = new() { Name = "ReadingPreview", Margin = new Thickness(0, 14, 0, 0) };
-    private readonly Button _back = new() { Content = "← 返回", IsEnabled = false, Margin = new Thickness(0, 0, 12, 0) };
+    private readonly NotebookNavigationButton _back = new() { Name = "ReaderBackButton", Kind = "back", Label = "后退", IsEnabled = false, Margin = new Thickness(0, 0, 8, 0) };
     private readonly TextBlock _path = new() { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _message = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
     private readonly Stack<ReadingPosition> _history = new();
@@ -34,7 +34,6 @@ public sealed class NoteReader : UserControl, IDisposable
         var toolbar = _toolbar;
         toolbar.Children.Add(_back);
         toolbar.Children.Add(_path);
-        _back.SetResourceReference(StyleProperty, "QuietAction");
         _path.SetResourceReference(TextBlock.ForegroundProperty, "InkTertiary");
         _message.SetResourceReference(TextBlock.ForegroundProperty, "InkSecondary");
         var layout = new Grid();
@@ -167,6 +166,7 @@ public sealed class NoteReader : UserControl, IDisposable
                 // A capture preview can preload the same note at a newer position.
                 // Keep the requested offset pending so immediate navigation records it.
                 _restoreOffset = offset;
+                if (offset == 0) _preview.ScrollToHome();
                 QueueRestore();
             }
             if (remember) NavigationRequested?.Invoke(this, EventArgs.Empty);
@@ -235,7 +235,9 @@ public sealed class NoteReader : UserControl, IDisposable
         CancelRestore();
         Note = note;
         _path.Text = note.RelativePath;
+        var sameMarkdown = _preview.Markdown == note.Markdown;
         _preview.Markdown = note.Markdown;
+        if (offset == 0 && sameMarkdown) _preview.ScrollToHome();
         _lastFind = ""; _nextFindAt = 0;
         if (DirectLinks) ApplyReadingTypography();
         _back.IsEnabled = CanGoBack;
@@ -252,9 +254,14 @@ public sealed class NoteReader : UserControl, IDisposable
         {
             _restoreOperation = null;
             if (_disposed || !IsLoaded || _restoreOffset is not { } offset) return;
-            // The new FlowDocument must finish measure/arrange before its range is known.
-            _preview.UpdateLayout();
-            _preview.ScrollToVerticalOffset(Math.Clamp(offset, 0, Math.Max(0, _preview.ExtentHeight - _preview.ViewportHeight)));
+            // A new document already queues ScrollToHome. Keep its zero intent
+            // until that turn for immediate navigation/history, without forcing
+            // another measure and redundant scroll command on every file switch.
+            if (offset > 0)
+            {
+                _preview.UpdateLayout();
+                _preview.ScrollToVerticalOffset(Math.Clamp(offset, 0, Math.Max(0, _preview.ExtentHeight - _preview.ViewportHeight)));
+            }
             _restoreOffset = null;
         }));
     }

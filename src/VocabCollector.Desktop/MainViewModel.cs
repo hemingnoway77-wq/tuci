@@ -12,6 +12,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly ILinkMaintenance? _maintenance;
     private CancellationTokenSource? _cancellation;
     private string _word = "", _context = "", _markdown = "", _message = "粘贴一个陌生单词，点击解析并保存。";
+    private string? _articleContextWord;
     private bool _busy;
     private NoteLocation? _selected;
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -23,8 +24,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RefreshLinksCommand = new(RefreshLinksAsync, () => !IsBusy && _maintenance != null);
     }
     public AppSettings Settings { get; private set; }
-    public string Word { get => _word; set => Set(ref _word, value); }
-    public string Context { get => _context; set => Set(ref _context, value); }
+    public string Word
+    {
+        get => _word;
+        set
+        {
+            if (_word == value) return;
+            if (_articleContextWord is { } sourceWord && !SameWord(sourceWord, value))
+            {
+                _articleContextWord = null;
+                // Clear before notifying Word bindings so no observer submits the
+                // replacement word with the previous article's automatic sentence.
+                Context = "";
+            }
+            Set(ref _word, value);
+        }
+    }
+    public string Context
+    {
+        get => _context;
+        set
+        {
+            if (_context == value) return;
+            _articleContextWord = null; // A real manual edit owns its new sentence.
+            Set(ref _context, value);
+        }
+    }
     public string Markdown { get => _markdown; private set => Set(ref _markdown, value); }
     public string Message { get => _message; set => Set(ref _message, value); }
     public bool IsBusy
@@ -42,7 +67,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool PrepareDraft(string word, string context)
     {
         if (IsBusy) return false;
+        _articleContextWord = null;
         Word = word; Context = context;
+        _articleContextWord = word;
         Markdown = ""; Notes.Clear(); SelectedNote = null; Message = "";
         return true;
     }
@@ -121,13 +148,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 { Message += " 原笔记暂不可读取，请在词库中刷新查看。"; }
             }
             if (result.Status is CaptureStatus.Saved or CaptureStatus.AlreadyExists && result.CorrectedFrom.Length > 0 && Word == submittedWord)
+            {
+                // A verified correction is still the same submitted occurrence.
+                if (_articleContextWord is not null) _articleContextWord = result.Word;
                 Word = result.Word;
+            }
             foreach (var note in result.Notes) Notes.Add(note);
             SelectedNote = Notes.FirstOrDefault();
         }
         catch (OperationCanceledException) { Message = "已取消，输入已保留。"; }
         catch (Exception) { Message = "处理失败，请检查配置后重试。输入已保留。"; }
         finally { IsBusy = false; _cancellation.Dispose(); _cancellation = null; }
+    }
+    private static bool SameWord(string first, string second)
+    {
+        try { return WordInput.Normalize(first) == WordInput.Normalize(second); }
+        catch (ArgumentException) { return string.Equals(first, second, StringComparison.Ordinal); }
     }
     private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     { if (EqualityComparer<T>.Default.Equals(field, value)) return; field = value; Changed(name); }

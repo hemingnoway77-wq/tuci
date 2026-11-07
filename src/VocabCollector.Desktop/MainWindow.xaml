@@ -1,4 +1,4 @@
-<Window x:Class="VocabCollector.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:preview="clr-namespace:VocabCollector.Desktop.Preview" xmlns:local="clr-namespace:VocabCollector.Desktop"
+<Window x:Class="VocabCollector.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:preview="clr-namespace:VocabCollector.Desktop.Preview" xmlns:local="clr-namespace:VocabCollector.Desktop" xmlns:controls="clr-namespace:VocabCollector.Desktop.Controls"
  Title="兔词" Width="1220" Height="840" MinWidth="920" MinHeight="700" WindowStartupLocation="CenterScreen" Style="{StaticResource {x:Type Window}}">
  <Grid x:Name="WindowLayout" Background="Transparent" Focusable="True" KeyboardNavigation.IsTabStop="False" FocusVisualStyle="{x:Null}" local:BlankAreaFocus.IsEnabled="True">
   <Grid.RowDefinitions><RowDefinition Height="100" /><RowDefinition Height="*" /><RowDefinition Height="38" /></Grid.RowDefinitions>
@@ -14,12 +14,15 @@
       <TextBlock Text="VOCABULARY NOTES" FontFamily="{StaticResource UiFont}" FontSize="12" Foreground="{DynamicResource InkTertiary}" Margin="0,1,0,0" />
      </StackPanel>
     </StackPanel>
-    <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Orientation="Horizontal" VerticalAlignment="Stretch">
+    <Grid x:Name="MainNavigation" Grid.Row="1" Grid.ColumnSpan="3" SizeChanged="Navigation_SizeChanged">
+    <StackPanel Orientation="Horizontal" VerticalAlignment="Stretch">
      <RadioButton x:Name="CaptureTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="收录" MinWidth="56" Margin="0,0,28,0" IsChecked="True" Checked="CaptureTab_Checked" AutomationProperties.Name="收录" />
      <RadioButton x:Name="LibraryTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="词库" MinWidth="56" Margin="0,0,28,0" Checked="LibraryTab_Checked" AutomationProperties.Name="词库" />
      <RadioButton x:Name="RoamingTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="漫游" MinWidth="56" Margin="0,0,28,0" Checked="RoamingTab_Checked" AutomationProperties.Name="漫游" />
      <RadioButton x:Name="ReadingTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="每日阅读" MinWidth="78" Checked="ReadingTab_Checked" AutomationProperties.Name="每日阅读" />
     </StackPanel>
+    <controls:PageTabIndicator x:Name="PageUnderline" VerticalAlignment="Bottom"/>
+    </Grid>
     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
      <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
       <TextBlock Text="主题" Style="{StaticResource MetaText}" VerticalAlignment="Center" Margin="0,0,10,0" />
@@ -167,6 +170,12 @@
    </Grid>
   </Grid>
 
+  <Border x:Name="PreparationOverlay" Grid.Row="1" Panel.ZIndex="10" Background="{DynamicResource ShellBackground}" Visibility="Collapsed">
+   <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+    <TextBlock Text="正在准备…" Style="{StaticResource HintText}" HorizontalAlignment="Center"/>
+    <ProgressBar x:Name="PreparationProgress" Width="96" Height="2" Margin="0,14,0,0" IsIndeterminate="False"/>
+   </StackPanel>
+  </Border>
   <Border x:Name="MainFooter" Grid.Row="2" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="34,0">
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

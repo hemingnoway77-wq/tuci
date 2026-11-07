@@ -1,6 +1,7 @@
 <Window x:Class="VocabCollector.Desktop.Reading.ArticleWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:learning="clr-namespace:VocabCollector.Desktop.Learning"
         Title="来源文章 · 兔词" Width="1080" Height="780" MinWidth="640" MinHeight="460"
         WindowStartupLocation="CenterOwner" Loaded="Window_Loaded" Closed="Window_Closed">
  <Grid Margin="20">
@@ -10,8 +11,8 @@
   </Grid.RowDefinitions>
   <DockPanel Margin="0,0,0,12">
    <WrapPanel DockPanel.Dock="Right" Margin="16,0,0,0">
-    <Button x:Name="BackButton" Content="后退" IsEnabled="False" Click="Back_Click" Style="{DynamicResource OutlineAction}" Margin="0,0,6,0"/>
-    <Button x:Name="ForwardButton" Content="前进" IsEnabled="False" Click="Forward_Click" Style="{DynamicResource OutlineAction}" Margin="0,0,6,0"/>
+    <learning:NotebookNavigationButton x:Name="BackButton" Kind="back" Label="后退" IsEnabled="False" Click="Back_Click" Margin="0,0,6,0"/>
+    <learning:NotebookNavigationButton x:Name="ForwardButton" Kind="forward" Label="前进" IsEnabled="False" Click="Forward_Click" Margin="0,0,6,0"/>
     <Button x:Name="ReloadButton" Content="重新加载" IsEnabled="False" Click="Reload_Click" Style="{DynamicResource OutlineAction}"/>
    </WrapPanel>
    <TextBlock x:Name="ArticleTitle" Text="来源文章" Style="{DynamicResource PageTitle}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>

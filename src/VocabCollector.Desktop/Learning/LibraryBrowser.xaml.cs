@@ -23,10 +23,12 @@ public partial class LibraryBrowser : UserControl, INotifyPropertyChanged, IDisp
     private bool _refreshing, _disposed, _filesOpen = true;
     private double _filesWidth = 270;
     private DispatcherOperation? _treeRestore;
+    private readonly SidebarSnapshotMotion _sidebarMotion;
 
     public LibraryBrowser()
     {
         InitializeComponent(); DataContext = this;
+        _sidebarMotion = new SidebarSnapshotMotion(BrowserMotionHost, SidebarTransitionImage, BrowserLayout);
         Reader.DirectLinks = true;
         Reader.NoteChanged += Reader_NoteChanged;
         Reader.NavigationRequested += (_, _) =>
@@ -84,6 +86,7 @@ public partial class LibraryBrowser : UserControl, INotifyPropertyChanged, IDisp
 
     private void RebuildTree(bool restoreExpansion = false)
     {
+        _sidebarMotion.Stop();
         var previous = Walk(Tree).ToDictionary(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase);
         var treeScroll = Descendants<ScrollViewer>(BrowserFilesTree).FirstOrDefault();
         var scrollOffset = treeScroll?.VerticalOffset ?? 0;
@@ -195,10 +198,11 @@ public partial class LibraryBrowser : UserControl, INotifyPropertyChanged, IDisp
     private void Reader_NoteChanged(object? sender, LibraryNote note)
     {
         if (_disposed) return;
+        _sidebarMotion.Stop();
         UpdateReaderChrome();
         if (!_refreshing)
         {
-            CancelTreeRestore(); RevealNote(note); AnimateReader();
+            CancelTreeRestore(); RevealNote(note);
         }
         NoteChanged?.Invoke(this, note);
     }
@@ -253,36 +257,24 @@ public partial class LibraryBrowser : UserControl, INotifyPropertyChanged, IDisp
         element.BeginAnimation(OpacityProperty, null); element.Opacity = 1;
         if (SystemParameters.ClientAreaAnimation) element.BeginAnimation(OpacityProperty, new DoubleAnimation(0.6, 1, TimeSpan.FromMilliseconds(duration)) { FillBehavior = FillBehavior.Stop });
     }
-    private void AnimateReader()
-    {
-        Fade(ReaderPane, 150);
-        var translation = (TranslateTransform)ReaderPane.RenderTransform;
-        translation.BeginAnimation(TranslateTransform.YProperty, null); translation.Y = 0;
-        if (SystemParameters.ClientAreaAnimation) translation.BeginAnimation(TranslateTransform.YProperty,
-            new DoubleAnimation(5, 0, TimeSpan.FromMilliseconds(150)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, FillBehavior = FillBehavior.Stop });
-    }
     private void CollapseFiles_Click(object sender, RoutedEventArgs args) => SetFilesOpen(false);
     private void ShowFiles_Click(object sender, RoutedEventArgs args) => SetFilesOpen(true);
     private void SetFilesOpen(bool open)
     {
         if (_disposed || _filesOpen == open) return;
         if (!open) _filesWidth = Math.Clamp(FilesColumn.ActualWidth, 200, 380);
-        var from = FilesColumn.ActualWidth; var to = open ? _filesWidth : 0;
-        _filesOpen = open; FileListPane.Visibility = Visibility.Visible;
-        ShowFilesButton.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
-        BrowserSplitter.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        SplitterColumn.Width = new GridLength(open ? 16 : 0);
-        FilesColumn.BeginAnimation(ColumnDefinition.WidthProperty, null); FilesColumn.Width = new GridLength(to);
-        if (SystemParameters.ClientAreaAnimation && IsLoaded)
+        _filesOpen = open;
+        _sidebarMotion.Run(() =>
         {
-            var animation = new ColumnWidthAnimation(from, to) { Duration = TimeSpan.FromMilliseconds(150), FillBehavior = FillBehavior.Stop };
-            animation.Completed += (_, _) => { if (!_disposed && !_filesOpen) FileListPane.Visibility = Visibility.Collapsed; };
-            FilesColumn.BeginAnimation(ColumnDefinition.WidthProperty, animation);
-        }
-        else FileListPane.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            FileListPane.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            ShowFilesButton.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
+            BrowserSplitter.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            SplitterColumn.Width = new GridLength(open ? 16 : 0);
+            FilesColumn.Width = new GridLength(open ? _filesWidth : 0);
+        });
     }
     private void Splitter_DragCompleted(object sender, DragCompletedEventArgs args)
-    { if (_filesOpen) { _filesWidth = Math.Clamp(FilesColumn.ActualWidth, 200, 380); FilesColumn.Width = new(_filesWidth); } }
+    { _sidebarMotion.Stop(); if (_filesOpen) { _filesWidth = Math.Clamp(FilesColumn.ActualWidth, 200, 380); FilesColumn.Width = new(_filesWidth); } }
     private void Back_Click(object sender, RoutedEventArgs args) => Reader.GoBack();
     private void Forward_Click(object sender, RoutedEventArgs args) => Reader.GoForward();
     private void Reload_Click(object sender, RoutedEventArgs args) { if (!_disposed) ReloadRequested?.Invoke(this, EventArgs.Empty); }
@@ -297,7 +289,7 @@ public partial class LibraryBrowser : UserControl, INotifyPropertyChanged, IDisp
     public void Dispose()
     {
         if (_disposed) return; _disposed = true; _treeRestore?.Abort();
-        Reader.NoteChanged -= Reader_NoteChanged; Reader.Dispose();
+        _sidebarMotion.Dispose(); Reader.NoteChanged -= Reader_NoteChanged; Reader.Dispose();
     }
     private static IEnumerable<LibraryTreeEntry> Walk(IEnumerable<LibraryTreeEntry> entries)
     { foreach (var entry in entries) { yield return entry; foreach (var child in Walk(entry.Children)) yield return child; } }
@@ -307,17 +299,6 @@ public partial class LibraryBrowser : UserControl, INotifyPropertyChanged, IDisp
         {
             var child = VisualTreeHelper.GetChild(parent, index); if (child is T typed) yield return typed;
             foreach (var descendant in Descendants<T>(child)) yield return descendant;
-        }
-    }
-    private sealed class ColumnWidthAnimation(double from, double to) : AnimationTimeline
-    {
-        public override Type TargetPropertyType => typeof(GridLength);
-        protected override Freezable CreateInstanceCore() => new ColumnWidthAnimation(from, to);
-        public override object GetCurrentValue(object defaultOriginValue, object defaultDestinationValue, AnimationClock animationClock)
-        {
-            var progress = animationClock.CurrentProgress ?? 1;
-            var eased = 1 - Math.Pow(1 - progress, 3);
-            return new GridLength(Math.Max(0, from + (to - from) * eased));
         }
     }
 }

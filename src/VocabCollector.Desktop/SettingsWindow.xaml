@@ -10,7 +10,7 @@
 
   <Border Grid.Row="1" Style="{StaticResource SheetCard}" Padding="28,24,26,22">
    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <Grid>
+    <Grid Margin="0,0,2,0">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
 
      <StackPanel Grid.Column="0" Margin="0,0,28,0">

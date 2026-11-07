@@ -20,8 +20,8 @@
     <Grid>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <TextBlock Text="漫游复习" Style="{DynamicResource PageTitle}" FontSize="25"/>
-     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="-10,24,-10,16">
-      <StackPanel x:Name="RoamingCardBody" Margin="10,0,10,0">
+     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="-32,24,-32,16">
+      <StackPanel x:Name="RoamingCardBody" Margin="32,0,32,0">
        <TextBlock Text="{Binding RememberedLabel}" Margin="0,0,0,10" Foreground="{DynamicResource InkTertiary}">
         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="FontSize" Value="12"/><Style.Triggers><DataTrigger Binding="{Binding RememberedLabel}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
        </TextBlock>
@@ -76,8 +76,8 @@
      </Border>
      <Grid Grid.Row="1"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <StackPanel Orientation="Horizontal" Margin="12,3,12,0">
-       <Button x:Name="RoamingPreviewBackButton" Content="后退" IsEnabled="{Binding CanPreviewGoBack}" Click="RoamingPreviewBack_Click" Style="{DynamicResource QuietAction}"/>
-       <Button Content="前进" IsEnabled="{Binding CanPreviewGoForward}" Click="RoamingPreviewForward_Click" Style="{DynamicResource QuietAction}" Margin="5,0,0,0"/>
+       <local:NotebookNavigationButton x:Name="RoamingPreviewBackButton" Kind="back" Label="后退" IsEnabled="{Binding CanPreviewGoBack}" Click="RoamingPreviewBack_Click"/>
+       <local:NotebookNavigationButton x:Name="RoamingPreviewForwardButton" Kind="forward" Label="前进" IsEnabled="{Binding CanPreviewGoForward}" Click="RoamingPreviewForward_Click" Margin="4,0,0,0"/>
       </StackPanel>
       <local:NoteReader x:Name="RoamingPreviewReader" Grid.Row="1"/>
      </Grid>

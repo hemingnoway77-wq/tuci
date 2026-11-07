@@ -27,6 +27,8 @@ public partial class ReadingPage : UserControl, IDisposable
     private double _directoryOffset;
     private bool _hasBody, _disposed;
     private Window? _wordOwner;
+    private readonly TranslateTransform _articleTurn = new();
+    private int _articleEntranceVersion;
     private readonly DependencyPropertyDescriptor _popupOpen = DependencyPropertyDescriptor.FromProperty(Popup.IsOpenProperty, typeof(Popup));
 
     public ReadingPage(DailyReadingViewModel viewModel, Action<string>? openArticle = null,
@@ -37,8 +39,11 @@ public partial class ReadingPage : UserControl, IDisposable
         _ownsContent = articleContentService is null; _ownsTranslation = wordTranslationService is null;
         _contentService = articleContentService ?? new ArticleContentService(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VocabCollector", "reading", "articles"));
-        _translationService = wordTranslationService ?? new MyMemoryWordTranslationService();
         InitializeComponent();
+        ArticleSurface.RenderTransform = _articleTurn;
+        _translationService = wordTranslationService ?? new OfflineDictionaryWordTranslationService(
+            new JsonLinesWordDictionary(Path.Combine(AppContext.BaseDirectory, "Assets", "OfflineDictionary")),
+            new OfflineWordTranslationService(new WebViewOfflineTranslationEngine(TranslationRuntimeHost)));
         DataContext = viewModel;
         ArticleBodyReader.WordClicked += OnWordClicked;
         ArticleBodyReader.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, e) =>
@@ -46,7 +51,7 @@ public partial class ReadingPage : UserControl, IDisposable
         PreviewKeyDown += CloseWordOnEscape;
         ReadingWordPopup.Child.PreviewKeyDown += CloseWordOnEscape;
         _popupOpen.AddValueChanged(ReadingWordPopup, OnWordPopupOpenChanged);
-        IsVisibleChanged += (_, _) => { if (!IsVisible) CloseWordActions(); };
+        IsVisibleChanged += (_, _) => { if (!IsVisible) { CloseWordActions(); StopArticleEntrance(); SmoothScroll.Cancel(ArticleBodyReader); } };
         Unloaded += (_, _) => Cancel();
         SizeChanged += (_, _) => { if (IsCapturePreviewOpen) ReadingCaptureColumn.Width = new GridLength(Math.Clamp(ActualWidth * .32, 310, 370)); };
     }
@@ -97,6 +102,7 @@ public partial class ReadingPage : UserControl, IDisposable
             ArticleBodyReader.SetParagraphs(content.Paragraphs);
             _hasBody = true;
             ArticleBodyReader.Visibility = Visibility.Visible; ArticleLoadState.Visibility = Visibility.Collapsed;
+            BeginArticleEntrance();
             ArticleStatusText.Text = content.IsOffline ? "离线缓存" : "";
             _viewModel.Message = content.IsOffline ? "正在阅读已缓存的全文。" : "全文已载入。";
         }
@@ -144,8 +150,42 @@ public partial class ReadingPage : UserControl, IDisposable
     }
     private void CancelArticle()
     {
+        StopArticleEntrance();
+        SmoothScroll.Cancel(ArticleBodyReader);
         ++_articleVersion;
         _articleCancellation?.Cancel(); _articleCancellation = null;
+    }
+
+    private void BeginArticleEntrance()
+    {
+        StopArticleEntrance();
+        if (!SystemParameters.ClientAreaAnimation || !IsLoaded || !IsVisible) return;
+        var version = _articleEntranceVersion;
+        _articleTurn.X = 24; ArticleSurface.Opacity = .74;
+        // Let the new FlowDocument finish its first layout before the short clock starts.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (version != _articleEntranceVersion) return;
+            if (_disposed || !IsLoaded || !IsVisible || !SystemParameters.ClientAreaAnimation)
+            { StopArticleEntrance(); return; }
+            var duration = TimeSpan.FromMilliseconds(230);
+            var easing = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+            var turn = new DoubleAnimation(24, 0, duration)
+                { EasingFunction = easing, FillBehavior = FillBehavior.Stop };
+            turn.Completed += (_, _) => { if (version == _articleEntranceVersion) StopArticleEntrance(); };
+            _articleTurn.BeginAnimation(TranslateTransform.XProperty, turn);
+            ArticleSurface.BeginAnimation(OpacityProperty, new DoubleAnimation(.74, 1, duration)
+                { EasingFunction = easing, FillBehavior = FillBehavior.Stop });
+        }));
+    }
+
+    private void StopArticleEntrance()
+    {
+        ++_articleEntranceVersion;
+        ArticleSurface.BeginAnimation(OpacityProperty, null);
+        ArticleSurface.Opacity = 1;
+        _articleTurn.BeginAnimation(TranslateTransform.XProperty, null);
+        _articleTurn.X = 0;
     }
     private void CancelWord()
     {
@@ -164,6 +204,7 @@ public partial class ReadingPage : UserControl, IDisposable
         _selectedWord = e.Selection;
         ReadingSelectedWord.Text = e.Selection.Word;
         ReadingTranslateButton.IsEnabled = true;
+        ResetWordDetails();
         WordTranslationText.Text = ""; WordTranslationText.Visibility = Visibility.Collapsed;
         ReadingWordPopup.PlacementRectangle = e.Bounds.IsEmpty ? new Rect(0, 0, 1, 1) : e.Bounds;
         ReadingWordPopup.IsOpen = true;
@@ -211,12 +252,13 @@ public partial class ReadingPage : UserControl, IDisposable
         var version = _wordVersion;
         var cancellation = _wordCancellation = new CancellationTokenSource();
         ReadingTranslateButton.IsEnabled = false;
+        ResetWordDetails();
         WordTranslationText.Visibility = Visibility.Visible; WordTranslationText.Text = "正在翻译…";
         try
         {
             var translated = await _translationService.TranslateAsync(word.Word, cancellation.Token);
             if (!_disposed && ReadingWordPopup.IsOpen && !cancellation.IsCancellationRequested && version == _wordVersion && _selectedWord == word)
-                WordTranslationText.Text = translated.TranslatedText;
+                ShowWordTranslation(translated);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception error) when (error is IOException or HttpRequestException or OperationCanceledException or ArgumentException)
@@ -230,6 +272,31 @@ public partial class ReadingPage : UserControl, IDisposable
             cancellation.Dispose();
             if (!_disposed && version == _wordVersion) ReadingTranslateButton.IsEnabled = true;
         }
+    }
+    private void ResetWordDetails()
+    {
+        WordPhoneticText.Text = ""; WordPhoneticText.Visibility = Visibility.Collapsed;
+        WordLemmaText.Text = ""; WordLemmaText.Visibility = Visibility.Collapsed;
+        WordMeaningsList.ItemsSource = null; WordDetailsScroll.Visibility = Visibility.Collapsed;
+        WordDetailsScroll.ScrollToTop();
+    }
+    private void ShowWordTranslation(WordTranslation translation)
+    {
+        WordTranslationText.Text = translation.TranslatedText;
+        if (!string.IsNullOrWhiteSpace(translation.Phonetic))
+        {
+            WordPhoneticText.Text = "/" + translation.Phonetic.Trim().Trim('/') + "/";
+            WordPhoneticText.Visibility = Visibility.Visible;
+        }
+        if (!string.IsNullOrWhiteSpace(translation.Lemma) && !string.Equals(translation.Word, translation.Lemma, StringComparison.OrdinalIgnoreCase))
+        {
+            WordLemmaText.Text = "原形 · " + translation.Lemma;
+            WordLemmaText.Visibility = Visibility.Visible;
+        }
+        var hasMeanings = translation.Meanings is { Count: > 0 };
+        WordMeaningsList.ItemsSource = translation.Meanings;
+        WordDetailsScroll.Visibility = hasMeanings ? Visibility.Visible : Visibility.Collapsed;
+        WordTranslationText.Visibility = hasMeanings ? Visibility.Collapsed : Visibility.Visible;
     }
     private void CaptureWord_Click(object sender, RoutedEventArgs e)
     {

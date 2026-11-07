@@ -15,6 +15,7 @@ using VocabCollector.Core.Ai;
 using VocabCollector.Core.Library;
 using VocabCollector.Core.Storage;
 using VocabCollector.Desktop.Learning;
+using VocabCollector.Desktop.Learning.Effects;
 using VocabCollector.Desktop.Preview;
 
 namespace VocabCollector.Desktop.Smoke;
@@ -179,13 +180,32 @@ public sealed partial class SmokeRunner
         reveal.BringIntoView();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         CheckBareReveal(reveal);
+        var meaning = Descendants<TextBlock>(reveal).Single(text => text.Name == "RoamingMeaningText");
+        var blur = meaning.Effect as BlurEffect;
+        var horizontalInk = Descendants<Grid>(reveal).Select(grid => grid.Effect).OfType<InkDistortionEffect>().SingleOrDefault();
+        var hiddenRadius = horizontalInk is null ? 12 : 3.6;
+        Check(blur is not null && Math.Abs(blur.Radius - hiddenRadius) < .01, "roaming starts with its full frosted mask or the strong Gaussian fallback");
+        if (horizontalInk is not null)
+            Check(horizontalInk.Amount == 1 && horizontalInk.SmearWidth >= 24 && horizontalInk.Grain <= .35,
+                "the real roaming card uses the soft horizontal grain mask requested by the user");
+        Snapshot(main, Path.Combine(output, "roaming-meaning-masked.png"));
         RevealMouse(reveal, down: true);
         Check(reveal.IsRevealed, "real routed mouse-down reveals the meaning while held");
+        if (SystemParameters.ClientAreaAnimation && reveal.AnimateTransitions)
+            Check(blur!.HasAnimatedProperties, "press begins a short interpolation instead of removing the blur instantly");
         CheckBareReveal(reveal);
+        await Task.Delay(45);
+        Snapshot(main, Path.Combine(output, "roaming-meaning-transition.png"));
+        await Task.Delay(150);
+        Check(blur!.Radius < .01 && (horizontalInk is null || horizontalInk.Amount < .01),
+            "held meaning settles to clear text with no remaining smear after the quick transition");
         Snapshot(main, Path.Combine(output, "roaming-meaning-held.png"));
         RevealMouse(reveal, down: false);
         Check(!reveal.IsRevealed, "mouse release immediately masks the meaning");
         Check(Descendants<TextBlock>(reveal).Any(text => text.Name == "RoamingMeaningText" && text.Effect is BlurEffect), "unheld meaning is represented by bare blurred text");
+        await Task.Delay(150);
+        Check(Math.Abs(blur.Radius - hiddenRadius) < .01 && (horizontalInk is null || horizontalInk.Amount == 1),
+            "released meaning settles back to the full horizontal frosted mask");
         reveal.Focus();
         RevealKey(reveal, down: true);
         Check(reveal.IsRevealed, "holding Space reveals the focused meaning control");
@@ -194,6 +214,9 @@ public sealed partial class SmokeRunner
         RevealMouse(reveal, down: true);
         reveal.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount) { RoutedEvent = Mouse.MouseLeaveEvent });
         Check(!reveal.IsRevealed, "leaving the reveal surface masks the meaning even while a press was active");
+        Check(Math.Abs(blur.Radius - hiddenRadius) < .01 && !blur.HasAnimatedProperties &&
+            (horizontalInk is null || horizontalInk.Amount == 1 && !horizontalInk.HasAnimatedProperties),
+            "leaving the surface stops any reveal animation and restores the full mask immediately");
         reveal.Hide();
         Check(ReviewSnapshot(stateFile).Json == before, "revealing meaning never creates another visit or completion");
     }

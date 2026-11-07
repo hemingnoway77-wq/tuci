@@ -27,7 +27,18 @@ public static class Program
             try
             {
                 var runner = new SmokeRunner(app);
-                if (args.Contains("--reading-manual", StringComparer.Ordinal))
+                if (args.Contains("--startup-only", StringComparer.Ordinal))
+                {
+                    await runner.RunPreparedStartupChecksAsync();
+                    Console.WriteLine("PASS: real startup preparation, zero background feed/translation/review side effects, warm navigation and shared underline");
+                }
+                else if (args.Contains("--offline-translation-only", StringComparer.Ordinal))
+                {
+                    var bundleIndex = Array.IndexOf(args, "--offline-bundle");
+                    await runner.RunOfflineTranslationChecksOnlyAsync(bundleIndex >= 0 ? args[bundleIndex + 1] : null);
+                    Console.WriteLine("PASS: real bundled English-to-Chinese offline translation, native reading popup, cancellation, cache, blocked external resource and disposal");
+                }
+                else if (args.Contains("--reading-manual", StringComparer.Ordinal))
                 {
                     await runner.RunManualReadingChecksAsync();
                     Console.WriteLine("CLOSED: isolated manual reading session");
@@ -180,13 +191,16 @@ public sealed partial class SmokeRunner(App app)
         Check(previewScroll.ScrollableHeight > 0, "full rendered note remains scrollable");
         var previewBar = Descendants<ScrollBar>(previewScroll).Single(bar => bar.Orientation == Orientation.Vertical);
         await Until(() => !AutoHideScrollbars.GetIsActive(previewScroll));
-        Check(previewBar.Opacity == 0 || previewBar.IsMouseOver || previewBar.IsMouseCaptureWithin, "preview scrollbar is hidden while idle");
+        await Until(() => previewBar.Opacity < .01 || previewBar.IsMouseOver || previewBar.IsMouseCaptureWithin);
+        Check(previewBar.Opacity < .01 || previewBar.IsMouseOver || previewBar.IsMouseCaptureWithin, "preview scrollbar is hidden while idle");
         previewScroll.ScrollToEnd();
         await Until(() => previewScroll.VerticalOffset > 0 && AutoHideScrollbars.GetIsActive(previewScroll));
-        Check(previewBar.Opacity == 1, "scrolling reveals the preview scrollbar");
+        await Until(() => previewBar.Opacity > .1);
+        Check(previewBar.Opacity <= .9, "scrolling softly reveals the preview scrollbar");
         Snapshot(main,Path.Combine(output,"main-scrolled.png"));
         await Until(() => !AutoHideScrollbars.GetIsActive(previewScroll));
-        Check(previewBar.Opacity == 0 || previewBar.IsMouseOver || previewBar.IsMouseCaptureWithin, "preview scrollbar hides again after scrolling stops");
+        await Until(() => previewBar.Opacity < .01 || previewBar.IsMouseOver || previewBar.IsMouseCaptureWithin);
+        Check(previewBar.Opacity < .01 || previewBar.IsMouseOver || previewBar.IsMouseCaptureWithin, "preview scrollbar hides again after scrolling stops");
         previewScroll.ScrollToTop();
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         await Until(() => !AutoHideScrollbars.GetIsActive(previewScroll));

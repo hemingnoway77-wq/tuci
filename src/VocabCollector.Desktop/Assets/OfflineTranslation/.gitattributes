@@ -1,0 +1,13 @@
+en-zh/*.bin binary
+en-zh/*.spm binary
+LICENSE.MPL-2.0.txt -text
+*.js -text
+*.html -text
+*.wasm binary
+*.txt -text
+LICENSES-THIRD-PARTY.txt -whitespace
+LICENSE-MPL-2.0.txt -text
+RUNTIME-SOURCES.md -text
+models.manifest.json text eol=lf
+runtime.manifest.json text eol=lf
+README.md text eol=lf

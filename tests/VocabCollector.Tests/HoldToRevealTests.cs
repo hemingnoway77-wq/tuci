@@ -6,14 +6,149 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using VocabCollector.Desktop;
 using VocabCollector.Desktop.Learning;
+using VocabCollector.Desktop.Learning.Effects;
 
 namespace VocabCollector.Tests;
 
 [Collection("Hold-to-reveal WPF input")]
 public sealed class HoldToRevealTests
 {
+    [Fact]
+    public void FrostShaderSpreadsAnEightPixelMarkHorizontallyWithoutVerticalRefraction() => MarkdownPreviewTests.OnSta(() =>
+    {
+        var original = RenderMark(null, 3.6);
+        var spread = RenderMark(new InkDistortionEffect { SurfaceSize = new Point(160, 160) }, 3.6);
+        var before = InkBounds(original);
+        var after = InkBounds(spread);
+        Assert.True(after.Width >= before.Width * 2, $"Horizontal ink spread must dominate: source={before}, spread={after}.");
+        Assert.InRange(after.Height, before.Height - 2, before.Height + 2);
+        Assert.True(after.Width >= after.Height * 2, $"Expected horizontal texture, not isotropic blur: {after}.");
+    });
+
+    [Fact]
+    public void FrostShaderAtZeroStrengthPreservesTheOriginalTextPositionAndPixels() => MarkdownPreviewTests.OnSta(() =>
+    {
+        var original = RenderMark(null, 0);
+        var clear = RenderMark(new InkDistortionEffect { Amount = 0, SurfaceSize = new Point(160, 160) }, 0);
+        Assert.Equal(InkBounds(original), InkBounds(clear));
+        Assert.All(original.Zip(clear), pair => Assert.InRange(Math.Abs(pair.First - pair.Second), 0, 1));
+    });
+
+    private static byte[] RenderMark(Effect? effect, double radius)
+    {
+        var canvas = new Canvas { Width = 160, Height = 160, Background = Brushes.Transparent };
+        var surface = new Canvas { Width = 160, Height = 160, Background = Brushes.Transparent, Effect = effect };
+        var mark = new Rectangle { Width = 8, Height = 8, Fill = Brushes.Black, Effect = new BlurEffect { Radius = radius } };
+        Canvas.SetLeft(mark, 76); Canvas.SetTop(mark, 76); surface.Children.Add(mark); canvas.Children.Add(surface);
+        canvas.Measure(new Size(160, 160)); canvas.Arrange(new Rect(0, 0, 160, 160)); canvas.UpdateLayout();
+        var image = new RenderTargetBitmap(160, 160, 96, 96, PixelFormats.Pbgra32); image.Render(canvas);
+        var pixels = new byte[160 * 160 * 4]; image.CopyPixels(pixels, 160 * 4, 0); return pixels;
+    }
+
+    private static Rect InkBounds(byte[] pixels)
+    {
+        var points = Enumerable.Range(0, 160 * 160).Where(index => pixels[index * 4 + 3] > 3).ToArray();
+        var left = points.Min(index => index % 160); var right = points.Max(index => index % 160);
+        var top = points.Min(index => index / 160); var bottom = points.Max(index => index / 160);
+        return new Rect(left, top, right - left + 1, bottom - top + 1);
+    }
+
+    [Fact]
+    public void FrostUsesStrongerStaticBlurAndKeepsItsEffectWhileRevealing() => Run((control, owner, other) =>
+    {
+        var meaning = Meaning(control);
+        var blur = Assert.IsType<BlurEffect>(meaning.Effect);
+        AssertHiddenFrost(control);
+        Assert.False(blur.HasAnimatedProperties);
+        MouseDown(control);
+        Assert.True(control.IsRevealed);
+        Assert.Same(blur, meaning.Effect);
+        if (SystemParameters.ClientAreaAnimation)
+        {
+            Assert.True(blur.HasAnimatedProperties);
+            MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(45));
+            Assert.InRange(blur.Radius, .05, ExpectedHiddenRadius(control) - .05);
+        }
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(160));
+        Assert.InRange(blur.Radius, 0, .01);
+        MouseUp(control);
+        Assert.False(control.IsRevealed);
+        Assert.Same(blur, meaning.Effect);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(150));
+        AssertHiddenFrost(control);
+    });
+
+    [Fact]
+    public void FrostReplacementImmediatelyStopsARevealBeforeShowingTheNewMeaning() => Run((control, owner, other) =>
+    {
+        var blur = Assert.IsType<BlurEffect>(Meaning(control).Effect);
+        MouseDown(control);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(45));
+        control.Text = "下一张词条必须始终被完全遮蔽。";
+        Assert.False(control.IsRevealed);
+        Assert.Same(blur, Meaning(control).Effect);
+        AssertHiddenFrost(control);
+        Assert.False(blur.HasAnimatedProperties);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(180));
+        AssertHiddenFrost(control);
+        Assert.False(control.IsRevealed);
+        AssertPlainMeaning(control);
+    });
+
+    [Fact]
+    public void FrostRapidReleaseAndPressContinueFromTheCurrentRadius() => Run((control, owner, other) =>
+    {
+        if (!SystemParameters.ClientAreaAnimation) return;
+        var blur = Assert.IsType<BlurEffect>(Meaning(control).Effect);
+        MouseDown(control);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(45));
+        var beforeRelease = blur.Radius;
+        MouseUp(control);
+        Assert.InRange(Math.Abs(blur.Radius - beforeRelease), 0, .01);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(30));
+        var beforePress = blur.Radius;
+        MouseDown(control);
+        Assert.InRange(Math.Abs(blur.Radius - beforePress), 0, .01);
+        control.Hide();
+        AssertHiddenFrost(control);
+        Assert.False(blur.HasAnimatedProperties);
+    });
+
+    [Fact]
+    public void FrostCanDisableMotionAndKeepsEverySafetyDismissalFullyMasked() => Run((control, owner, other) =>
+    {
+        control.AnimateTransitions = false;
+        var blur = Assert.IsType<BlurEffect>(Meaning(control).Effect);
+        MouseDown(control);
+        Assert.Equal(0, blur.Radius);
+        Assert.False(blur.HasAnimatedProperties);
+        MouseUp(control);
+        AssertHiddenFrost(control);
+        MouseDown(control);
+        control.CanReveal = false;
+        Assert.False(control.IsRevealed);
+        AssertHiddenFrost(control);
+        Assert.False(blur.HasAnimatedProperties);
+        var warp = Descendants<Grid>(control).Select(grid => grid.Effect).OfType<InkDistortionEffect>().SingleOrDefault();
+        if (warp is not null) { Assert.Equal(1, warp.Amount); Assert.False(warp.HasAnimatedProperties); }
+        AssertPlainMeaning(control);
+    });
+
+    [Fact]
+    public void FrostRemainsStationaryWhenThereIsNoHeldInput() => MarkdownPreviewTests.OnSta(() =>
+    {
+        var canvas = RenderCanvas();
+        var control = new HoldToReveal { Text = "MMMM dissolved ink", Width = 180 };
+        Canvas.SetLeft(control, 32); Canvas.SetTop(control, 32); canvas.Children.Add(control);
+        var before = Snapshot(canvas);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(160));
+        Assert.Equal(before, Snapshot(canvas));
+        Assert.False(Assert.IsType<BlurEffect>(Meaning(control).Effect).HasAnimatedProperties);
+    });
+
     [Fact]
     public void BlurHaloFadesAcrossTheTextBoundaryInsteadOfBeingCutAtTheControlEdge() => MarkdownPreviewTests.OnSta(() =>
     {
@@ -38,7 +173,7 @@ public sealed class HoldToRevealTests
         var padded = ScrollHost(bleed: true);
         var paddedPixels = Snapshot(padded.Canvas);
         Assert.Equal(0, ColumnAlpha(clippedPixels, 31));
-        Assert.True(ColumnAlpha(paddedPixels, 31) > 0, "A 10-DIP viewport allowance must preserve the 8-DIP blur halo.");
+        Assert.True(ColumnAlpha(paddedPixels, 31) > 0, "A 32-DIP viewport allowance must preserve the horizontal ink diffusion halo.");
         Assert.Equal(Meaning(clipped.Control).TranslatePoint(new Point(), clipped.Canvas), Meaning(padded.Control).TranslatePoint(new Point(), padded.Canvas));
         Assert.Equal(Meaning(clipped.Control).ActualWidth, Meaning(padded.Control).ActualWidth);
         Assert.Equal(Meaning(clipped.Control).ActualHeight, Meaning(padded.Control).ActualHeight);
@@ -58,8 +193,8 @@ public sealed class HoldToRevealTests
         Canvas.SetLeft(frame, 32); Canvas.SetTop(frame, 32);
         var viewport = new ScrollViewer { Style = null, BorderThickness = new Thickness(0), Padding = new Thickness(0),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Margin = new Thickness(bleed ? -10 : 0, 0, bleed ? -10 : 0, 0) };
-        var content = new StackPanel { Margin = new Thickness(bleed ? 10 : 0, 0, bleed ? 10 : 0, 0) };
+            Margin = new Thickness(bleed ? -32 : 0, 0, bleed ? -32 : 0, 0) };
+        var content = new StackPanel { Margin = new Thickness(bleed ? 32 : 0, 0, bleed ? 32 : 0, 0) };
         var control = new HoldToReveal { Text = "MMMM meaning" };
         content.Children.Add(control); viewport.Content = content; frame.Children.Add(viewport); canvas.Children.Add(frame);
         return (canvas, control);
@@ -123,7 +258,8 @@ public sealed class HoldToRevealTests
     public void MouseHoldUsesRealBlurAndReleaseImmediatelyHidesMeaning() => Run((control, owner, other) =>
     {
         var meaning = Meaning(control);
-        Assert.InRange(Assert.IsType<BlurEffect>(meaning.Effect).Radius, 6, 9);
+        var blur = Assert.IsType<BlurEffect>(meaning.Effect);
+        AssertHiddenFrost(control);
         Assert.Equal(1, meaning.Opacity);
         Assert.False(control.IsRevealed);
         AssertPlainMeaning(control);
@@ -135,7 +271,9 @@ public sealed class HoldToRevealTests
         owner.UpdateLayout();
         Assert.Same(control, Mouse.Captured);
         Assert.True(control.IsRevealed);
-        Assert.Null(meaning.Effect);
+        Assert.Same(blur, meaning.Effect);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(160));
+        Assert.InRange(blur.Radius, 0, .01);
         Assert.Equal(size, new Size(meaning.ActualWidth, meaning.ActualHeight));
         MouseUp(control);
         owner.UpdateLayout();
@@ -220,10 +358,10 @@ public sealed class HoldToRevealTests
     });
 
     [Fact]
-    public void EmptyStateRemainsReadableAndAllThreeThemesUpdateTheSamePlainText() => Run((control, owner, other) =>
+    public void UnavailableStateStaysMaskedAndAllThreeThemesUpdateTheSamePlainText() => Run((control, owner, other) =>
     {
         control.CanReveal = false; control.Text = "还没有可复习词条。";
-        Assert.Null(Meaning(control).Effect);
+        AssertHiddenFrost(control);
         MouseDown(control); Assert.False(control.IsRevealed);
         AssertPlainMeaning(control);
         var themes = new ThemeManager(owner.Resources);
@@ -238,6 +376,21 @@ public sealed class HoldToRevealTests
         control.CanReveal = true;
         Assert.IsType<BlurEffect>(meaning.Effect);
     });
+
+    private static double ExpectedHiddenRadius(HoldToReveal control) =>
+        Descendants<Grid>(control).Any(grid => grid.Effect is InkDistortionEffect) ? 3.6 : 12;
+
+    private static void AssertHiddenFrost(HoldToReveal control)
+    {
+        Assert.Equal(ExpectedHiddenRadius(control), Assert.IsType<BlurEffect>(Meaning(control).Effect).Radius);
+        var warp = Descendants<Grid>(control).Select(grid => grid.Effect).OfType<InkDistortionEffect>().SingleOrDefault();
+        if (warp is not null)
+        {
+            Assert.Equal(1, warp.Amount);
+            Assert.Equal(24, warp.SmearWidth);
+            Assert.Equal(.30, warp.Grain);
+        }
+    }
 
     private static void AssertPlainMeaning(HoldToReveal control)
     {

@@ -31,8 +31,8 @@ public partial class App : Application
         var vm = new MainViewModel(new CaptureService(new OpenAiCompatibleAnalyzer(_client, diagnostics), vaultStore, TimeProvider.System), settings, vaultStore);
         if (loaded.Warning.Length > 0) vm.Message = loaded.Warning;
         _sync = new DesktopSync(settingsDirectory, Dispatcher);
-        MainWindow = new MainWindow(vm, store, new WindowsNavigator(), themeManager: themes, sync: _sync); MainWindow.Show();
-        await vm.InitializeAsync(loaded.Warning);
+        MainWindow = new MainWindow(vm, store, new WindowsNavigator(), themeManager: themes, sync: _sync,
+            prepareLocalData: () => vm.InitializeAsync(loaded.Warning)); MainWindow.Show();
     }
     protected override void OnExit(ExitEventArgs e) { _sync?.Dispose(); _client?.Dispose(); base.OnExit(e); }
 }

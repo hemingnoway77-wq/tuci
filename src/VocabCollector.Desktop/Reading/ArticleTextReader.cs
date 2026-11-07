@@ -87,6 +87,8 @@ public static partial class ArticleWords
 /// <summary>Plain, selectable article text. Only a stationary single click opens word actions.</summary>
 public sealed class ArticleTextReader : RichTextBox
 {
+    private const double MaximumTextWidth = 950, ScrollbarGutter = 24;
+    private ScrollViewer? _viewport;
     private Point? _down;
     private Span? _pressed, _active;
     public event EventHandler<ReadingWordEventArgs>? WordClicked;
@@ -94,7 +96,7 @@ public sealed class ArticleTextReader : RichTextBox
     public ArticleTextReader()
     {
         IsReadOnly = true; IsDocumentEnabled = true;
-        BorderThickness = new Thickness(0); Background = Brushes.Transparent;
+        BorderThickness = new Thickness(0); Padding = new Thickness(0); Background = Brushes.Transparent;
         FocusVisualStyle = null;
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
@@ -107,13 +109,41 @@ public sealed class ArticleTextReader : RichTextBox
         AddHandler(Mouse.PreviewMouseUpEvent, new MouseButtonEventHandler(WordUp), true);
     }
 
+    public override void OnApplyTemplate()
+    {
+        if (_viewport is not null) { _viewport.SizeChanged -= ViewportChanged; _viewport.ScrollChanged -= ViewportMetricsChanged; }
+        base.OnApplyTemplate();
+        _viewport = Template?.FindName("PART_ContentHost", this) as ScrollViewer;
+        if (_viewport is not null)
+        {
+            AutoHideScrollbars.SetIsEnabled(_viewport, true);
+            SmoothScroll.SetIsEnabled(_viewport, true);
+            _viewport.SizeChanged += ViewportChanged;
+            _viewport.ScrollChanged += ViewportMetricsChanged;
+        }
+        UpdateReadingPadding();
+    }
+
+    private void ViewportChanged(object sender, SizeChangedEventArgs args) => UpdateReadingPadding();
+    private void ViewportMetricsChanged(object sender, ScrollChangedEventArgs args)
+    { if (args.ViewportWidthChange != 0 && ReferenceEquals(args.OriginalSource, _viewport)) UpdateReadingPadding(); }
+    private void UpdateReadingPadding()
+    {
+        var width = _viewport?.ViewportWidth ?? 0;
+        if (!double.IsFinite(width) || width <= 0) return;
+        var inset = Math.Max(0, (width - ScrollbarGutter - MaximumTextWidth) / 2);
+        var padding = new Thickness(inset, 6, inset + ScrollbarGutter, 24);
+        if (Document.PagePadding != padding) Document.PagePadding = padding;
+    }
+
     public void SetParagraphs(IReadOnlyList<string> paragraphs)
     {
+        if (_viewport is not null) SmoothScroll.Cancel(_viewport);
         ClearWordSelection();
         var document = new FlowDocument
         {
             FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Microsoft YaHei"),
-            FontSize = 17, LineHeight = 29, PagePadding = new Thickness(0, 6, 12, 24),
+            FontSize = 17, LineHeight = 29, PagePadding = new Thickness(0, 6, ScrollbarGutter, 24),
             TextAlignment = TextAlignment.Left
         };
         document.SetResourceReference(TextElement.ForegroundProperty, "Ink");
@@ -137,6 +167,7 @@ public sealed class ArticleTextReader : RichTextBox
             document.Blocks.Add(paragraph);
         }
         Document = document;
+        UpdateReadingPadding();
         ScrollToHome();
     }
 

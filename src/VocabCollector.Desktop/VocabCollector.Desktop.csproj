@@ -17,6 +17,11 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
   </ItemGroup>
   <ItemGroup><Resource Include="Assets\app.ico" /><Resource Include="Assets\app-icon-256.png" /></ItemGroup>
+  <ItemGroup><Resource Include="Learning\Effects\InkDistortion.ps" /></ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\OfflineTranslation\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="Assets\OfflineDictionary\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../THIRD-PARTY-NOTICES.md" LogicalName="VocabCollector.ThirdPartyNotices" />
     <Content Include="../../THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />

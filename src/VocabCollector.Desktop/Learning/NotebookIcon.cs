@@ -1,7 +1,46 @@
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace VocabCollector.Desktop.Learning;
+
+public sealed class NotebookNavigationButton : Button
+{
+    public static readonly DependencyProperty KindProperty = DependencyProperty.Register(nameof(Kind), typeof(string), typeof(NotebookNavigationButton), new PropertyMetadata("back"));
+    public static readonly DependencyProperty LabelProperty = DependencyProperty.Register(nameof(Label), typeof(string), typeof(NotebookNavigationButton),
+        new PropertyMetadata("", (target, args) => { var button = (NotebookNavigationButton)target; button.ToolTip = args.NewValue; AutomationProperties.SetName(button, (string)args.NewValue); }));
+    public string Kind { get => (string)GetValue(KindProperty); set => SetValue(KindProperty, value); }
+    public string Label { get => (string)GetValue(LabelProperty); set => SetValue(LabelProperty, value); }
+    public NotebookNavigationButton()
+    {
+        Width = Height = 32; Padding = new Thickness(0); BorderThickness = new Thickness(0);
+        Background = Brushes.Transparent; Cursor = Cursors.Hand;
+        SetResourceReference(ForegroundProperty, "InkSecondary");
+        SetResourceReference(FocusVisualStyleProperty, "ButtonKeyboardFocusVisual");
+        var icon = new NotebookIcon { Width = 16, Height = 16, Focusable = false, IsHitTestVisible = false };
+        icon.SetBinding(NotebookIcon.KindProperty, new Binding(nameof(Kind)) { Source = this });
+        icon.SetBinding(NotebookIcon.ForegroundProperty, new Binding(nameof(Foreground)) { Source = this });
+        Content = icon;
+        var surface = new FrameworkElementFactory(typeof(Border), "Surface");
+        surface.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
+        surface.SetValue(Border.CornerRadiusProperty, new CornerRadius(3));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(ContentProperty));
+        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center); surface.AppendChild(presenter);
+        var template = new ControlTemplate(typeof(NotebookNavigationButton)) { VisualTree = surface };
+        var hover = new Trigger { Property = IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("Hover"), "Surface")); template.Triggers.Add(hover);
+        var pressed = new Trigger { Property = IsPressedProperty, Value = true };
+        pressed.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("Selection"), "Surface")); template.Triggers.Add(pressed);
+        var disabled = new Trigger { Property = IsEnabledProperty, Value = false };
+        disabled.Setters.Add(new Setter(OpacityProperty, .4)); template.Triggers.Add(disabled);
+        Template = template;
+    }
+}
 
 public sealed class NotebookIcon : FrameworkElement
 {
@@ -9,7 +48,7 @@ public sealed class NotebookIcon : FrameworkElement
     public static readonly DependencyProperty ForegroundProperty = DependencyProperty.Register(nameof(Foreground), typeof(Brush), typeof(NotebookIcon), new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.Inherits));
     public string Kind { get => (string)GetValue(KindProperty); set => SetValue(KindProperty, value); }
     public Brush Foreground { get => (Brush)GetValue(ForegroundProperty); set => SetValue(ForegroundProperty, value); }
-    public NotebookIcon() { Width = 18; Height = 18; SnapsToDevicePixels = true; SetResourceReference(ForegroundProperty, "NotebookMuted"); }
+    public NotebookIcon() { Width = 18; Height = 18; SnapsToDevicePixels = true; SetResourceReference(ForegroundProperty, "InkSecondary"); }
     private static readonly IReadOnlyDictionary<string, Geometry> Shapes = new Dictionary<string, string>
     {
         ["file"]="M5,3 L14,3 20,9 20,21 5,21 Z M14,3 L14,9 20,9",

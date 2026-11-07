@@ -5,6 +5,148 @@ namespace VocabCollector.Tests;
 public class MainViewModelTests
 {
     [Fact]
+    public async Task ReplacingAnArticleWordClearsItsAutomaticSentenceBeforeSubmittingTheNewWord()
+    {
+        CaptureRequest? submitted = null;
+        var vm = new MainViewModel(new TestService((request, _) =>
+        {
+            submitted = request;
+            return Task.FromResult(new CaptureResult(CaptureStatus.Saved, request.Word, "# banana", [], "saved"));
+        }), AppSettings.Default);
+        Assert.True(vm.PrepareDraft("apple", "An apple grows."));
+        string? contextWhenWordChanged = null;
+        vm.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(vm.Word)) contextWhenWordChanged = vm.Context; };
+
+        vm.Word = "banana"; // Both capture TextBoxes update this property on typing/paste.
+
+        Assert.Empty(vm.Context);
+        Assert.Equal("", contextWhenWordChanged);
+        await vm.GenerateAsync();
+        Assert.Equal(new CaptureRequest("banana", ""), submitted);
+    }
+
+    [Theory]
+    [InlineData("apple", "apple")]
+    [InlineData("apple", " APPLE ")]
+    [InlineData("introduced", "INTRODUCED")]
+    [InlineData("don't", "don’t")]
+    public async Task TheSameArticleWordKeepsItsSentenceAcrossEquivalentInputFormatting(string original, string replacement)
+    {
+        CaptureRequest? submitted = null;
+        var vm = new MainViewModel(new TestService((request, _) =>
+        {
+            submitted = request;
+            return Task.FromResult(new CaptureResult(CaptureStatus.Failed, request.Word, "", [], "not saved"));
+        }), AppSettings.Default);
+        const string sentence = "The original article sentence must remain attached to this occurrence.";
+        Assert.True(vm.PrepareDraft(original, sentence));
+        vm.Word = replacement;
+        await vm.GenerateAsync();
+        Assert.Equal(sentence, vm.Context);
+        Assert.Equal(new CaptureRequest(replacement, sentence), submitted);
+    }
+
+    [Theory]
+    [InlineData(CaptureStatus.Saved)]
+    [InlineData(CaptureStatus.AlreadyExists)]
+    public async Task SuccessfulSpellingCorrectionKeepsTheArticleSentenceAndBindsItToTheCorrectedWord(CaptureStatus status)
+    {
+        var vm = new MainViewModel(new TestService((_, _) => Task.FromResult(new CaptureResult(
+            status, "introduce", "# introduce", [], "corrected") { CorrectedFrom = "introdce" })), AppSettings.Default);
+        Assert.True(vm.PrepareDraft("introdce", "Please introduce the speaker."));
+        await vm.GenerateAsync();
+        Assert.Equal("introduce", vm.Word);
+        Assert.Equal("Please introduce the speaker.", vm.Context);
+        vm.Word = " INTRODUCE ";
+        Assert.Equal("Please introduce the speaker.", vm.Context);
+        vm.Word = "banana";
+        Assert.Empty(vm.Context);
+    }
+
+    [Fact]
+    public async Task AManuallyReplacedSentenceCanBeEnteredBeforeTheNewWordWithoutBeingCleared()
+    {
+        CaptureRequest? submitted = null;
+        var vm = new MainViewModel(new TestService((request, _) =>
+        {
+            submitted = request;
+            return Task.FromResult(new CaptureResult(CaptureStatus.Saved, request.Word, "# banana", [], "saved"));
+        }), AppSettings.Default);
+        Assert.True(vm.PrepareDraft("apple", "An apple grows."));
+        vm.Context = "I peel a banana."; // An explicit manual edit takes ownership of the context.
+        vm.Word = "banana";
+        Assert.Equal("I peel a banana.", vm.Context);
+        await vm.GenerateAsync();
+        Assert.Equal(new CaptureRequest("banana", "I peel a banana."), submitted);
+    }
+
+    [Fact]
+    public void AManualMainCaptureSentenceIsPreservedWhenItsWordChanges()
+    {
+        var vm = new MainViewModel(new TestService((_, _) => throw new InvalidOperationException("No capture requested")), AppSettings.Default)
+            { Word = "old", Context = "The sentence I entered for the new word." };
+        vm.Word = "new";
+        Assert.Equal("The sentence I entered for the new word.", vm.Context);
+    }
+
+    [Fact]
+    public void PreparingAnotherArticleDraftReplacesThePairAndOwnsOnlyItsNewWord()
+    {
+        var vm = new MainViewModel(new TestService((_, _) => throw new InvalidOperationException("No capture requested")), AppSettings.Default);
+        Assert.True(vm.PrepareDraft("apple", "An apple grows."));
+        Assert.True(vm.PrepareDraft("banana", "A banana ripens."));
+        Assert.Equal("banana", vm.Word);
+        Assert.Equal("A banana ripens.", vm.Context);
+        vm.Word = "book";
+        Assert.Empty(vm.Context);
+    }
+
+    [Theory]
+    [InlineData(CaptureStatus.Failed)]
+    [InlineData(CaptureStatus.Cancelled)]
+    [InlineData(CaptureStatus.InvalidInput)]
+    public async Task UnsuccessfulArticleCaptureKeepsItsInputButCannotLeakItsSentenceToAnotherWord(CaptureStatus status)
+    {
+        var vm = new MainViewModel(new TestService((_, _) => Task.FromResult(new CaptureResult(status, "apple", "", [], "not saved"))), AppSettings.Default);
+        Assert.True(vm.PrepareDraft("apple", "An apple grows."));
+        await vm.GenerateAsync();
+        Assert.Equal("An apple grows.", vm.Context);
+        vm.Word = "banana";
+        Assert.Empty(vm.Context);
+    }
+
+    [Fact]
+    public async Task RejectedBusyDraftDoesNotChangeTheOriginalSentencesOwner()
+    {
+        var pending = new TaskCompletionSource<CaptureResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var vm = new MainViewModel(new TestService((_, ct) => pending.Task.WaitAsync(ct)), AppSettings.Default);
+        Assert.True(vm.PrepareDraft("apple", "An apple grows."));
+        var running = vm.GenerateAsync();
+        Assert.False(vm.PrepareDraft("banana", "A banana ripens."));
+        vm.CancelCommand.Execute(null);
+        await running;
+        vm.Word = "APPLE";
+        Assert.Equal("An apple grows.", vm.Context);
+        vm.Word = "banana";
+        Assert.Empty(vm.Context);
+    }
+
+    [Fact]
+    public async Task LateSpellingCorrectionCannotReplaceANewerWordOrItsManualSentence()
+    {
+        var pending = new TaskCompletionSource<CaptureResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var vm = new MainViewModel(new TestService((_, _) => pending.Task), AppSettings.Default);
+        Assert.True(vm.PrepareDraft("introdce", "Please introduce the speaker."));
+        var running = vm.GenerateAsync();
+        vm.Word = "banana";
+        vm.Context = "I peel a banana.";
+        pending.SetResult(new(CaptureStatus.Saved, "introduce", "# introduce", [], "corrected") { CorrectedFrom = "introdce" });
+        await running;
+        Assert.Equal("banana", vm.Word);
+        Assert.Equal("I peel a banana.", vm.Context);
+    }
+
+    [Fact]
     public async Task PreparingReadingDraftClearsStalePreviewWithoutGeneratingOrSaving()
     {
         var calls = 0;
