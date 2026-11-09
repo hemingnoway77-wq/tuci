@@ -1,7 +1,7 @@
 import {createLoginLifecycle,settleLoginViewport,playLoginTransition} from './login-transition.js';
 import { dictionaryStatus,downloadDictionary } from './dictionary.js';
 import { openStore, readLegacyStore } from './storage.js';
-import { accountRequest,checkedIdentity,themeNames,localThemes } from './account.js';
+import { accountRequest,checkedIdentity,invitesRequest,themeNames,localThemes } from './account.js';
 import { renderLibrary, renderRoam } from './library.js';
 import { renderCapture, renderReading } from './learning.js';
 
@@ -125,7 +125,7 @@ function refreshSyncPanel() {
 function renderSettings() {
   root.innerHTML=`<div class="page-head"><h1>设置</h1><p class="hint">把日常留在自己的词库里。</p></div><div class="settings-grid">
     <section class="panel"><h2>我的账号</h2><p id="account-name"></p><p class="hint">词库、漫游记录、阅读位置和主题会在 Windows 与手机间同步。API Key 仅保存在这台设备。</p><div class="actions"><button class="secondary" id="logout">退出账号</button></div></section>
-    <section class="panel" id="sync-panel"><h2>词库与学习记录</h2><p class="hint" id="sync-description"></p><div class="actions"><button class="button" id="sync-now">立即同步</button><button class="secondary" id="recover" hidden>重新核对词库</button></div><p class="hint">Safari 与添加到主屏幕的兔词可能使用各自的存储；请在两个入口登录同一账号。离线改动会在下次联网时同步。</p></section>
+    ${identity.canInvite?'<section class="panel" id="invite-panel"><h2>邀请码</h2><p class="hint">新用户需要邀请码才能注册：在登录页点「用邀请码注册」。每个邀请码只能使用一次，7 天内有效。</p><div class="actions"><button class="button" id="make-invite">生成邀请码</button></div><div class="invite-new" id="invite-code" hidden><code id="invite-text"></code><button class="secondary" type="button" id="copy-invite">复制</button></div><p class="hint" id="invite-status" role="status"></p><ul class="invite-list" id="invite-list"></ul></section>':''}<section class="panel" id="sync-panel"><h2>词库与学习记录</h2><p class="hint" id="sync-description"></p><div class="actions"><button class="button" id="sync-now">立即同步</button><button class="secondary" id="recover" hidden>重新核对词库</button></div><p class="hint">Safari 与添加到主屏幕的兔词可能使用各自的存储；请在两个入口登录同一账号。离线改动会在下次联网时同步。</p></section>
     <form class="panel" id="ai-settings"><h2>AI 词卡</h2><p class="hint">单词与原句会发送给你填写的 AI 服务商。API Key 只在当前设备使用，不上传到兔词云端。</p>
       <label class="field">API 地址<input type="url" id="ai-address" placeholder="https://…/v1" autocapitalize="none" autocomplete="off" spellcheck="false"></label>
       <label class="field">模型名<input id="ai-model" autocapitalize="none" autocomplete="off" spellcheck="false"></label>
@@ -138,6 +138,32 @@ function renderSettings() {
   const $=key=>root.querySelector(key);
   const task=async(button,action)=>{if(button.disabled)return;button.disabled=true;try{await action();}catch(e){toast(e.message);}finally{button.disabled=false;refreshSyncPanel();}};
   $('#account-name').textContent=identity.username;
+  if(identity.canInvite){
+    const codeBox=$('#invite-code'),codeText=$('#invite-text'),status=$('#invite-status'),list=$('#invite-list');
+    const when=seconds=>new Date(seconds*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    const loadInvites=async()=>{
+      try{
+        const data=await invitesRequest(null,identity.vaultId);
+        const rows=(data.invites||[]).map(item=>{
+          const row=document.createElement('li'),state=document.createElement('span'),meta=document.createElement('span');
+          state.textContent=item.used?'已使用':'未使用';
+          meta.textContent=when(item.created)+' 创建'+(item.used?'':' · '+when(item.expires)+' 过期');
+          row.append(state,meta);return row;
+        });
+        list.replaceChildren(...(rows.length?rows:[Object.assign(document.createElement('li'),{textContent:'还没有生成过邀请码。'})]));
+      }catch(error){status.textContent=error.message;}
+    };
+    $('#make-invite').onclick=event=>task(event.currentTarget,async()=>{
+      const made=await invitesRequest({},identity.vaultId);
+      codeBox.hidden=false;codeText.textContent=made.code;status.textContent='7 天内有效，只能使用一次。';
+      await loadInvites();
+    });
+    $('#copy-invite').onclick=async()=>{
+      try{await navigator.clipboard.writeText(codeText.textContent);status.textContent='邀请码已复制。';}
+      catch{status.textContent='请长按邀请码手动复制。';}
+    };
+    loadInvites();
+  }
   $('#sync-now').onclick=e=>task(e.currentTarget,async()=>{await store.sync();toast('词库和学习记录已同步');});
   $('#recover').onclick=e=>{if(confirm('保留本机笔记，重新与服务器逐篇核对？'))task(e.currentTarget,()=>store.recover());};
   $('#logout').onclick=e=>task(e.currentTarget,async()=>{
@@ -194,24 +220,62 @@ function closeAccount({cancelLogin=true}={}){
   if(typeof cleanup==='function')cleanup();cleanup=undefined;unsubscribe?.();unsubscribe=null;store?.close();store=null;identity=null;
   prefs={...defaults};applyTheme();tabs.hidden=true;statusLabel.textContent='登录后同步';
 }
-function renderAuth(_mode='login',message='') {
+function renderAuth(mode='login',message='') {
   closeAccount();document.body.dataset.page='account';document.title='兔词';root.removeAttribute('aria-busy');
-  root.innerHTML=`<section class="auth-screen"><form class="auth-form"><div class="auth-brand"><div class="auth-emblem"><span class="auth-emblem-ring" aria-hidden="true"></span><span class="auth-logo" role="img" aria-label="兔词 Logo"></span></div><h1>兔词</h1></div><label class="auth-field"><span class="sr-only">账号</span><input name="username" aria-label="账号" placeholder="账号" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" maxlength="40" required><svg class="auth-field-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20v-2.5a6.5 6.5 0 0 1 13 0V20"/></svg></label><label class="auth-field"><span class="sr-only">密码</span><input name="password" aria-label="密码" placeholder="密码" type="password" autocomplete="current-password" maxlength="128" required><svg class="auth-field-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="1.5"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v2"/></svg></label><button class="auth-submit" type="submit"><span class="auth-login-word">登录</span></button><p class="account-error" role="alert"></p></form><span class="auth-shutter-line" aria-hidden="true"></span></section>`;
+  const registering=mode==='register',verb=registering?'注册':'登录';
+  const ICON_USER='<svg class="auth-field-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20v-2.5a6.5 6.5 0 0 1 13 0V20"/></svg>';
+  const ICON_LOCK='<svg class="auth-field-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="1.5"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v2"/></svg>';
+  const ICON_KEY='<svg class="auth-field-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="3.6"/><path d="M10.6 10.6 19.5 19.5m-2.7-2.7 1.9-1.9m-4.2-.4 1.7-1.7"/></svg>';
+  const ICON_EYE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.6 12S6.2 6.2 12 6.2 21.4 12 21.4 12 17.8 17.8 12 17.8 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="2.6"/><path class="eye-slash" d="M4.2 19.8 19.8 4.2"/></svg>';
+  const reveal=name=>'<button class="auth-reveal" type="button" data-for="'+name+'" aria-label="显示密码" aria-pressed="false">'+ICON_EYE+'</button>';
+  const passwordField=(name,label,placeholder)=>'<label class="auth-field"><span class="auth-label" aria-hidden="true">'+label+'</span><span class="auth-box">'+ICON_LOCK+
+    '<input name="'+name+'" aria-label="'+label+'" placeholder="'+placeholder+'" type="password" autocomplete="'+(registering?'new-password':'current-password')+'" maxlength="128" required>'+reveal(name)+'</span></label>';
+  const inviteHtml=registering?'<label class="auth-field"><span class="auth-label" aria-hidden="true">邀请码</span><span class="auth-box">'+ICON_KEY+
+    '<input name="invite" aria-label="邀请码" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" minlength="12" maxlength="32" required></span></label>':'';
+  const usernameHtml='<label class="auth-field"><span class="auth-label" aria-hidden="true">账号</span><span class="auth-box">'+ICON_USER+
+    '<input name="username" aria-label="账号" placeholder="请输入账号" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" maxlength="40" required></span></label>';
+  const swapHtml='<p class="auth-swap">'+(registering?'已有账号？':'还没有账号？')+
+    '<button class="auth-swap-link" type="button" id="auth-swap">'+(registering?'返回登录':'用邀请码注册')+'</button></p>';
+  root.innerHTML='<section class="auth-screen"><form class="auth-form"><div class="auth-brand"><div class="auth-emblem"><span class="auth-emblem-ring" aria-hidden="true"></span><span class="auth-logo" role="img" aria-label="兔词 Logo"></span></div><h1>兔词</h1><p class="auth-tagline">收录 · 阅读 · 记忆</p></div>'+
+    '<div class="auth-card">'+inviteHtml+usernameHtml+passwordField('password','密码','请输入密码')+
+    (registering?passwordField('confirm','确认密码','请再次输入密码'):'')+
+    '<button class="auth-submit" type="submit"><span class="auth-login-word">'+verb+'</span></button><p class="account-error" role="alert"></p></div>'+swapHtml+
+    '</form><span class="auth-shutter-line" aria-hidden="true"></span></section>';
   const surface=root.querySelector('.auth-screen'),form=surface.querySelector('form'),error=form.querySelector('[role=alert]');error.textContent=message;
+  surface.querySelector('#auth-swap').onclick=()=>renderAuth(registering?'login':'register');
+  for(const toggle of form.querySelectorAll('.auth-reveal'))toggle.addEventListener('click',event=>{
+    event.preventDefault();event.stopPropagation();
+    const field=form.elements[toggle.dataset.for],shown=field.type==='text';
+    field.type=shown?'password':'text';
+    toggle.setAttribute('aria-pressed',String(!shown));
+    toggle.setAttribute('aria-label',shown?'显示密码':'隐藏密码');
+    field.focus({preventScroll:true});
+    try{const end=field.value.length;field.setSelectionRange(end,end);}catch{}
+  });
   form.onsubmit=async event=>{
-    event.preventDefault();viewEpoch++;const button=form.querySelector('[type=submit]');button.disabled=true;error.textContent='';let failed=false,mounted=false;
+    event.preventDefault();
+    // Check the repeated password before spending the invite.
+    if(registering && form.elements.password.value!==form.elements.confirm.value){
+      error.textContent='两次输入的密码不一致。';form.elements.confirm.focus();return;
+    }
+    viewEpoch++;const button=form.querySelector('[type=submit]');button.disabled=true;error.textContent='';let failed=false,mounted=false;
     await loginLifecycle.run({
-      authenticate:async signal=>checkedIdentity(await accountRequest('login',{username:form.elements.username.value.trim(),password:form.elements.password.value,deviceName:matchMedia('(display-mode: standalone)').matches?'兔词主屏幕网页':'兔词 Safari 网页',browser:true},null,null,{signal})),
+      authenticate:async signal=>{
+        const payload={username:form.elements.username.value.trim(),password:form.elements.password.value,
+          deviceName:matchMedia('(display-mode: standalone)').matches?'兔词主屏幕网页':'兔词 Safari 网页',browser:true};
+        if(registering)payload.inviteCode=form.elements.invite.value;
+        return checkedIdentity(await accountRequest(registering?'register':'login',payload,null,null,{signal}));
+      },
       prepare:prepareAccount,
       transition:async(prepared,signal)=>{
-        await settleLoginViewport({signal});if(signal.aborted)throw new DOMException('登录已取消。','AbortError');
+        await settleLoginViewport({signal});if(signal.aborted)throw new DOMException(verb+'已取消。','AbortError');
         const style=getComputedStyle(surface);for(const name of ['--paper','--ink','--line','--muted','--accent'])surface.style.setProperty(name,style.getPropertyValue(name));
         form.inert=true;loginSurface=surface;document.body.append(surface);document.body.classList.add('login-transitioning');mounted=true;
         commitAccount(prepared);mainInteractivity(false);
         return await playLoginTransition({surface,word:form.querySelector('.auth-login-word'),line:surface.querySelector('.auth-shutter-line'),signal,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches,offline:!navigator.onLine});
       },
       reveal:prepared=>{
-        if(store!==prepared.store)throw new DOMException('登录已取消。','AbortError');
+        if(store!==prepared.store)throw new DOMException(verb+'已取消。','AbortError');
         localStorage.removeItem(loggedOutKey);surface.remove();loginSurface=null;document.body.classList.remove('login-transitioning');mainInteractivity(true);root.focus({preventScroll:true});
         prepared.store.sync().catch(()=>{});
       },

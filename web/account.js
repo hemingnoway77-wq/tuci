@@ -2,9 +2,17 @@ export const apiRoot = "/tuci-sync/v1/";
 export function checkedIdentity(value) {
   if (!value || !["userId","vaultId","username","deviceId"].every(key => typeof value[key] === "string" && value[key].length > 0))
     throw new Error("账号服务返回了无法识别的数据。");
-  return {userId:value.userId,vaultId:value.vaultId,username:value.username,deviceId:value.deviceId};
+  return {userId:value.userId,vaultId:value.vaultId,username:value.username,deviceId:value.deviceId,canInvite:value.canInvite===true};
 }
 export async function accountRequest(route,body,legacyToken,expectedVault,{signal}={}) {
+  return request("account/"+route,body,legacyToken,expectedVault,{signal});
+}
+// Registration invites live beside the account routes; the same timeout, cookie and
+// error handling applies, and a null body performs a GET.
+export async function invitesRequest(body,expectedVault) {
+  return request("invites",body===null?undefined:body,null,expectedVault,{});
+}
+async function request(path,body,legacyToken,expectedVault,{signal}={}) {
   const headers={};
   if (body!==undefined) headers["Content-Type"]="application/json";
   if (legacyToken) headers.Authorization="Bearer "+legacyToken;
@@ -13,7 +21,7 @@ export async function accountRequest(route,body,legacyToken,expectedVault,{signa
   if(signal?.aborted){clearTimeout(timeout);throw new DOMException('请求已取消。','AbortError');}
   signal?.addEventListener('abort',abort,{once:true});
   try {
-    const response=await fetch(apiRoot+"account/"+route,{method:body===undefined?"GET":"POST",headers,
+    const response=await fetch(apiRoot+path,{method:body===undefined?"GET":"POST",headers,
       body:body===undefined?undefined:JSON.stringify(body),credentials:"same-origin",mode:"same-origin",
       referrerPolicy:"same-origin",cache:"no-store",redirect:"error",signal:controller.signal});
     const value=await response.json().catch(()=>({}));
