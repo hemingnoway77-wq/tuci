@@ -28,7 +28,8 @@ def origin_checks(temp):
                     return response.status,json.loads(response.read()),response.headers
             except urllib.error.HTTPError as error:
                 return error.code,error.read().decode(),error.headers
-        credentials = dict(username='origin-fixture',password='fixture password 123',deviceName='Origin test',browser=True)
+        credentials = dict(username='origin-fixture',password='fixture password 123',deviceName='Origin test',browser=True,
+                           inviteCode=command(temp / 'origin.db','invite-web')['code'])
         status,_,_ = call('/v1/account/register',credentials)
         assert status == 200
         status,_,headers = call('/v1/account/login',credentials,origin='null',site='same-origin')
@@ -76,12 +77,22 @@ def run(temp):
         assert alice['vaultId']==legacy['vaultId']
         assert call('/v1/changes',token=oldphone['token'])[0]==401
         assert call('/v1/account/register',dict(request,username='other'),alice['token'])[0]==409
-        assert call('/v1/account/register',dict(request,username='测试ALICE'))[0]==409
-        bob,_=ok('/v1/account/register',dict(request,username='bob'))
+        # A brand-new account must spend an operator-issued invite; claiming a vault
+        # is authorised by its own device token instead.
+        assert call('/v1/account/register',dict(request,username='nobody'))[0]==400
+        assert call('/v1/account/register',dict(request,username='nobody',inviteCode='AAAA-BBBB-CCCC'))[0]==401
+        assert call('/v1/account/register',dict(request,username='测试ALICE',
+                    inviteCode=command(database,'invite-web')['code']))[0]==409
+        bob,_=ok('/v1/account/register',dict(request,username='bob',inviteCode=command(database,'invite-web')['code']))
+        operator,_=ok('/v1/account/register',dict(request,username='trinhrae',inviteCode=command(database,'invite-web')['code']))
+        issued,_=ok('/v1/invites',{},operator['token'])
+        assert call('/v1/invites',{},alice['token'])[0]==403
+        assert call('/v1/invites',{},bob['token'])[0]==403
         assert bob['vaultId']!=alice['vaultId'] and bob['userId']!=alice['userId']
         assert call('/v1/account/login',dict(request,password='incorrect password'))[0]==401
         browser,h=ok('/v1/account/login',dict(request,browser=True,deviceName='iPhone Safari'))
         assert 'token' not in browser and browser['userId']==alice['userId']
+        assert browser['canInvite'] is False
         cookie=h.get('Set-Cookie')
         assert all(x in cookie for x in ['secure','httponly','samesite=strict','path=/tuci-sync/']),cookie
         cookie=cookie.split(';')[0]

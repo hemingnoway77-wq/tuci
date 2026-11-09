@@ -40,6 +40,9 @@ internal sealed partial class Database
                 password TEXT NOT NULL, created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS account_sessions(device TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
                 account TEXT NOT NULL REFERENCES accounts(id), expires INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS invites(hash TEXT PRIMARY KEY, created INTEGER NOT NULL,
+                expires INTEGER NOT NULL, issuer TEXT NOT NULL, used INTEGER, usedby TEXT);
+            CREATE INDEX IF NOT EXISTS invites_created ON invites(created DESC);
             CREATE TABLE IF NOT EXISTS auth_failures(namekey TEXT PRIMARY KEY, failures INTEGER NOT NULL, since INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS state_sequences(vault TEXT PRIMARY KEY REFERENCES vaults, seq INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS state_changes(vault TEXT NOT NULL REFERENCES vaults, seq INTEGER NOT NULL,

@@ -5,10 +5,10 @@ using Microsoft.Data.Sqlite;
 
 namespace Tuci.Sync;
 
-public sealed record AccountRequest(string? Username, string? Password, string? DeviceName, bool Browser = false);
+public sealed record AccountRequest(string? Username, string? Password, string? DeviceName, bool Browser = false, string? InviteCode = null);
 public sealed record PasswordRequest(string? CurrentPassword, string? NewPassword);
 public sealed record AccountGrant(string Token, string VaultId, string UserId, string Username, string DeviceId);
-public sealed record AccountProfile(string UserId, string Username, string VaultId, string DeviceId);
+public sealed record AccountProfile(string UserId, string Username, string VaultId, string DeviceId, bool CanInvite = false);
 
 internal sealed partial class Database
 {
@@ -55,6 +55,9 @@ internal sealed partial class Database
         var password = PasswordHash(Password(request.Password));
         var deviceName = DeviceName(request.DeviceName);
         using var db = Open(); db.StartWrite();
+        // A brand-new account needs an operator-issued invite. Claiming an existing vault
+        // is already authorised by that vault's own device token, so it needs no code.
+        string? invite = claim is null ? ClaimInvite(db, request.InviteCode) : null;
         if (db.Scalar("SELECT 1 FROM accounts WHERE namekey=$p0", key) is not null)
             throw new RequestFault(409, "这个用户名已被使用，请换一个。");
         string vault = claim?.VaultId ?? Wire.Id(), user = Wire.Id();
@@ -64,6 +67,7 @@ internal sealed partial class Database
             throw new RequestFault(401, "原设备凭证已失效，请重新绑定。");
         if (claim is null) db.Execute("INSERT INTO vaults(id) VALUES($p0)", vault);
         db.Execute("INSERT INTO accounts VALUES($p0,$p1,$p2,$p3,$p4,$p5)", user, name, key, vault, password, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        if (invite is not null) db.Execute("UPDATE invites SET usedby=$p0 WHERE hash=$p1", user, invite);
         // Claiming a legacy vault authorizes this device only. Other old tokens must log in or pair again.
         db.Execute("DELETE FROM codes WHERE vault=$p0", vault);
         var grant = NewSession(db, user, name, vault, deviceName);
@@ -117,7 +121,7 @@ internal sealed partial class Database
         using var cmd = db.Cmd("SELECT id,username FROM accounts WHERE vault=$p0", device.VaultId);
         using var row = cmd.ExecuteReader();
         if (!row.Read()) throw new RequestFault(404, "当前词库还没有账号，请先注册认领。");
-        return new(row.GetString(0), row.GetString(1), device.VaultId, device.Id);
+        return new(row.GetString(0), row.GetString(1), device.VaultId, device.Id, CanInvite(device.VaultId));
     }
     public void ChangePassword(Device device, PasswordRequest request)
     {

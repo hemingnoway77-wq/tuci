@@ -14,10 +14,11 @@ if (args.Length > 0 && !args[0].StartsWith('-'))
         {
             ["invite"] => Invitation(null),
             ["invite", var vault] => Invitation(vault),
+            ["invite-web"] => OperatorInvite(),
             ["devices", var vault] => db.Devices(vault),
             ["revoke", var device] => Revoke(device),
             ["backup", var file] => Backup(file),
-            _ => throw new ArgumentException("invite [vaultId] | devices <vaultId> | revoke <deviceId> | backup <new-file>")
+            _ => throw new ArgumentException("invite [vaultId] | invite-web | devices <vaultId> | revoke <deviceId> | backup <new-file>")
         };
         Console.WriteLine(JsonSerializer.Serialize(output));
         return 0;
@@ -34,6 +35,11 @@ object Invitation(string? vault)
     return new { vaultId = issued.VaultId, code = issued.Code };
 }
 object Revoke(string id) { db.Revoke(id); return new { revoked = true }; }
+object OperatorInvite()
+{
+    var issued = db.IssueOperatorInvite();
+    return new { code = issued.Code, expiresAt = issued.ExpiresAt };
+}
 object Backup(string path) { db.Backup(path); return new { backup = path }; }
 
 var builder = WebApplication.CreateBuilder(args);

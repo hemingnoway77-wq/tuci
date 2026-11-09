@@ -21,11 +21,11 @@ internal static class AccountWeb
             origin.Length > 0 && !string.Equals(origin, expected, StringComparison.OrdinalIgnoreCase) && !sameOriginOpaque)
             throw new RequestFault(403, "请从兔词自己的网页发起请求。");
     }
-    private static object Response(HttpContext ctx, AccountRequest input, AccountGrant grant)
+    private static object Response(HttpContext ctx, Database db, AccountRequest input, AccountGrant grant)
     {
         if (!input.Browser) return grant;
         ctx.Response.Cookies.Append(CookieName, grant.Token, Cookie);
-        return new AccountProfile(grant.UserId, grant.Username, grant.VaultId, grant.DeviceId);
+        return new AccountProfile(grant.UserId, grant.Username, grant.VaultId, grant.DeviceId, db.CanInvite(grant.VaultId));
     }
     public static void Map(WebApplication app, Database db)
     {
@@ -35,10 +35,14 @@ internal static class AccountWeb
             // expired or unrelated shared cookie must never silently select a vault.
             var authorization = ctx.Request.Headers.Authorization.ToString();
             var claim = authorization.Length == 0 ? null : db.Authenticate(authorization);
-            return Response(ctx, input, db.Register(input, claim));
+            return Response(ctx, db, input, db.Register(input, claim));
         }).RequireRateLimiting("account");
-        app.MapPost("/v1/account/login", (HttpContext ctx, AccountRequest input) => Response(ctx, input, db.Login(input)))
+        app.MapPost("/v1/account/login", (HttpContext ctx, AccountRequest input) => Response(ctx, db, input, db.Login(input)))
             .RequireRateLimiting("account");
+        app.MapPost("/v1/invites", (HttpContext ctx) => db.IssueInvite((Device)ctx.Items["device"]!))
+            .WithMetadata(new DeviceRequired()).RequireRateLimiting("account");
+        app.MapGet("/v1/invites", (HttpContext ctx) => new { invites = db.Invites((Device)ctx.Items["device"]!) })
+            .WithMetadata(new DeviceRequired());
         app.MapGet("/v1/account/me", (HttpContext ctx) => db.Profile((Device)ctx.Items["device"]!)).WithMetadata(new DeviceRequired());
         app.MapPost("/v1/account/logout", (HttpContext ctx) =>
         {
