@@ -12,8 +12,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
     & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build
     if ($LASTEXITCODE -ne 0) { throw 'WPF smoke checks failed.' }
+    & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --reading-only
+    if ($LASTEXITCODE -ne 0) { throw 'Article reading navigation checks failed.' }
     & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --startup-only
     if ($LASTEXITCODE -ne 0) { throw 'Prepared startup checks failed.' }
+    & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --navigation-only
+    if ($LASTEXITCODE -ne 0) { throw 'Rapid module navigation checks failed.' }
+    & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --updates-only
+    if ($LASTEXITCODE -ne 0) { throw 'Signed update UI checks failed.' }
     & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --offline-translation-only
     if ($LASTEXITCODE -ne 0) { throw 'Bundled offline translation checks failed.' }
     Write-Output 'PASS: all verification checks.'

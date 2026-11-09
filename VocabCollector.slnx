@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/VocabCollector.Core/VocabCollector.Core.csproj" />
     <Project Path="src/VocabCollector.Desktop/VocabCollector.Desktop.csproj" />
+    <Project Path="src/VocabCollector.Updater/VocabCollector.Updater.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VocabCollector.Desktop.Smoke/VocabCollector.Desktop.Smoke.csproj" />

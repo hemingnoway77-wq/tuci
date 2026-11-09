@@ -1,0 +1,21 @@
+/* Brief motion; no floating loops or scroll-position polling. */
+.button,.header-cta{transition:background-color 160ms ease,border-color 160ms ease,color 160ms ease,transform 180ms ease,box-shadow 180ms ease}
+.app-figure{position:relative;isolation:isolate;transition:transform 320ms cubic-bezier(.22,1,.36,1),box-shadow 320ms ease}
+.preview-outgoing{position:absolute;inset:6px;width:calc(100% - 12px)!important;height:auto;pointer-events:none;z-index:1}
+.story-image,.markdown-paper{transition:transform 320ms cubic-bezier(.22,1,.36,1),box-shadow 320ms ease}
+.flow-arrow{display:inline-block;transition:transform 190ms cubic-bezier(.22,1,.36,1),color 140ms ease}
+.preview-controls button{transition:color 150ms ease,border-color 150ms ease,transform 180ms ease}
+.main-nav>a::before{content:"";position:absolute;left:0;right:0;bottom:7px;height:1px;background:var(--accent);transform:scaleX(0);transform-origin:left;transition:transform 190ms cubic-bezier(.22,1,.36,1)}
+@media(hover:hover) and (pointer:fine){
+  .button:hover,.header-cta:hover{transform:translateY(-2px);box-shadow:0 7px 17px #463b2c14}
+  .app-figure:hover,.story-image:hover,.markdown-paper:hover{transform:translateY(-3px) rotate(0deg)}
+  .habit-flow>a:hover .flow-arrow{transform:translate(4px,-4px)}
+  .preview-controls button:hover{transform:translateY(-2px)}
+  .main-nav>a:not([aria-current="page"]):hover::before{transform:scaleX(1)}
+}
+@media(max-width:900px){.main-nav>a::before{display:none}}
+@media(max-width:700px){.preview-outgoing{inset:4px;width:calc(100% - 8px)!important}}
+@media(prefers-reduced-motion:reduce){
+  .button:hover,.header-cta:hover,.app-figure:hover,.story-image:hover,.markdown-paper:hover,.habit-flow>a:hover .flow-arrow,.preview-controls button:hover{transform:none;box-shadow:none}
+  .main-nav>a::before{transition:none}
+}

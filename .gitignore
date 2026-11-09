@@ -5,3 +5,5 @@ dist/
 .superpowers/
 .vs/
 *.user
+__pycache__/
+*.pyc

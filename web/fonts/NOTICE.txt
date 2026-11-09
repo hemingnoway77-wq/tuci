@@ -1,0 +1,24 @@
+Noto Serif SC (思源宋体 / Noto Serif CJK simplified-Chinese web distribution)
+Copyright 2017-2024 Adobe (http://www.adobe.com/).
+Licensed under the SIL Open Font License, Version 1.1; see OFL.txt.
+
+These are unmodified official Google Fonts WOFF2 unicode-range shards, variable
+weight 200-900, version 2.003-H1, Google Fonts distribution v36. CSS family alias:
+Tuci Serif SC. The fonts are served only from the same server as the application;
+opening personal notes does not contact a third-party font provider.
+
+Official source CSS (retrieved 2026-11-08):
+https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@200..900&display=swap
+Each immutable source URL, byte count and SHA-256 is recorded in manifest.json.
+https://github.com/notofonts/noto-cjk
+https://github.com/notofonts/noto-cjk/blob/main/Serif/LICENSE
+https://developers.google.com/fonts/docs/css2
+
+The full official SC web distribution is included, rather than a subset made
+only from static application labels. It contains 13,666 encoded characters,
+including 12,258 Han ideographs in U+4E00-U+9FFF. Rare ideographs outside this
+upstream SC web distribution retain the following installed serif fallback.
+
+Six core UI shards (448,700 bytes) are included in the verified offline shell.
+Other shards are requested by the browser's unicode-range selection and cached
+with size and SHA-256 verification by the service worker when first used.
