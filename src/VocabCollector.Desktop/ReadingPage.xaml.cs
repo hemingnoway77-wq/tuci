@@ -11,6 +11,8 @@ using VocabCollector.Core.Reading;
 using VocabCollector.Desktop.Reading;
 using VocabCollector.Desktop.Preview;
 using System.Windows.Media.Animation;
+using System.Text.Json;
+using VocabCollector.Core.Sync;
 
 namespace VocabCollector.Desktop;
 
@@ -27,31 +29,38 @@ public partial class ReadingPage : UserControl, IDisposable
     private double _directoryOffset;
     private bool _hasBody, _disposed;
     private Window? _wordOwner;
-    private readonly TranslateTransform _articleTurn = new();
-    private int _articleEntranceVersion;
+    private ArticleContent? _loadedContent;
+    private readonly DispatcherTimer _positionTimer;
+    private readonly Dictionary<string, ArticleReadingPosition> _readingPositions = new(StringComparer.Ordinal);
+    private bool _restoringPosition;
     private readonly DependencyPropertyDescriptor _popupOpen = DependencyPropertyDescriptor.FromProperty(Popup.IsOpenProperty, typeof(Popup));
 
     public ReadingPage(DailyReadingViewModel viewModel, Action<string>? openArticle = null,
         IArticleContentService? articleContentService = null, IWordTranslationService? wordTranslationService = null)
     {
         _viewModel = viewModel;
+        _positionTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(650) };
+        _positionTimer.Tick += (_, _) => SaveReadingPosition();
         _openArticle = openArticle ?? (url => new ArticleWindow(url) { Owner = Window.GetWindow(this) }.Show());
         _ownsContent = articleContentService is null; _ownsTranslation = wordTranslationService is null;
         _contentService = articleContentService ?? new ArticleContentService(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VocabCollector", "reading", "articles"));
         InitializeComponent();
-        ArticleSurface.RenderTransform = _articleTurn;
         _translationService = wordTranslationService ?? new OfflineDictionaryWordTranslationService(
             new JsonLinesWordDictionary(Path.Combine(AppContext.BaseDirectory, "Assets", "OfflineDictionary")),
             new OfflineWordTranslationService(new WebViewOfflineTranslationEngine(TranslationRuntimeHost)));
         DataContext = viewModel;
         ArticleBodyReader.WordClicked += OnWordClicked;
         ArticleBodyReader.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, e) =>
-        { if (e.VerticalChange != 0) CloseWordActions(); }));
+        {
+            if (e.VerticalChange != 0) CloseWordActions();
+            if (e.VerticalChange == 0 || !_hasBody || _restoringPosition || !IsVisible || _disposed) return;
+            _positionTimer.Stop(); _positionTimer.Start();
+        }));
         PreviewKeyDown += CloseWordOnEscape;
         ReadingWordPopup.Child.PreviewKeyDown += CloseWordOnEscape;
         _popupOpen.AddValueChanged(ReadingWordPopup, OnWordPopupOpenChanged);
-        IsVisibleChanged += (_, _) => { if (!IsVisible) { CloseWordActions(); StopArticleEntrance(); SmoothScroll.Cancel(ArticleBodyReader); } };
+        IsVisibleChanged += (_, _) => { if (!IsVisible) { CloseWordActions(); SmoothScroll.Cancel(ArticleBodyReader); } };
         Unloaded += (_, _) => Cancel();
         SizeChanged += (_, _) => { if (IsCapturePreviewOpen) ReadingCaptureColumn.Width = new GridLength(Math.Clamp(ActualWidth * .32, 310, 370)); };
     }
@@ -62,15 +71,39 @@ public partial class ReadingPage : UserControl, IDisposable
     public Popup WordActionsPopup => ReadingWordPopup;
     public event EventHandler<ReadingWordSelection>? WordCaptureRequested;
     public event EventHandler<PreviewLinkEventArgs>? CaptureLinkRequested;
+    public event EventHandler<ArticleReadingPosition>? ReadingPositionChanged;
+    public void ApplyReadingPositions(IEnumerable<SyncStateEntry> entries)
+    {
+        foreach (var entry in entries.Where(entry => entry.Key.StartsWith("reading/", StringComparison.Ordinal) && !entry.Deleted))
+        {
+            var value = entry.Value;
+            if (!value.TryGetProperty("url", out var url) || !value.TryGetProperty("progress", out var progress) || !progress.TryGetDouble(out var unit) ||
+                !double.IsFinite(unit) || unit < 0 || unit > 1 || url.ValueKind != JsonValueKind.String || url.GetString() is not { } address) continue;
+            var anchor = value.TryGetProperty("anchor", out var location) && location.ValueKind == JsonValueKind.String ? location.GetString() ?? "" : "";
+            var title = value.TryGetProperty("title", out var caption) && caption.ValueKind == JsonValueKind.String ? caption.GetString() ?? "" : "";
+            _readingPositions[address] = new(address, unit, anchor, title);
+        }
+    }
+    private void SaveReadingPosition()
+    {
+        _positionTimer.Stop();
+        if (_disposed || !_hasBody || _restoringPosition || CurrentArticle is not { } article) return;
+        var location = ReadingPositionTools.Capture(ArticleBodyReader);
+        var state = new ArticleReadingPosition(article.Url, location.Progress, location.Anchor, article.Title);
+        _readingPositions[article.Url] = state;
+        ReadingPositionChanged?.Invoke(this, state);
+    }
     private MainViewModel? _capturePreviewViewModel;
     private bool _captureGenerating;
     public bool IsCapturePreviewOpen => ReadingCapturePane.Visibility == Visibility.Visible;
     public MainViewModel? CapturePreviewViewModel => _capturePreviewViewModel;
 
-    public async Task EnsureLoadedAsync()
+    public Task EnsureLoadedAsync() => EnsureLoadedAsync(default);
+    public async Task EnsureLoadedAsync(CancellationToken navigationToken)
     {
         if (_viewModel.Articles.Count == 0) await _viewModel.LoadAsync();
         else await _viewModel.RefreshIfNewDayAsync();
+        if (_disposed || navigationToken.IsCancellationRequested) return;
         if (IsArticleOpen && !_hasBody && _articleCancellation is null && CurrentArticle is { } article)
             await OpenArticleAsync(article);
     }
@@ -78,6 +111,7 @@ public partial class ReadingPage : UserControl, IDisposable
     public async Task OpenArticleAsync(ReadingArticle article, bool forceRefresh = false)
     {
         if (_disposed) return;
+        SaveReadingPosition();
         CloseCapturePreview();
         if (!IsArticleOpen) _directoryOffset = ReadingArticlesScroll.VerticalOffset;
         CancelArticle(); CloseWordActions();
@@ -88,7 +122,6 @@ public partial class ReadingPage : UserControl, IDisposable
         ArticleSourceText.Text = article.SourceName;
         ArticleTitleText.Text = article.Title;
         ArticleStatusText.Text = "正在提取纯净正文…";
-        ArticleBodyReader.SetParagraphs([]);
         ArticleBodyReader.Visibility = Visibility.Collapsed;
         ArticleLoadState.Visibility = Visibility.Visible;
         ArticleLoadMessage.Text = "正在载入全文…";
@@ -96,13 +129,22 @@ public partial class ReadingPage : UserControl, IDisposable
         _viewModel.Message = "正在获取文章全文…";
         try
         {
-            var content = await _contentService.GetAsync(article, forceRefresh, cancellation.Token);
+            var retained = !forceRefresh && _loadedContent?.Article.Url == article.Url;
+            var content = retained ? _loadedContent! : await _contentService.GetAsync(article, forceRefresh, cancellation.Token);
             if (_disposed || cancellation.IsCancellationRequested || version != _articleVersion || CurrentArticle != article) return;
             if (content.Paragraphs.Count == 0) throw new ArticleContentException("来源暂时没有可读取的正文。");
-            ArticleBodyReader.SetParagraphs(content.Paragraphs);
+            if (!retained) ArticleBodyReader.SetParagraphs(content.Paragraphs);
+            _loadedContent = content;
             _hasBody = true;
+            _restoringPosition = true;
             ArticleBodyReader.Visibility = Visibility.Visible; ArticleLoadState.Visibility = Visibility.Collapsed;
-            BeginArticleEntrance();
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                if (!_disposed && version == _articleVersion && CurrentArticle == article && _readingPositions.TryGetValue(article.Url, out var position))
+                    ReadingPositionTools.Restore(ArticleBodyReader, position.Progress, position.Anchor);
+                Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+                { if (version == _articleVersion) _restoringPosition = false; }));
+            }));
             ArticleStatusText.Text = content.IsOffline ? "离线缓存" : "";
             _viewModel.Message = content.IsOffline ? "正在阅读已缓存的全文。" : "全文已载入。";
         }
@@ -126,6 +168,7 @@ public partial class ReadingPage : UserControl, IDisposable
 
     public void ReturnToDirectory()
     {
+        SaveReadingPosition();
         CloseCapturePreview();
         CancelArticle(); CloseWordActions();
         CurrentArticle = null; _hasBody = false;
@@ -139,6 +182,7 @@ public partial class ReadingPage : UserControl, IDisposable
 
     public void Cancel()
     {
+        SaveReadingPosition();
         CloseCapturePreview();
         _viewModel.Cancel(); CancelArticle(); CloseWordActions();
         if (IsArticleOpen && !_hasBody)
@@ -150,43 +194,12 @@ public partial class ReadingPage : UserControl, IDisposable
     }
     private void CancelArticle()
     {
-        StopArticleEntrance();
+        _restoringPosition = false;
         SmoothScroll.Cancel(ArticleBodyReader);
         ++_articleVersion;
         _articleCancellation?.Cancel(); _articleCancellation = null;
     }
 
-    private void BeginArticleEntrance()
-    {
-        StopArticleEntrance();
-        if (!SystemParameters.ClientAreaAnimation || !IsLoaded || !IsVisible) return;
-        var version = _articleEntranceVersion;
-        _articleTurn.X = 24; ArticleSurface.Opacity = .74;
-        // Let the new FlowDocument finish its first layout before the short clock starts.
-        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
-        {
-            if (version != _articleEntranceVersion) return;
-            if (_disposed || !IsLoaded || !IsVisible || !SystemParameters.ClientAreaAnimation)
-            { StopArticleEntrance(); return; }
-            var duration = TimeSpan.FromMilliseconds(230);
-            var easing = new QuadraticEase { EasingMode = EasingMode.EaseOut };
-            var turn = new DoubleAnimation(24, 0, duration)
-                { EasingFunction = easing, FillBehavior = FillBehavior.Stop };
-            turn.Completed += (_, _) => { if (version == _articleEntranceVersion) StopArticleEntrance(); };
-            _articleTurn.BeginAnimation(TranslateTransform.XProperty, turn);
-            ArticleSurface.BeginAnimation(OpacityProperty, new DoubleAnimation(.74, 1, duration)
-                { EasingFunction = easing, FillBehavior = FillBehavior.Stop });
-        }));
-    }
-
-    private void StopArticleEntrance()
-    {
-        ++_articleEntranceVersion;
-        ArticleSurface.BeginAnimation(OpacityProperty, null);
-        ArticleSurface.Opacity = 1;
-        _articleTurn.BeginAnimation(TranslateTransform.XProperty, null);
-        _articleTurn.X = 0;
-    }
     private void CancelWord()
     {
         ++_wordVersion;
@@ -366,6 +379,7 @@ public partial class ReadingPage : UserControl, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        _positionTimer.Stop();
         _disposed = true; Cancel();
         _popupOpen.RemoveValueChanged(ReadingWordPopup, OnWordPopupOpenChanged);
         ArticleBodyReader.WordClicked -= OnWordClicked;

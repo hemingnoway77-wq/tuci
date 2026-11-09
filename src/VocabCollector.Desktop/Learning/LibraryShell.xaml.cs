@@ -65,6 +65,7 @@ public partial class LibraryShell : UserControl, IDisposable
         Workspace.ActiveTabChanged += (_, _) => { UpdateInspector(); UpdateStatistics(); };
         Workspace.QuickOpenRequested += (_, _) => QuickOpen();
         Workspace.NewNoteRequested += async (_, _) => await CreateNoteAsync();
+        Workspace.DeleteNoteRequested += async (_, note) => await TrashAsync(note);
         Workspace.NavigationRequested += (_, _) => { if (!_refreshing) ShowDocuments(); };
         Workspace.MessageChanged += (_, message) => SetMessage(message);
         Workspace.FilesChanged += (_, _) => ReloadRequested?.Invoke(this, EventArgs.Empty);

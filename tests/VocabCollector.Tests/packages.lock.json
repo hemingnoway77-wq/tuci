@@ -113,13 +113,19 @@
         "dependencies": {
           "Markdig": "[1.4.2, )",
           "Microsoft.Web.WebView2": "[1.0.4314.35, )",
-          "VocabCollector.Core": "[1.0.0, )"
+          "VocabCollector.Core": "[1.1.0, )"
         }
       },
       "vocabcollector.core": {
         "type": "Project",
         "dependencies": {
           "AngleSharp": "[1.9.1, )"
+        }
+      },
+      "vocabcollector.updater": {
+        "type": "Project",
+        "dependencies": {
+          "VocabCollector.Core": "[1.1.0, )"
         }
       }
     }

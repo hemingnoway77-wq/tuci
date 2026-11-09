@@ -27,7 +27,18 @@ public static class Program
             try
             {
                 var runner = new SmokeRunner(app);
-                if (args.Contains("--startup-only", StringComparer.Ordinal))
+                if (args.Contains("--updates-only", StringComparer.Ordinal))
+                {
+                    await runner.RunUpdateChecksAsync();
+                    Console.WriteLine("PASS: isolated signed update checks, startup ordering, nonmodal notification, retry, progress, cancellation, stale-window callbacks, input guards and explicit recorded installation");
+                }
+                else if (args.Contains("--navigation-only", StringComparer.Ordinal) || args.Contains("--navigation-baseline", StringComparer.Ordinal))
+                {
+                    var baseline = args.Contains("--navigation-baseline", StringComparer.Ordinal);
+                    await runner.RunNavigationSwitchChecksAsync(baseline);
+                    Console.WriteLine(baseline ? "PASS: isolated rapid-navigation baseline collected" : "PASS: rapid module navigation preserves immediate content, warm layout, last selection, reading position and settled animation state");
+                }
+                else if (args.Contains("--startup-only", StringComparer.Ordinal))
                 {
                     await runner.RunPreparedStartupChecksAsync();
                     Console.WriteLine("PASS: real startup preparation, zero background feed/translation/review side effects, warm navigation and shared underline");

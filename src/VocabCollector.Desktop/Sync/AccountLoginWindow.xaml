@@ -1,0 +1,35 @@
+<Window x:Class="VocabCollector.Desktop.AccountLoginWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="登录兔词" Width="450" SizeToContent="Height" MaxHeight="780"
+ ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+ Style="{StaticResource {x:Type Window}}">
+ <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <StackPanel Margin="34,32,34,28">
+   <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+    <Image Source="/兔词;component/Assets/app-icon-256.png" Width="42" Height="42" Margin="0,0,13,0" AutomationProperties.Name="兔词"/>
+    <TextBlock Text="兔词" Style="{StaticResource PageTitle}" FontSize="31" VerticalAlignment="Center"/>
+   </StackPanel>
+   <TextBlock Text="在电脑和手机间，继续你的词库。" Style="{StaticResource HintText}" Margin="0,0,0,26"/>
+   <StackPanel x:Name="CredentialsPanel">
+    <TextBlock Text="用户名" Style="{StaticResource FieldLabel}"/>
+    <TextBox x:Name="UsernameBox" MaxLength="40" Margin="0,7,0,18" MinHeight="40" AutomationProperties.Name="用户名"/>
+    <TextBlock Text="密码" Style="{StaticResource FieldLabel}"/>
+    <PasswordBox x:Name="PasswordBox" MaxLength="128" Margin="0,7,0,24" MinHeight="40" AutomationProperties.Name="密码"/>
+    <Grid>
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+     <Button x:Name="LoginButton" Content="登录" IsDefault="True" Style="{StaticResource PrimaryAction}" MinHeight="44" Click="Login_Click"/>
+     <Button x:Name="RegisterButton" Grid.Column="2" Content="创建账号" Style="{StaticResource OutlineAction}" MinHeight="44" Click="Register_Click"/>
+    </Grid>
+    <Expander x:Name="AdvancedOptions" Header="高级设置" IsExpanded="False" Margin="0,22,0,0">
+     <StackPanel Margin="0,12,0,0">
+      <TextBlock Text="同步服务地址" Style="{StaticResource FieldLabel}"/>
+      <TextBox x:Name="UrlBox" Margin="0,7,0,0" AutomationProperties.Name="同步服务地址"/>
+     </StackPanel>
+    </Expander>
+   </StackPanel>
+   <ProgressBar x:Name="BusyIndicator" Height="3" IsIndeterminate="True" Visibility="Collapsed" Margin="0,20,0,0"/>
+   <TextBlock x:Name="StatusText" Style="{StaticResource StatusText}" Margin="0,18,0,0" Text="登录后，词库与学习记录会随账号同步。" AutomationProperties.LiveSetting="Polite"/>
+  </StackPanel>
+ </ScrollViewer>
+</Window>

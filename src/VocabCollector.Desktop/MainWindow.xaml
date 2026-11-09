@@ -47,6 +47,7 @@
       </StackPanel>
      </Button>
      <Button x:Name="SyncButton" Content="词库同步" Style="{StaticResource UtilityButton}" Click="Sync_Click" Margin="6,0,0,0" />
+     <Button x:Name="UpdateButton" Content="检查更新" Style="{StaticResource UtilityButton}" Click="Update_Click" Margin="6,0,0,0" ToolTip="检查并下载兔词的新版本" />
      <Button x:Name="SettingsButton" Style="{StaticResource UtilityOutline}" Click="Settings_Click" IsEnabled="{Binding CanConfigure}" Margin="7,0,0,0" ToolTip="API 与词库设置">
       <StackPanel Orientation="Horizontal">
        <Path Data="M 2,4.5 L 14,4.5 M 2,11.5 L 14,11.5 M 6,2 L 6,7 M 10,9 L 10,14" Stroke="{DynamicResource Accent}" StrokeThickness="1.3" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center" />

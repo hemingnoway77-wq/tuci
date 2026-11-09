@@ -10,6 +10,7 @@ using Microsoft.Win32;
 using VocabCollector.Core;
 using VocabCollector.Core.Library;
 using VocabCollector.Core.Storage;
+using VocabCollector.Core.Sync;
 using VocabCollector.Desktop.Preview;
 
 namespace VocabCollector.Desktop.Learning;
@@ -29,9 +30,11 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     private long _changeVersion, _loadedVersion = -1, _loadedTimestamp;
     private int _refreshQueued;
     private bool _hasLoaded;
+    private long _surfaceRequestVersion;
     private string? _watchedWordRoot;
     private FileSystemWatcher? _watcher;
     private LibraryCatalog? _catalog;
+    private IReadOnlyList<SyncedNote> _cloudNotes = [];
     private RoamingSession? _session;
     private IReadOnlyList<LibraryNote> _notes = [];
     private IReadOnlyList<LibraryFolder> _folders = [];
@@ -53,6 +56,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
         Browser.MessageChanged += (_, message) => Message = message;
         Browser.WebLinkRequested += (_, url) => WebLinkRequested?.Invoke(this, url);
         Browser.ReloadRequested += (_, _) => RequestReload();
+        Browser.NotesChanged += Browser_NotesChanged;
         Browser.ImportRequested += async (_, files) => await ImportAsync(files);
         InitializeRoaming();
         _refreshTimer = new(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(600) };
@@ -63,6 +67,40 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     public event EventHandler? StatusChanged;
     public event EventHandler? ReaderRequested;
     public event EventHandler<string>? WebLinkRequested;
+    public event EventHandler? LearningStateChanged;
+    public IReadOnlyDictionary<string, string> CloudNoteIds => _catalog?.CloudNoteIds ?? new Dictionary<string, string>();
+    public string? LocalStateDirectory => _catalog?.LocalStateDirectory;
+
+    public async Task SetCloudNotesAsync(IReadOnlyList<SyncedNote> notes)
+    {
+        if (_cloudNotes.Count == notes.Count && _cloudNotes.ToHashSet().SetEquals(notes))
+        { await EnsureLoadedAsync(); return; }
+        _cloudNotes = notes;
+        ApplyCloudIdentities();
+        await EnsureLoadedAsync(forceRefresh: true);
+    }
+    private void ApplyCloudIdentities() => _catalog?.SetCloudIdentities(
+        _cloudNotes.ToDictionary(note => note.Path, note => note.Id, StringComparer.OrdinalIgnoreCase),
+        _cloudNotes.ToDictionary(note => note.Path, note => note.Hash, StringComparer.OrdinalIgnoreCase));
+    public async Task<IEnumerable<SyncStateEntry>> ExportLearningStateAsync(string deviceId, CancellationToken ct)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
+        ct = linked.Token;
+        await EnsureLoadedAsync();
+        return _session is null ? [] : await _session.ExportSyncAsync(deviceId, id => CloudNoteIds.GetValueOrDefault(id), ct);
+    }
+    public async Task MergeLearningStateAsync(IReadOnlyList<SyncStateEntry> entries, CancellationToken ct)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
+        ct = linked.Token;
+        await EnsureLoadedAsync();
+        if (_session is null || _disposed) return;
+        var localIds = CloudNoteIds.ToDictionary(pair => pair.Value, pair => pair.Key, StringComparer.Ordinal);
+        await _session.MergeSyncAsync(entries, id => localIds.GetValueOrDefault(id), ct);
+        if (_disposed) return;
+        _exposure = await _session.RestoreCurrentAsync(_notes, ct);
+        UpdateCard(); UpdateRoamingStatistics();
+    }
     public LibraryBrowser BrowserControl => Browser;
     public NoteReader ReaderControl => Browser.Reader;
     public IReadOnlyList<LibraryNote> AllNotes => _notes;
@@ -139,6 +177,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
                 var state = _stateDirectory == null ? null : Path.Combine(_stateDirectory,
                     Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(VaultPaths.WordRoot(_vault).ToUpperInvariant()))));
                 _catalog = new LibraryCatalog(_vault, state);
+                ApplyCloudIdentities();
             }
             // Watch before scanning, including an empty library whose notes
             // directory has not been created yet, so first-load changes are seen.
@@ -151,6 +190,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
                     var session = await Task.Run(() => new RoamingSession(Path.Combine(_catalog.LocalStateDirectory, "roaming.json"), _clock), _stop.Token);
                     if (_disposed) return false;
                     _session = session;
+                    _session.StateChanged += SessionStateChanged;
                     _reviewError = "";
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException)
@@ -159,6 +199,9 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
             var snapshot = await Task.Run(() => _catalog.ScanAsync(_stop.Token), _stop.Token);
             if (_disposed) return false;
             _notes = snapshot.Notes;
+            if (_session is not null) _exposure = await _session.RefreshCurrentAsync(_notes, _stop.Token);
+            if (_disposed) return false;
+            UpdateCard();
             _folders = BuildFolders(_notes);
             Changed(nameof(Folders)); Changed(nameof(AllNotes));
             _refreshingReader = true;
@@ -191,6 +234,30 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
             VisibleNotes.Add(note);
         SelectedNote = VisibleNotes.FirstOrDefault(n => n.Id == id);
         Changed(nameof(Summary)); Changed(nameof(EmptyVisibility)); Changed(nameof(EmptyMessage));
+    }
+
+    private long _browserNotesVersion;
+    private async void Browser_NotesChanged(object? sender, IReadOnlyList<LibraryNote> notes)
+    {
+        if (_disposed) return;
+        var version = ++_browserNotesVersion;
+        var removed = _notes.Where(note => !notes.Any(current => current.Id == note.Id)).Select(note => note.Id).ToArray();
+        _notes = notes.ToArray(); _folders = BuildFolders(_notes);
+        foreach (var id in removed) RoamingPreviewReader.ForgetNote(id);
+        if (_exposure is { } card && !_notes.Any(note => note.Id == card.Note.Id))
+        { _exposure = null; CloseRoamingPreview(); RoamingMeaningReveal.Hide(); }
+        Changed(nameof(AllNotes)); Changed(nameof(Folders)); Filter();
+        Changed(nameof(ReaderTitle)); Changed(nameof(ReaderEmptyVisibility));
+        UpdateCard(); UpdateRoamingStatistics(); RequestReload();
+        var currentNotes = _notes;
+        try
+        {
+            if (_session is null) return;
+            var current = await _session.RefreshCurrentAsync(currentNotes, _stop.Token);
+            if (_disposed || version != _browserNotesVersion || !ReferenceEquals(currentNotes, _notes)) return;
+            _exposure = current; UpdateCard(); UpdateRoamingStatistics();
+        }
+        catch (OperationCanceledException) { }
     }
 
     private static IReadOnlyList<LibraryFolder> BuildFolders(IReadOnlyList<LibraryNote> notes)
@@ -228,16 +295,20 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     }
     public void ShowLibrary()
     {
+        ++_surfaceRequestVersion;
         RoamingMeaningReveal.Hide();
         LibrarySurface.Visibility = Visibility.Visible;
-        RoamingSurface.Visibility = Visibility.Collapsed;
+        RoamingSurface.Visibility = Visibility.Hidden;
     }
-    public async Task ShowRoamingAsync()
+    public Task ShowRoamingAsync() => ShowRoamingAsync(default);
+    public async Task ShowRoamingAsync(CancellationToken navigationToken)
     {
-        await EnsureLoadedAsync();
-        if (_disposed) return;
-        LibrarySurface.Visibility = Visibility.Collapsed;
+        if (_disposed || navigationToken.IsCancellationRequested) return;
+        var request = ++_surfaceRequestVersion;
+        LibrarySurface.Visibility = Visibility.Hidden;
         RoamingSurface.Visibility = Visibility.Visible;
+        await EnsureLoadedAsync();
+        if (_disposed || navigationToken.IsCancellationRequested || request != _surfaceRequestVersion) return;
         await AdvanceAsync(null, false);
     }
     private void Reader_NoteChanged(object? sender, LibraryNote note)
@@ -358,10 +429,12 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     }
     private string WithWarnings(string message) => string.Join(" ", new[] { message, _libraryWarnings, _reviewError }.Where(s => s.Length > 0));
     private void Changed(string name) => PropertyChanged?.Invoke(this, new(name));
+    private void SessionStateChanged(object? sender, EventArgs args) => LearningStateChanged?.Invoke(this, EventArgs.Empty);
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        if (_session is not null) _session.StateChanged -= SessionStateChanged;
         _stop.Cancel(); _refreshTimer.Stop(); _watcher?.Dispose(); Browser.Dispose();
         DisposeRoaming();
     }

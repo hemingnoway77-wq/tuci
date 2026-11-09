@@ -136,7 +136,8 @@ public sealed partial class LibraryCatalog
             var location = TrashDirectory(item.Id);
             LocalLibraryState.EnsureNoLinks(location);
             Directory.CreateDirectory(location);
-            var record = new TrashRecord(item.Id, current.Id, current.RelativePath, current.AddedAt, item.DeletedAt, Hash(current.Markdown));
+            var record = new TrashRecord(item.Id, current.Id, current.RelativePath, current.AddedAt, item.DeletedAt,
+                Hash(current.Markdown), entries.FirstOrDefault(entry => entry.Id == current.Id)?.CloudId);
             await LocalLibraryState.WriteAsync(Path.Combine(location, "record.json"), record, cancellationToken);
             await ChangeIndexAsync(entries, entries.Where(entry => entry.Id != current.Id).ToList(), async () =>
             {
@@ -185,6 +186,13 @@ public sealed partial class LibraryCatalog
                 throw new LibraryConflictException("回收记录已变化，请刷新回收列表。");
             var target = OperationPath(record.RelativePath, isNote: true, allowLinkReserved: true);
             RefuseExisting(target);
+            // Another note can reuse this path while the older note is in trash.
+            // If that replacement was only just trashed, sync must first delete
+            // its head; restoring now would make a path-based sync claim its ID.
+            var restoredIdentity = record.CloudId ?? record.NoteId;
+            if (_cloudByPath.TryGetValue(record.RelativePath, out var liveCloudId) &&
+                !string.Equals(restoredIdentity, liveCloudId, StringComparison.Ordinal))
+                throw new IOException("该路径有另一篇笔记尚待同步删除。请先同步词库，再恢复这篇笔记；回收内容已保留。");
             var (_, entries) = await OperationIndexAsync(cancellationToken);
             if (entries.Any(entry => entry.Id == record.NoteId))
                 throw new LibraryConflictException("该笔记身份已在词库中，未重复恢复。");
@@ -194,7 +202,8 @@ public sealed partial class LibraryCatalog
             if (Hash(markdown) != record.ContentHash) throw new IOException("回收内容已变化，未恢复或覆盖任何笔记。");
             var restored = new LibraryNote(record.NoteId, record.RelativePath, target, markdown, record.AddedAt);
             CreateSafeParents(target);
-            await ChangeIndexAsync(entries, entries.Append(Entry(restored)).ToList(), () =>
+            var restoredEntry = new CatalogEntry(restored.Id, restored.RelativePath, Hash(restored.Markdown), restored.AddedAt, record.CloudId);
+            await ChangeIndexAsync(entries, entries.Append(restoredEntry).ToList(), () =>
             {
                 VaultPaths.EnsureInside(_wordRoot, target);
                 LocalLibraryState.EnsureNoLinks(blob);
@@ -259,7 +268,8 @@ public sealed partial class LibraryCatalog
 
     private string Relative(string absolute) => Path.GetRelativePath(_wordRoot, absolute).Replace('\\', '/');
     private static string Hash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
-    private static CatalogEntry Entry(LibraryNote note) => new(note.Id, note.RelativePath, Hash(note.Markdown), note.AddedAt);
+    private CatalogEntry Entry(LibraryNote note) => new(note.Id, note.RelativePath, Hash(note.Markdown), note.AddedAt,
+        CloudNoteIds.GetValueOrDefault(note.Id) ?? _cloudByPath.GetValueOrDefault(note.RelativePath));
 
     private async Task<(LibrarySnapshot Snapshot, List<CatalogEntry> Entries)> OperationIndexAsync(CancellationToken cancellationToken)
     {
@@ -360,5 +370,5 @@ public sealed partial class LibraryCatalog
     }
 
     private sealed record BackupRecord(string NoteId, string RelativePath, DateTimeOffset BackedUpAt);
-    private sealed record TrashRecord(string Id, string NoteId, string RelativePath, DateTimeOffset AddedAt, DateTimeOffset DeletedAt, string ContentHash);
+    private sealed record TrashRecord(string Id, string NoteId, string RelativePath, DateTimeOffset AddedAt, DateTimeOffset DeletedAt, string ContentHash, string? CloudId = null);
 }

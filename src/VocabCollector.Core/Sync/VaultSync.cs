@@ -1,16 +1,19 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using VocabCollector.Core.Storage;
 
 namespace VocabCollector.Core.Sync;
 
 public sealed record SyncedNote(string Id, string Path, long Version, string Hash, Dictionary<string,string>? Regions);
-public sealed record VaultSyncResult(int Uploaded, int Downloaded, int Conflicts, bool Reconciled = false);
+public sealed record VaultSyncResult(int Uploaded, int Downloaded, int Conflicts, bool Reconciled = false,
+    IReadOnlyList<SyncedNote>? Notes = null);
 
 // The journal is scoped to one verified server, vault and local directory by its caller.
 // Pending operations and their original IDs survive disconnection, lost replies and restarts.
-public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemote remote, Action<string>? verifyBinding = null)
+public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemote remote, Action<string>? verifyBinding = null,
+    IReadOnlyDictionary<string, string>? noteIdentities = null)
 {
     private sealed class State
     {
@@ -19,6 +22,9 @@ public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemot
         public Dictionary<string, SyncedNote> Notes { get; set; } = [];
         public List<SyncOperation>? Pending { get; set; }
         public required string Root { get; set; }
+        // Null is omitted so existing checkpoints retain their exact checksum.
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<string, long>? Tombstones { get; set; }
     }
 
     public async Task<VaultSyncResult> RunAsync(CancellationToken ct)
@@ -64,6 +70,8 @@ public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemot
         if (!SyncFiles.Paths.Equals(state.Root, root)) throw new InvalidOperationException("已绑定词库的路径发生变化。");
         if (state.Cursor < 0 || state.Notes == null || state.Cursor > 0 && state.LastSignature?.Length != 64)
             throw new InvalidDataException("同步记录不完整。");
+        if (state.Tombstones?.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || pair.Value <= 0 || state.Notes.ContainsKey(pair.Key)) == true)
+            throw new InvalidDataException("同步删除记录不完整。");
         return state;
     }
 
@@ -91,7 +99,7 @@ public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemot
             verifyBinding?.Invoke(root);
             var files = SyncFiles.Snapshot(root, ct);
             var regions = await LinkRefresher.ExportRegions(options, ct);
-            state.Pending = Plan(root, files, state.Notes.Values, regions);
+            state.Pending = Plan(root, files, state.Notes.Values, regions, noteIdentities, state.Tombstones);
             if (state.Pending.Count > 0) await Save(state, ct);
         }
 
@@ -153,13 +161,15 @@ public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemot
             state.LastSignature = lastSignature;
             await Save(state, ct);
         }
-        return new(uploaded, received, conflicts, rebuilt);
+        return new(uploaded, received, conflicts, rebuilt, state.Notes.Values.ToArray());
     }
 
     private static List<SyncOperation> Plan(string root, Dictionary<string, string> files, IEnumerable<SyncedNote> tracked,
-        Dictionary<string, Dictionary<string, string>> regions)
+        Dictionary<string, Dictionary<string, string>> regions, IReadOnlyDictionary<string, string>? identities,
+        IReadOnlyDictionary<string, long>? tombstones)
     {
         var byPath = tracked.ToDictionary(n => n.Path, SyncFiles.Paths);
+        var byId = byPath.Values.ToDictionary(note => note.Id, StringComparer.Ordinal);
         var missing = byPath.Values.Where(n => !files.ContainsKey(n.Path)).ToDictionary(n => n.Id);
         var addedHashes = files.Where(f => !byPath.ContainsKey(f.Key)).ToLookup(f => SyncFiles.Hash(f.Value), f => f.Key);
         var missingHashes = missing.Values.ToLookup(n => n.Hash);
@@ -168,7 +178,15 @@ public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemot
         {
             var hash = SyncFiles.Hash(markdown);
             regions.TryGetValue(path, out var ownership);
-            if (byPath.TryGetValue(path, out var old))
+            var preferredId = identities?.GetValueOrDefault(path);
+            SyncedNote? old;
+            if (preferredId is not null && byId.TryGetValue(preferredId, out var identified))
+            {
+                old = identified;
+                missing.Remove(old.Id);
+                if (old.Path.Equals(path, StringComparison.Ordinal) && old.Hash == hash && Same(ownership, old.Regions)) continue;
+            }
+            else if (byPath.TryGetValue(path, out old))
             {
                 // Windows path identity is case-insensitive, even when a peer uses different display casing.
                 if (old.Hash == hash && Same(ownership, old.Regions)) continue;
@@ -179,7 +197,10 @@ public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemot
                 missing.Remove(old.Id);
                 ownership ??= old.Regions;
             }
-            ops.Add(new(Guid.NewGuid().ToString(), old?.Id ?? Guid.NewGuid().ToString(), old?.Version ?? 0,
+            // Only an explicitly restored identity can reuse a deleted head. A new
+            // file at its old path still starts with a new identity and version zero.
+            var version = old?.Version ?? (preferredId is not null ? tombstones?.GetValueOrDefault(preferredId) : null) ?? 0;
+            ops.Add(new(Guid.NewGuid().ToString(), old?.Id ?? preferredId ?? Guid.NewGuid().ToString(), version,
                 path, markdown, false, ownership));
         }
         foreach (var n in missing.Values)
@@ -195,14 +216,15 @@ public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemot
     private async Task Apply(string root, State state, Dictionary<string, SyncChange> updates, CancellationToken ct)
     {
         var next = new Dictionary<string, SyncedNote>(state.Notes);
+        var tombstones = state.Tombstones is null ? new Dictionary<string, long>() : new(state.Tombstones);
         var expected = state.Notes.Values.ToDictionary(n => n.Path, n => (string?)n.Hash, SyncFiles.Paths);
         foreach (var op in state.Pending!) expected[op.Path] = op.Deleted ? null : SyncFiles.Hash(op.Markdown);
         var metadata = new Dictionary<string, Dictionary<string,string>?>(SyncFiles.Paths);
         foreach (var change in updates.Values)
         {
             SyncFiles.Resolve(root, change.Path);
-            if (change.Deleted) next.Remove(change.NoteId);
-            else next[change.NoteId] = new(change.NoteId, change.Path, change.Version, SyncFiles.Hash(change.Markdown), change.Regions);
+            if (change.Deleted) { next.Remove(change.NoteId); tombstones[change.NoteId] = change.Version; }
+            else { next[change.NoteId] = new(change.NoteId, change.Path, change.Version, SyncFiles.Hash(change.Markdown), change.Regions); tombstones.Remove(change.NoteId); }
         }
         var currentPaths = next.Values.ToDictionary(n => n.Path, SyncFiles.Paths);
         foreach (var path in state.Notes.Values.Select(n => n.Path).Concat(state.Pending!.Select(o => o.Path)).Distinct(SyncFiles.Paths))
@@ -220,6 +242,7 @@ public sealed class VaultSync(VaultOptions options, string stateFile, ISyncRemot
         }
         await LinkRefresher.ImportRegions(options, metadata, ct);
         state.Notes = next;
+        state.Tombstones = tombstones.Count == 0 ? null : tombstones;
     }
 
     private static bool Same(Dictionary<string,string>? a, Dictionary<string,string>? b) =>

@@ -14,7 +14,18 @@ public sealed partial class LibraryCatalog
     private readonly SemaphoreSlim _gate;
     private List<CatalogEntry>? _pendingEntries;
     private List<CatalogEntry>? _lastKnownEntries;
+    private IReadOnlyDictionary<string, string> _cloudByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyDictionary<string, string> _cloudHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyDictionary<string, string> CloudNoteIds { get; private set; } = new Dictionary<string, string>();
     public string LocalStateDirectory { get; }
+
+    // Cloud identity is separate from the local catalog identity. In particular, an inbound
+    // rename and edit must follow the cloud note rather than reuse the old pathname.
+    public void SetCloudIdentities(IReadOnlyDictionary<string, string> identities, IReadOnlyDictionary<string, string>? contentHashes = null)
+    {
+        _cloudByPath = new Dictionary<string, string>(identities, StringComparer.OrdinalIgnoreCase);
+        _cloudHashes = new Dictionary<string, string>(contentHashes ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+    }
 
     public LibraryCatalog(VaultOptions options, string? metadataDirectory = null)
     {
@@ -112,10 +123,18 @@ public sealed partial class LibraryCatalog
         var oldHashes = previous.GroupBy(entry => entry.ContentHash).ToDictionary(group => group.Key, group => group.ToArray());
         var identities = new Dictionary<string, CatalogEntry>(StringComparer.OrdinalIgnoreCase);
         var usedIds = unavailableEntries.Select(entry => entry.Id).ToHashSet();
+        var cloudByPath = _cloudByPath;
+        var byCloud = previous.Where(entry => entry.CloudId is not null).GroupBy(entry => entry.CloudId!)
+            .Where(group => group.Count() == 1).ToDictionary(group => group.Key, group => group.Single(), StringComparer.Ordinal);
+        foreach (var file in files)
+            if (cloudByPath.TryGetValue(file.RelativePath, out var cloudId) &&
+                (!_cloudHashes.TryGetValue(file.RelativePath, out var syncedHash) || syncedHash.Equals(file.Hash, StringComparison.OrdinalIgnoreCase)) &&
+                byCloud.TryGetValue(cloudId, out var synced) && usedIds.Add(synced.Id))
+                identities[file.RelativePath] = synced;
         // Match unchanged files first, then unique unchanged moves, and finally edits in place.
         // A moved file may occupy a deleted note's path or leave its old name available for reuse.
         foreach (var file in files)
-            if (byPath.TryGetValue(file.RelativePath, out var samePath) && samePath.ContentHash == file.Hash && usedIds.Add(samePath.Id))
+            if (!identities.ContainsKey(file.RelativePath) && byPath.TryGetValue(file.RelativePath, out var samePath) && samePath.ContentHash == file.Hash && usedIds.Add(samePath.Id))
                 identities[file.RelativePath] = samePath;
         foreach (var file in files)
             if (unavailablePaths.Count == 0 && !identities.ContainsKey(file.RelativePath) && currentHashes[file.Hash] == 1 &&
@@ -126,6 +145,7 @@ public sealed partial class LibraryCatalog
                 identities[file.RelativePath] = edited;
         var notes = new List<LibraryNote>();
         var entries = new List<CatalogEntry>(unavailableEntries);
+        var cloudIds = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var file in files)
         {
             identities.TryGetValue(file.RelativePath, out var old);
@@ -134,8 +154,12 @@ public sealed partial class LibraryCatalog
                 Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_wordRoot.ToUpperInvariant() + "\n" + file.RelativePath.Normalize().ToUpperInvariant()))));
             var added = LibraryNote.CreationDate(file.Markdown) ?? old?.AddedAt ?? file.Created;
             notes.Add(new(id, file.RelativePath, file.AbsolutePath, file.Markdown, added));
-            entries.Add(new(id, file.RelativePath, file.Hash, added));
+            var cloudId = !_cloudHashes.TryGetValue(file.RelativePath, out var remoteHash) || remoteHash.Equals(file.Hash, StringComparison.OrdinalIgnoreCase)
+                ? cloudByPath.GetValueOrDefault(file.RelativePath) ?? old?.CloudId : old?.CloudId;
+            entries.Add(new(id, file.RelativePath, file.Hash, added, cloudId));
+            if (cloudId is not null) cloudIds[id] = cloudId;
         }
+        CloudNoteIds = cloudIds;
         if (canSave)
         {
             try
@@ -317,6 +341,6 @@ public sealed partial class LibraryCatalog
         finally { _gate.Release(); }
     }
 
-    private sealed record CatalogEntry(string Id, string RelativePath, string ContentHash, DateTimeOffset AddedAt);
+    private sealed record CatalogEntry(string Id, string RelativePath, string ContentHash, DateTimeOffset AddedAt, string? CloudId = null);
     private sealed record CatalogIndex(int Version, List<CatalogEntry> Entries);
 }

@@ -28,9 +28,26 @@ public sealed class NoteReader : UserControl, IDisposable
     private bool _disposed;
     private string _lastFind = "";
     private int _nextFindAt;
+    private readonly DispatcherTimer _positionTimer;
+    private bool _restoringReadingPosition;
 
     public NoteReader()
     {
+        _positionTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(650) };
+        _positionTimer.Tick += (_, _) =>
+        {
+            _positionTimer.Stop();
+            if (!_disposed && !_restoringReadingPosition && Note is { } note)
+            {
+                var position = ReadingPositionTools.Capture(_preview);
+                ReadingPositionChanged?.Invoke(this, new(note.Id, position.Progress, position.Anchor, note.Title));
+            }
+        };
+        _preview.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, args) =>
+        {
+            if (args.VerticalChange == 0 || _disposed || !IsVisible || _restoreOffset is not null || _restoringReadingPosition) return;
+            _positionTimer.Stop(); _positionTimer.Start();
+        }));
         var toolbar = _toolbar;
         toolbar.Children.Add(_back);
         toolbar.Children.Add(_path);
@@ -129,6 +146,19 @@ public sealed class NoteReader : UserControl, IDisposable
     public event EventHandler<LibraryNote>? NewTabRequested;
     internal Func<LibraryNote, bool>? NavigationGuard { get; set; }
     public event EventHandler<LibraryNote>? NoteChanged;
+    public event EventHandler<NoteReadingPosition>? ReadingPositionChanged;
+    public ReadingPositionValue ReadingProgress => ReadingPositionTools.Capture(_preview);
+    public void RestoreReadingPosition(double progress, string? anchor)
+    {
+        if (_disposed || Note is null || !double.IsFinite(progress)) return;
+        var note = Note;
+        _restoringReadingPosition = true; _positionTimer.Stop();
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (!_disposed && Note?.Id == note.Id) ReadingPositionTools.Restore(_preview, progress, anchor);
+            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => _restoringReadingPosition = false));
+        }));
+    }
     public event EventHandler? NavigationRequested;
     public event EventHandler<string>? MessageChanged;
     public event EventHandler<string>? WebLinkRequested;
@@ -205,6 +235,25 @@ public sealed class NoteReader : UserControl, IDisposable
         NavigationRequested?.Invoke(this, EventArgs.Empty);
     }
 
+    internal void ForgetHistory(string noteId)
+    {
+        static void Remove(Stack<ReadingPosition> history, string id)
+        {
+            var retained = history.Where(position => position.Note.Id != id).Reverse().ToArray();
+            history.Clear(); foreach (var position in retained) history.Push(position);
+        }
+        Remove(_history, noteId); Remove(_forward, noteId);
+        _back.IsEnabled = CanGoBack;
+    }
+    internal void ForgetNote(string noteId)
+    {
+        ForgetHistory(noteId);
+        if (Note?.Id != noteId) return;
+        _positionTimer.Stop(); CancelRestore(); CloseCard();
+        Note = null; _preview.Markdown = ""; _path.Text = "选择一篇笔记开始阅读";
+        _lastFind = ""; _nextFindAt = 0; SetMessage("");
+    }
+
     public void HandleLink(PreviewLinkEventArgs args, LibraryNote? source, FrameworkElement? placementTarget = null)
     {
         if (_disposed) return;
@@ -231,6 +280,7 @@ public sealed class NoteReader : UserControl, IDisposable
 
     private void Display(LibraryNote note, double offset)
     {
+        _positionTimer.Stop();
         CloseCard();
         CancelRestore();
         Note = note;
@@ -276,6 +326,7 @@ public sealed class NoteReader : UserControl, IDisposable
     private void OnLoaded(object sender, RoutedEventArgs args) => QueueRestore();
     private void OnUnloaded(object sender, RoutedEventArgs args)
     {
+        _positionTimer.Stop();
         CloseCard();
         _restoreOperation?.Abort();
         _restoreOperation = null;
@@ -424,6 +475,7 @@ public sealed class NoteReader : UserControl, IDisposable
 
     public void Dispose()
     {
+        _positionTimer.Stop();
         if (_disposed) return;
         _disposed = true;
         CloseCard();

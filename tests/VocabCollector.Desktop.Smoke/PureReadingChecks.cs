@@ -47,6 +47,7 @@ public sealed partial class SmokeRunner
         try
         {
             await CheckDailyReadingAsync(main, feeds, () => sourceUrl, output, () => modelHandler.Requests, content, translations, vm, themes);
+            await CheckReadingNavigationPerformanceAsync(output);
             Check(modelHandler.Requests == 0 && !Directory.GetFiles(vault, "*.md", SearchOption.AllDirectories).Any(),
                 "pure reading and capture prefill create no note and send no model request");
             Check(!File.Exists(Path.Combine(config, "settings.json")), "reading never creates API configuration");
@@ -240,6 +241,26 @@ public sealed partial class SmokeRunner
 
     private static async Task<ReadingWordSelection> OpenPureWordActionsAsync(ReadingPage page, RichTextBox body, string word)
     {
+        // Long documents begin as a single text run per paragraph. Use the actual
+        // keyboard selection route; the reader creates only the activated word span.
+        foreach (var paragraph in body.Document.Blocks.OfType<Paragraph>())
+            foreach (var run in paragraph.Inlines.OfType<Run>())
+            {
+                var start = run.Text.IndexOf(word, StringComparison.OrdinalIgnoreCase);
+                if (start < 0) continue;
+                var pointer = run.ContentStart.GetPositionAtOffset(start)!;
+                var bounds = pointer.GetCharacterRect(LogicalDirection.Forward);
+                if (bounds.Top < 5 || bounds.Bottom >= body.ActualHeight - 20) continue;
+                var absolute = new TextRange(paragraph.ContentStart, run.ContentStart).Text.Length + start;
+                var paragraphText = new TextRange(paragraph.ContentStart, paragraph.ContentEnd).Text;
+                var selected = new ReadingWordSelection(word, ArticleWords.Tokenize(paragraphText).First(item => item.Start == absolute).Context);
+                body.Selection.Select(pointer, pointer.GetPositionAtOffset(word.Length));
+                var key = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(body), Environment.TickCount, Key.Enter)
+                    { RoutedEvent = Keyboard.PreviewKeyDownEvent };
+                body.RaiseEvent(key); await Until(() => page.WordActionsPopup.IsOpen);
+                Check(key.Handled, "long native reader handles the selected occurrence without rebuilding the document");
+                return selected;
+            }
         var spans = body.Document.Blocks.OfType<Paragraph>().SelectMany(paragraph => paragraph.Inlines.OfType<Span>())
             .Where(span => span.Tag is ReadingWordSelection selection && selection.Word.Equals(word, StringComparison.OrdinalIgnoreCase)).ToArray();
         var span = spans.First(candidate =>

@@ -26,7 +26,7 @@ public sealed class NotebookPicker : Window
         _items = items; _filter = filter ?? ((item, query) => item.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase)); _canCreate = canCreate;
         Title = title; Width = 600; Height = 410; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; WindowStyle = WindowStyle.None;
         Owner = Window.GetWindow(host); WindowStartupLocation = Owner == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner;
-        Resources.MergedDictionaries.Add(host.Resources);
+        NotebookDialog.ApplyResources(this, host);
         SetResourceReference(BackgroundProperty, "NotebookSurface"); SetResourceReference(ForegroundProperty, "NotebookText");
         var panel = new Grid(); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) }); panel.RowDefinitions.Add(new() { Height = GridLength.Auto });
         panel.Children.Add(new TextBlock { Text = title, Margin = new(16, 14, 16, 0), FontWeight = FontWeights.SemiBold });
@@ -62,6 +62,13 @@ public sealed class NotebookPicker : Window
 
 public static class NotebookDialog
 {
+    internal static void ApplyResources(Window window, FrameworkElement host)
+    {
+        window.Resources.MergedDictionaries.Add(host.Resources);
+        foreach (var (key, fallback) in new[] { ("NotebookSurface", "Sheet"), ("NotebookText", "Ink"),
+            ("NotebookMuted", "InkSecondary"), ("NotebookBorder", "Line"), ("NotebookAction", "OutlineAction") })
+            if (host.TryFindResource(key) is null && host.TryFindResource(fallback) is { } value) window.Resources[key] = value;
+    }
     public static string? Prompt(FrameworkElement host, string title, string initial, string description)
     {
         var window = Create(host, title, 520, 218);
@@ -87,6 +94,6 @@ public static class NotebookDialog
     private static Window Create(FrameworkElement host, string title, double width, double height)
     {
         var window = new Window { Title = title, Width = width, MinHeight = height, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Owner = Window.GetWindow(host), WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        window.Resources.MergedDictionaries.Add(host.Resources); window.SetResourceReference(Window.BackgroundProperty, "NotebookSurface"); window.SetResourceReference(Window.ForegroundProperty, "NotebookText"); window.SourceInitialized += (_, _) => TitleBarTheme.Apply(window); return window;
+        ApplyResources(window, host); window.SetResourceReference(Window.BackgroundProperty, "NotebookSurface"); window.SetResourceReference(Window.ForegroundProperty, "NotebookText"); window.SourceInitialized += (_, _) => TitleBarTheme.Apply(window); return window;
     }
 }

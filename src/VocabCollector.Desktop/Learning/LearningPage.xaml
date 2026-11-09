@@ -14,7 +14,7 @@
  </UserControl.Resources>
  <Grid>
   <Grid x:Name="LibrarySurface"><local:LibraryBrowser x:Name="Browser"/></Grid>
-  <Grid x:Name="RoamingSurface" Visibility="Collapsed" Margin="22,18,22,16">
+  <Grid x:Name="RoamingSurface" Visibility="Hidden" Margin="22,18,22,16">
    <Grid.ColumnDefinitions><ColumnDefinition x:Name="RoamingCardColumn" Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition x:Name="RoamingStatusColumn" Width="272"/><ColumnDefinition x:Name="RoamingPreviewGap" Width="0"/><ColumnDefinition x:Name="RoamingPreviewColumn" Width="0"/></Grid.ColumnDefinitions>
    <Border x:Name="RoamingWordCard" Style="{DynamicResource SheetCard}" Padding="34,26,34,24">
     <Grid>

@@ -11,6 +11,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.1"><PrivateAssets>all</PrivateAssets></PackageReference>
     <ProjectReference Include="../../src/VocabCollector.Core/VocabCollector.Core.csproj" />
     <ProjectReference Include="../../src/VocabCollector.Desktop/VocabCollector.Desktop.csproj" />
+    <ProjectReference Include="../../src/VocabCollector.Updater/VocabCollector.Updater.csproj" />
     <Using Include="Xunit" />
     <Using Include="System.IO" />
     <Using Include="System.Net.Http" />

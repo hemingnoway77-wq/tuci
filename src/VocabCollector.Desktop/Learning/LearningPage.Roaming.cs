@@ -19,6 +19,10 @@ public sealed record RoamingActivityCell(DateOnly Day, int Count, int UniqueWord
 public partial class LearningPage
 {
     private RoamingStatistics? _statistics;
+    private IReadOnlyList<LibraryNote>? _statisticsNotes;
+    private RoamingSession? _statisticsSession;
+    private Guid? _statisticsExposureId;
+    private DateOnly? _statisticsDay;
     private IReadOnlyList<RoamingActivityCell> _activityDays = [];
     private DispatcherTimer? _statisticsTimer;
     private bool _monthly, _previewOpen;
@@ -57,7 +61,7 @@ public partial class LearningPage
         _statisticsTimer = new(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMinutes(1) };
         _statisticsTimer.Tick += (_, _) =>
         {
-            if (RoamingSurface.IsVisible && _statistics?.Today != DateOnly.FromDateTime(DateTime.Now)) UpdateRoamingStatistics();
+            if (RoamingSurface.IsVisible && _statisticsDay != DateOnly.FromDateTime(_clock.GetLocalNow().DateTime)) UpdateRoamingStatistics();
         };
         IsVisibleChanged += (_, _) =>
         {
@@ -69,7 +73,15 @@ public partial class LearningPage
     private void UpdateRoamingStatistics()
     {
         if (_disposed) return;
+        var today = DateOnly.FromDateTime(_clock.GetLocalNow().DateTime);
+        var exposureId = _exposure?.Id;
+        if (_statisticsDay == today && ReferenceEquals(_statisticsNotes, _notes) &&
+            ReferenceEquals(_statisticsSession, _session) && _statisticsExposureId == exposureId) return;
         var updated = _session?.GetStatistics(_notes);
+        _statisticsDay = today;
+        _statisticsNotes = _notes;
+        _statisticsSession = _session;
+        _statisticsExposureId = exposureId;
         if (_statistics is { } previous && updated is { } current && previous.Today == current.Today &&
             previous.WeekReviewed == current.WeekReviewed && previous.MonthReviewed == current.MonthReviewed &&
             previous.TotalWords == current.TotalWords && previous.HasLegacyHistory == current.HasLegacyHistory &&

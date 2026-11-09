@@ -112,13 +112,27 @@ public partial class LibraryShell
     }
     private async Task TrashAsync(LibraryNote note)
     {
-        if (!NotebookDialog.Confirm(this, "删除笔记", $"将“{note.Title}”移入本机回收站？可以从左下角回收站恢复。")) return;
-        await PerformAsync(async () =>
+        if (_operating || _disposed || _catalog is not { } catalog) return;
+        if (!NotebookDialog.Confirm(this, "删除笔记", $"将“{note.RelativePath}”移入回收站？删除会同步到其他设备，可从左下角回收站恢复。")) return;
+        var enabled = Workspace.IsEnabled;
+        Workspace.IsEnabled = false;
+        try
         {
-            await _catalog!.TrashNoteAsync(await LatestAsync(note));
-            if (Workspace.Note?.Id == note.Id) await Workspace.CloseActiveTabAsync();
-            SetMessage("笔记已移入回收站，可随时恢复。");
-        });
+            await PerformAsync(async () =>
+            {
+                if (_disposed || !ReferenceEquals(_catalog, catalog)) return;
+                var snapshot = await catalog.ScanAsync();
+                var latest = snapshot.Notes.FirstOrDefault(current => current.Id == note.Id)
+                    ?? throw new IOException("这篇笔记已不在词库中，请刷新后重试。");
+                if (_disposed || !ReferenceEquals(_catalog, catalog)) return;
+                await catalog.TrashNoteAsync(latest);
+                if (_disposed || !ReferenceEquals(_catalog, catalog)) return;
+                Workspace.ForgetDeletedNote(note.Id);
+                Configure(catalog, snapshot.Notes.Where(current => current.Id != note.Id).ToArray(), _wordRoot);
+                SetMessage("笔记已移入回收站，可随时恢复。");
+            });
+        }
+        finally { Workspace.IsEnabled = enabled; }
     }
     private async void Trash_Click(object sender, RoutedEventArgs e)
     {

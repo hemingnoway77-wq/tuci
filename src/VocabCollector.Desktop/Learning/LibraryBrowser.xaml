@@ -55,6 +55,7 @@
     <StackPanel Grid.Row="3" Margin="0,12,2,0">
      <TextBlock x:Name="FileCountText" Style="{DynamicResource MetaText}" Margin="2,0,0,9"/>
      <UniformGrid Columns="2" Height="32"><Button x:Name="ImportMarkdownButton" Content="导入 Markdown" Click="Import_Click" Style="{DynamicResource OutlineAction}" Padding="5,7" FontSize="12" Margin="0,0,5,0"/><Button x:Name="ReloadLibraryButton" Content="刷新" Click="Reload_Click" Style="{DynamicResource QuietAction}" Padding="5,7"/></UniformGrid>
+     <Button x:Name="BrowserTrashButton" Click="Trash_Click" Style="{DynamicResource QuietAction}" Height="32" Margin="0,6,0,0" ToolTip="回收站 · 恢复已删除的笔记" AutomationProperties.Name="回收站"><StackPanel Orientation="Horizontal"><local:NotebookIcon Kind="trash" Width="14" Height="14" VerticalAlignment="Center"/><TextBlock Text="回收站" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12"/></StackPanel></Button>
     </StackPanel>
    </Grid>
   </Border>
@@ -64,6 +65,7 @@
     <Border BorderBrush="{DynamicResource LineSoft}" BorderThickness="0,0,0,1" Padding="12,8">
      <DockPanel>
       <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,8,0"><local:NotebookNavigationButton x:Name="ShowFilesButton" Kind="panel-left" Label="文件列表" Visibility="Collapsed" Click="ShowFiles_Click"/><local:NotebookNavigationButton x:Name="BrowserBackButton" Kind="back" Label="后退" IsEnabled="False" Click="Back_Click"/><local:NotebookNavigationButton x:Name="BrowserForwardButton" Kind="forward" Label="前进" IsEnabled="False" Click="Forward_Click"/></StackPanel>
+      <Button x:Name="BrowserDeleteNoteButton" DockPanel.Dock="Right" Click="DeleteNote_Click" Style="{DynamicResource QuietAction}" Padding="8,5" IsEnabled="False" ToolTip="删除当前笔记（移入回收站）" AutomationProperties.Name="删除当前笔记"><StackPanel Orientation="Horizontal"><local:NotebookIcon Kind="trash" Width="14" Height="14" VerticalAlignment="Center"/><TextBlock Text="删除" Margin="5,0,0,0" VerticalAlignment="Center" FontSize="13"/></StackPanel></Button>
       <TextBlock x:Name="DocumentPathText" Foreground="{DynamicResource InkTertiary}" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
      </DockPanel>
     </Border>

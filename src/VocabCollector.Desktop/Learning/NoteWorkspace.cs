@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -23,7 +24,7 @@ public sealed class NoteWorkspace : UserControl, IDisposable
     private readonly TextBox _findBox = new() { Width = 240, Margin = new Thickness(8, 4, 8, 4) };
     private readonly StackPanel _findBar = new() { Orientation = Orientation.Horizontal, Visibility = Visibility.Collapsed };
     private readonly StackPanel _conflictBar = new() { Orientation = Orientation.Horizontal, Visibility = Visibility.Collapsed };
-    private readonly Button _editButton, _backButton, _forwardButton;
+    private readonly Button _editButton, _backButton, _forwardButton, _deleteButton;
     private readonly DispatcherTimer _autosave;
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private LibraryCatalog? _catalog;
@@ -51,7 +52,18 @@ public sealed class NoteWorkspace : UserControl, IDisposable
         _backButton = MakeButton("←", "后退", (_, _) => GoBack()); actions.Children.Add(_backButton);
         _forwardButton = MakeButton("→", "前进", (_, _) => GoForward()); actions.Children.Add(_forwardButton);
         _editButton = MakeButton("源码", "阅读 / 源码 Ctrl+E", (_, _) => ToggleEditing());
+        _deleteButton = MakeButton("删除", "删除当前笔记（移入回收站）", (_, _) =>
+        {
+            if (!_disposed && Note is { } note) DeleteNoteRequested?.Invoke(this, note);
+        });
+        _deleteButton.Name = "DeleteCurrentNoteButton";
+        AutomationProperties.SetName(_deleteButton, "删除当前笔记");
+        var deleteContent = new StackPanel { Orientation = Orientation.Horizontal };
+        deleteContent.Children.Add(new NotebookIcon { Kind = "trash", Width = 14, Height = 14, VerticalAlignment = VerticalAlignment.Center });
+        deleteContent.Children.Add(new TextBlock { Text = "删除", Margin = new Thickness(5, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        _deleteButton.Content = deleteContent;
         DockPanel.SetDock(actions, Dock.Left); toolbar.Children.Add(actions);
+        DockPanel.SetDock(_deleteButton, Dock.Right); toolbar.Children.Add(_deleteButton);
         DockPanel.SetDock(_editButton, Dock.Right); toolbar.Children.Add(_editButton);
         DockPanel.SetDock(_saveStatus, Dock.Right); toolbar.Children.Add(_saveStatus);
         toolbar.Children.Add(_path);
@@ -80,6 +92,7 @@ public sealed class NoteWorkspace : UserControl, IDisposable
     public event EventHandler? ActiveTabChanged;
     public event EventHandler? QuickOpenRequested;
     public event EventHandler? NewNoteRequested;
+    public event EventHandler<LibraryNote>? DeleteNoteRequested;
 
     public void Configure(LibraryCatalog catalog, IReadOnlyList<LibraryNote> notes)
     {
@@ -212,6 +225,33 @@ public sealed class NoteWorkspace : UserControl, IDisposable
         if (closing.Note is { } note) _closed.Push(new(note, closing.Reader.VerticalOffset));
         _tabs.Remove(closing); closing.Reader.Dispose();
         if (_tabs.Count == 0) NewTab(); else SelectTab(_tabs[Math.Clamp(index, 0, _tabs.Count - 1)]);
+    }
+    // A successful file deletion is not a normal tab close: saving or retaining a
+    // closed-tab snapshot here could recreate the file or reopen stale contents.
+    internal void ForgetDeletedNote(string noteId)
+    {
+        if (_disposed) return;
+        var selected = _active;
+        var index = _tabs.IndexOf(selected);
+        _notes = _notes.Where(note => note.Id != noteId).ToArray();
+        foreach (var tab in _tabs.Where(tab => tab.Note?.Id == noteId).ToArray())
+        {
+            _tabs.Remove(tab); tab.Reader.Dispose();
+        }
+        var closed = _closed.Where(tab => tab.Note.Id != noteId).Reverse().ToArray();
+        _closed.Clear(); foreach (var tab in closed) _closed.Push(tab);
+        var previous = _updating; _updating = true;
+        try
+        {
+            foreach (var tab in _tabs)
+            {
+                tab.Reader.ForgetHistory(noteId);
+                tab.Reader.RefreshNotes(_notes);
+            }
+        }
+        finally { _updating = previous; }
+        if (_tabs.Count == 0) NewTab();
+        else SelectTab(_tabs.Contains(selected) ? selected : _tabs[Math.Clamp(index, 0, _tabs.Count - 1)]);
     }
     public void ReopenClosedTab()
     {
@@ -361,6 +401,7 @@ public sealed class NoteWorkspace : UserControl, IDisposable
         _path.Text = Note?.RelativePath ?? "新标签"; _path.SetResourceReference(TextBlock.ForegroundProperty, "NotebookMuted");
         _saveStatus.Text = _active.Conflict ? "保存冲突" : _active.Dirty ? "未保存" : ""; _saveStatus.SetResourceReference(TextBlock.ForegroundProperty, "NotebookMuted");
         _editButton.Content = new NotebookIcon { Kind = _active.Editing ? "book" : "edit" };
+        _deleteButton.IsEnabled = Note is not null;
         _backButton.IsEnabled = ActiveReader.CanGoBack && !_active.Dirty; _forwardButton.IsEnabled = ActiveReader.CanGoForward && !_active.Dirty;
         _conflictBar.Visibility = _active.Conflict ? Visibility.Visible : Visibility.Collapsed;
         if (IsLoaded)

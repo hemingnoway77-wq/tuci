@@ -1,4 +1,5 @@
 using System.Text.Json;
+using VocabCollector.Core.Sync;
 
 namespace VocabCollector.Core.Library;
 
@@ -27,6 +28,8 @@ public sealed class RoamingSession
     private readonly SemaphoreSlim _gate = new(1, 1);
     private ReviewState _state;
     public RoamingExposure? Current { get; private set; }
+    /// <summary>Raised only after a local learning action is durably committed. Sync replay does not raise it.</summary>
+    public event EventHandler? StateChanged;
 
     public RoamingStatistics GetStatistics(IReadOnlyList<LibraryNote> notes)
     {
@@ -76,8 +79,15 @@ public sealed class RoamingSession
                         throw new JsonException("漫游活动记录计数无效。");
             if (_state.Activity is null && (_state.Records.Count > 0 || _state.CurrentExposure is not null))
                 _state = _state with { HasLegacyHistory = true };
+            if (_state.SyncEntries is not null)
+                foreach (var entry in _state.SyncEntries) AccountStateSync.Validate(new(entry.Key, entry.Value));
+            if (_state.PendingBaseline is not null && _state.PendingBaseline.Any(item => item is null ||
+                string.IsNullOrWhiteSpace(item.NoteId) || item.Remembered < 0 || item.Skipped < 0 || item.Shown < 0))
+                throw new JsonException("学习迁移记录格式无效。");
+            _state = PrepareSync(_state);
         }
-        catch (JsonException error) { throw new IOException("无法读取本机学习记录，请检查文件：" + _stateFile, error); }
+        catch (Exception error) when (error is JsonException or InvalidDataException)
+        { throw new IOException("无法读取本机学习记录，请检查文件：" + _stateFile, error); }
     }
 
     public async Task<RoamingExposure?> NextAsync(IReadOnlyList<LibraryNote> notes, Guid? finishingExposure = null, bool remembered = false, CancellationToken cancellationToken = default)
@@ -99,6 +109,7 @@ public sealed class RoamingSession
             }
 
             var records = new Dictionary<string, ReviewRecord>(_state.Records);
+            var syncEntries = new Dictionary<string, JsonElement>(_state.SyncEntries!, StringComparer.Ordinal);
             if (finishingExposure is not null && finishingExposure == _state.CurrentExposure && _state.CurrentNoteId is { } completedId)
             {
                 var record = Record(completedId);
@@ -109,6 +120,8 @@ public sealed class RoamingSession
                     Remembered = checked(m + (remembered ? 1 : 0)),
                     Skipped = checked(s + (remembered ? 0 : 1))
                 };
+                syncEntries[EventKey(finishingExposure.Value, "completed")] = JsonSerializer.SerializeToElement(new
+                { noteId = completedId, at = now, day = today.ToString("yyyy-MM-dd"), remembered });
             }
 
             var choices = notes.Where(note => note.IsWord).Select(note =>
@@ -137,22 +150,45 @@ public sealed class RoamingSession
                     throw new IOException("当天漫游计数已达到上限，当前卡片尚未推进。");
                 counts[selected.Note.Id] = checked(counts.GetValueOrDefault(selected.Note.Id) + 1);
                 trackingStartedOn ??= today;
+                syncEntries[EventKey(next.Id, "shown")] = JsonSerializer.SerializeToElement(new
+                { noteId = selected.Note.Id, at = now, day = today.ToString("yyyy-MM-dd"), weight = selected.Weight, weightLevel });
+                syncEntries["roaming/current"] = JsonSerializer.SerializeToElement(new
+                { noteId = selected.Note.Id, exposureId = next.Id.ToString("D"), at = now, weight = selected.Weight, weightLevel });
             }
 
             if (next is null && _state.CurrentExposure is null && finishingExposure is null) return null;
-            var candidate = new ReviewState(records, next?.Id, next?.Note.Id, activity, _state.HasLegacyHistory,
-                trackingStartedOn, next?.Weight, next?.WeightLevel);
+            var candidate = _state with { Records = records, CurrentExposure = next?.Id, CurrentNoteId = next?.Note.Id,
+                Activity = activity, TrackingStartedOn = trackingStartedOn, CurrentWeight = next?.Weight,
+                CurrentWeightLevel = next?.WeightLevel, CurrentAt = next is null ? null : now, SyncEntries = syncEntries };
             try { await LocalLibraryState.WriteAsync(_stateFile, candidate, cancellationToken); }
             catch (Exception error) when (LocalLibraryState.IsStorageError(error))
             { throw new IOException("无法保存本机学习记录，当前卡片尚未推进。" + error.Message, error); }
             _state = candidate;
             Current = next;
+            StateChanged?.Invoke(this, EventArgs.Empty);
             return next;
         }
         finally { _gate.Release(); }
     }
 
     private ReviewRecord Record(string id) => _state.Records.GetValueOrDefault(id, new ReviewRecord());
+
+    /// <summary>Resolve the persisted current card after sync without drawing or recording an exposure.</summary>
+    public async Task<RoamingExposure?> RefreshCurrentAsync(IReadOnlyList<LibraryNote> notes, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(notes);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var now = _clock.GetUtcNow();
+            Current = RestoreExposure(notes.FirstOrDefault(note => note.Id == _state.CurrentNoteId && note.IsWord), now, _clock.LocalTimeZone);
+            return Current;
+        }
+        finally { _gate.Release(); }
+    }
+
+    public Task<RoamingExposure?> RestoreCurrentAsync(IReadOnlyList<LibraryNote> notes, CancellationToken cancellationToken = default) =>
+        RefreshCurrentAsync(notes, cancellationToken);
 
     private RoamingExposure? RestoreExposure(LibraryNote? note, DateTimeOffset now, TimeZoneInfo timeZone) =>
         note is null || _state.CurrentExposure is not { } exposure ? null : new(exposure, note,
@@ -162,7 +198,199 @@ public sealed class RoamingSession
     private static DateOnly LocalDate(DateTimeOffset now, TimeZoneInfo timeZone) =>
         DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, timeZone).DateTime);
 
+    /// <summary>Export immutable events using cloud note IDs. Unmapped notes wait locally until their Markdown is synced.</summary>
+    public async Task<IReadOnlyList<SyncStateEntry>> ExportSyncAsync(string deviceId, Func<string, string?> localToCloud,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        if (deviceId.Contains('/') || deviceId.Any(char.IsControl)) throw new ArgumentException("设备标识无效。", nameof(deviceId));
+        ArgumentNullException.ThrowIfNull(localToCloud);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var source = _state.SourceDeviceId ?? deviceId;
+            var entries = new Dictionary<string, JsonElement>(_state.SyncEntries!, StringComparer.Ordinal);
+            var remaining = new List<LegacyBaseline>();
+            foreach (var baseline in _state.PendingBaseline!)
+            {
+                var cloudId = localToCloud(baseline.NoteId);
+                if (string.IsNullOrWhiteSpace(cloudId)) { remaining.Add(baseline); continue; }
+                if (cloudId.Contains('/')) throw new InvalidDataException("云端笔记标识无效。");
+                var key = $"legacy/{source}/{cloudId}/{baseline.Day:yyyy-MM-dd}";
+                entries.TryAdd(key, JsonSerializer.SerializeToElement(new
+                {
+                    noteId = baseline.NoteId, day = baseline.Day.ToString("yyyy-MM-dd"), remembered = baseline.Remembered,
+                    skipped = baseline.Skipped, shown = baseline.Shown, lastShown = baseline.LastShown
+                }));
+            }
+            var candidate = _state with { SourceDeviceId = source, SyncEntries = entries, PendingBaseline = remaining };
+            // Freeze the baseline before enqueueing anything. Restarts must never export merged aggregates again.
+            await LocalLibraryState.WriteAsync(_stateFile, candidate, cancellationToken);
+            _state = candidate;
+            var result = new List<SyncStateEntry>();
+            foreach (var (key, value) in entries)
+            {
+                var localId = value.GetProperty("noteId").GetString()!;
+                var cloudId = localToCloud(localId);
+                if (string.IsNullOrWhiteSpace(cloudId)) continue;
+                var converted = ReplaceNoteId(value, cloudId);
+                var entry = new SyncStateEntry(key, converted);
+                AccountStateSync.Validate(entry);
+                result.Add(entry);
+            }
+            return result;
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>Merge by exposure/legacy identity under the same gate as NextAsync; never replay a display as another visit.</summary>
+    public async Task MergeSyncAsync(IEnumerable<SyncStateEntry> incoming, Func<string, string?> cloudToLocal,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(incoming);
+        ArgumentNullException.ThrowIfNull(cloudToLocal);
+        var changes = incoming.Where(entry => entry.Key.StartsWith("event/", StringComparison.Ordinal) ||
+            entry.Key.StartsWith("legacy/", StringComparison.Ordinal) || entry.Key == "roaming/current").ToArray();
+        foreach (var entry in changes) AccountStateSync.Validate(entry);
+        if (changes.Length == 0) return;
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var entries = new Dictionary<string, JsonElement>(_state.SyncEntries!, StringComparer.Ordinal);
+            foreach (var change in changes)
+            {
+                if (change.Deleted) continue;
+                var cloudId = change.Value.GetProperty("noteId").GetString()!;
+                var localId = cloudToLocal(cloudId);
+                if (string.IsNullOrWhiteSpace(localId)) continue;
+                var key = change.Key;
+                if (key.StartsWith("event/", StringComparison.Ordinal))
+                {
+                    var parts = key.Split('/');
+                    key = EventKey(Guid.Parse(parts[1]), parts[2]);
+                }
+                // A newer locally drawn card can be committed while the network request is in flight.
+                if (key == "roaming/current" && entries.TryGetValue(key, out var localCurrent) &&
+                    localCurrent.GetProperty("at").GetDateTimeOffset() > change.Value.GetProperty("at").GetDateTimeOffset()) continue;
+                entries[key] = ReplaceNoteId(change.Value, localId);
+            }
+            var now = _clock.GetUtcNow();
+            var candidate = Rebuild(_state with { SyncEntries = entries }, now);
+            await LocalLibraryState.WriteAsync(_stateFile, candidate, cancellationToken);
+            _state = candidate;
+            Current = null; // NextAsync restores the existing ID/weight against the latest catalog snapshot.
+        }
+        catch (OverflowException error) { throw new IOException("合并后的学习计数超过上限，原记录已保留。", error); }
+        finally { _gate.Release(); }
+    }
+
+    private ReviewState PrepareSync(ReviewState state)
+    {
+        if (state.SyncEntries is not null && state.PendingBaseline is not null) return state;
+        var baseline = new Dictionary<(string Id, DateOnly Day), LegacyBaseline>();
+        foreach (var (day, counts) in state.Activity ?? [])
+            foreach (var (id, count) in counts) baseline[(id, day)] = new(id, day, 0, 0, count, null);
+        foreach (var (id, record) in state.Records)
+        {
+            if (record.Day is { } day)
+            {
+                var old = baseline.GetValueOrDefault((id, day)) ?? new(id, day, 0, 0, 0, null);
+                baseline[(id, day)] = old with { Remembered = record.Remembered, Skipped = record.Skipped };
+            }
+            if (record.LastShown is { } lastShown)
+            {
+                var shownDay = LocalDate(lastShown, _clock.LocalTimeZone);
+                var old = baseline.GetValueOrDefault((id, shownDay)) ?? new(id, shownDay, 0, 0, 0, null);
+                baseline[(id, shownDay)] = old with { LastShown = lastShown };
+            }
+        }
+        var entries = new Dictionary<string, JsonElement>(state.SyncEntries ?? [], StringComparer.Ordinal);
+        var at = state.CurrentAt;
+        if (state.CurrentExposure is { } exposure && state.CurrentNoteId is { } noteId)
+        {
+            at ??= state.Records.GetValueOrDefault(noteId)?.LastShown ?? _clock.GetUtcNow();
+            entries["roaming/current"] = JsonSerializer.SerializeToElement(new
+            { noteId, exposureId = exposure.ToString("D"), at, weight = state.CurrentWeight ?? 2.5, weightLevel = state.CurrentWeightLevel ?? 0.5 });
+        }
+        return state with { SyncEntries = entries, PendingBaseline = baseline.Values.ToList(), CurrentAt = at };
+    }
+
+    private ReviewState Rebuild(ReviewState state, DateTimeOffset now)
+    {
+        var totals = new Dictionary<(string Id, DateOnly Day), (int Remembered, int Skipped, int Shown)>();
+        var lastShown = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        void Add(string id, DateOnly day, int remembered, int skipped, int shown, DateTimeOffset? at)
+        {
+            var old = totals.GetValueOrDefault((id, day));
+            totals[(id, day)] = (checked(old.Remembered + remembered), checked(old.Skipped + skipped), checked(old.Shown + shown));
+            if (at is { } timestamp && (!lastShown.TryGetValue(id, out var previous) || timestamp > previous)) lastShown[id] = timestamp;
+        }
+        foreach (var baseline in state.PendingBaseline!) Add(baseline.NoteId, baseline.Day, baseline.Remembered, baseline.Skipped, baseline.Shown, baseline.LastShown);
+        foreach (var (key, value) in state.SyncEntries!)
+        {
+            if (key == "roaming/current") continue;
+            var id = value.GetProperty("noteId").GetString()!;
+            var day = DateOnly.ParseExact(value.GetProperty("day").GetString()!, "yyyy-MM-dd");
+            if (key.StartsWith("legacy/", StringComparison.Ordinal))
+                Add(id, day, value.GetProperty("remembered").GetInt32(), value.GetProperty("skipped").GetInt32(), value.GetProperty("shown").GetInt32(),
+                    value.TryGetProperty("lastShown", out var last) && last.ValueKind != JsonValueKind.Null ? last.GetDateTimeOffset() : null);
+            else if (key.EndsWith("/shown", StringComparison.Ordinal)) Add(id, day, 0, 0, 1, value.GetProperty("at").GetDateTimeOffset());
+            else if (key.EndsWith("/completed", StringComparison.Ordinal))
+            {
+                var remembered = value.GetProperty("remembered").GetBoolean();
+                Add(id, day, remembered ? 1 : 0, remembered ? 0 : 1, 0, null);
+            }
+        }
+        var records = new Dictionary<string, ReviewRecord>(StringComparer.Ordinal);
+        foreach (var group in totals.GroupBy(pair => pair.Key.Id))
+        {
+            // Days containing only appearances must not erase remembered/skipped counts from the same day.
+            var latest = group.Max(pair => pair.Key.Day);
+            var counts = totals[(group.Key, latest)];
+            records[group.Key] = new(lastShown.TryGetValue(group.Key, out var shownAt) ? shownAt : null, latest, counts.Remembered, counts.Skipped);
+        }
+        var today = LocalDate(now, _clock.LocalTimeZone);
+        var oldest = DateOnly.FromDayNumber(Math.Max(0, today.DayNumber - 399));
+        var activity = totals.Where(pair => pair.Key.Day >= oldest && pair.Key.Day <= today && pair.Value.Shown > 0)
+            .GroupBy(pair => pair.Key.Day).ToDictionary(group => group.Key,
+                group => group.ToDictionary(pair => pair.Key.Id, pair => pair.Value.Shown, StringComparer.Ordinal));
+        foreach (var counts in activity.Values)
+            if (counts.Values.Sum(count => (long)count) > int.MaxValue) throw new OverflowException();
+        Guid? currentExposure = state.CurrentExposure;
+        string? currentNote = state.CurrentNoteId;
+        var currentAt = state.CurrentAt;
+        var weight = state.CurrentWeight;
+        var level = state.CurrentWeightLevel;
+        if (state.SyncEntries.TryGetValue("roaming/current", out var current))
+        {
+            currentExposure = Guid.Parse(current.GetProperty("exposureId").GetString()!);
+            currentNote = current.GetProperty("noteId").GetString();
+            currentAt = current.GetProperty("at").GetDateTimeOffset();
+            weight = current.GetProperty("weight").GetDouble();
+            level = current.GetProperty("weightLevel").GetDouble();
+            if (state.SyncEntries.ContainsKey(EventKey(currentExposure.Value, "completed")))
+            { currentExposure = null; currentNote = null; currentAt = null; weight = null; level = null; }
+        }
+        var firstActivity = totals.Where(pair => pair.Value.Shown > 0).Select(pair => (DateOnly?)pair.Key.Day).Min();
+        var tracking = state.TrackingStartedOn;
+        if (firstActivity is { } first && (tracking is null || first < tracking)) tracking = first;
+        return state with { Records = records, Activity = activity, CurrentExposure = currentExposure, CurrentNoteId = currentNote,
+            CurrentAt = currentAt, CurrentWeight = weight, CurrentWeightLevel = level, TrackingStartedOn = tracking };
+    }
+
+    private static string EventKey(Guid exposureId, string kind) => $"event/{exposureId:D}/{kind}";
+    private static JsonElement ReplaceNoteId(JsonElement value, string noteId)
+    {
+        var fields = value.EnumerateObject().ToDictionary(property => property.Name, property => property.Value.Clone(), StringComparer.Ordinal);
+        fields["noteId"] = JsonSerializer.SerializeToElement(noteId);
+        return JsonSerializer.SerializeToElement(fields);
+    }
+
+    private sealed record LegacyBaseline(string NoteId, DateOnly Day, int Remembered, int Skipped, int Shown, DateTimeOffset? LastShown);
+
     private sealed record ReviewState(Dictionary<string, ReviewRecord> Records, Guid? CurrentExposure, string? CurrentNoteId,
         Dictionary<DateOnly, Dictionary<string, int>>? Activity = null, bool HasLegacyHistory = false,
-        DateOnly? TrackingStartedOn = null, double? CurrentWeight = null, double? CurrentWeightLevel = null);
+        DateOnly? TrackingStartedOn = null, double? CurrentWeight = null, double? CurrentWeightLevel = null,
+        Dictionary<string, JsonElement>? SyncEntries = null, List<LegacyBaseline>? PendingBaseline = null,
+        string? SourceDeviceId = null, DateTimeOffset? CurrentAt = null);
 }

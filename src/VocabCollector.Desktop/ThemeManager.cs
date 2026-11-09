@@ -7,7 +7,8 @@ namespace VocabCollector.Desktop;
 public sealed class ThemeManager
 {
     private readonly ResourceDictionary resources;
-    private readonly AppearanceSettingsStore? store;
+    private AppearanceSettingsStore? store;
+    private long _storeScope, _pendingPreferenceRevision;
 
     public ThemeManager(ResourceDictionary resources, AppearanceSettingsStore? store = null)
     {
@@ -17,9 +18,32 @@ public sealed class ThemeManager
     }
 
     public AppTheme CurrentTheme { get; private set; }
+    public long PreferenceRevision { get; private set; }
+    public bool HasPendingPreferenceSave => _pendingPreferenceRevision != 0;
 
     /// <summary>Raised after a palette is applied so every open surface can sync its own selector.</summary>
     public event EventHandler<AppTheme>? ThemeChanged;
+    public event EventHandler<AppTheme>? PreferenceSaved;
+
+    public async Task SwitchStoreAsync(AppearanceSettingsStore nextStore, CancellationToken cancellationToken = default)
+    {
+        store = nextStore;
+        var scope = ++_storeScope;
+        _pendingPreferenceRevision = 0;
+        var revision = PreferenceRevision;
+        var theme = await nextStore.LoadAsync(cancellationToken);
+        if (_storeScope == scope && PreferenceRevision == revision && ReferenceEquals(store, nextStore)) Apply(theme);
+    }
+
+    public async Task ApplyRemoteAsync(AppTheme theme, CancellationToken cancellationToken = default)
+    {
+        if (HasPendingPreferenceSave) return;
+        var target = store;
+        var scope = _storeScope;
+        var revision = PreferenceRevision;
+        if (target is not null) await target.SaveAsync(theme, cancellationToken);
+        if (_storeScope == scope && PreferenceRevision == revision && ReferenceEquals(store, target)) Apply(theme);
+    }
 
     public void Apply(AppTheme theme)
     {
@@ -37,22 +61,36 @@ public sealed class ThemeManager
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Apply(store is null ? AppTheme.WarmNeutral : await store.LoadAsync(cancellationToken));
+        var target = store;
+        var scope = _storeScope;
+        var revision = PreferenceRevision;
+        var theme = target is null ? AppTheme.WarmNeutral : await target.LoadAsync(cancellationToken);
+        if (_storeScope == scope && PreferenceRevision == revision && ReferenceEquals(store, target)) Apply(theme);
     }
 
     public async Task<bool> SetThemeAsync(AppTheme theme, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var target = store;
+        var scope = _storeScope;
+        var revision = ++PreferenceRevision;
+        _pendingPreferenceRevision = revision;
         Apply(theme);
-        if (store is null) return true;
+        var selected = CurrentTheme;
         try
         {
-            await store.SaveAsync(CurrentTheme, cancellationToken);
+            if (target is not null) await target.SaveAsync(selected, cancellationToken);
+            if (_storeScope == scope && PreferenceRevision == revision && ReferenceEquals(store, target))
+                PreferenceSaved?.Invoke(this, selected);
             return true;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             return false;
+        }
+        finally
+        {
+            if (_storeScope == scope && _pendingPreferenceRevision == revision) _pendingPreferenceRevision = 0;
         }
     }
 }

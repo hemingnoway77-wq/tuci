@@ -91,6 +91,9 @@ public sealed class ArticleTextReader : RichTextBox
     private ScrollViewer? _viewport;
     private Point? _down;
     private Span? _pressed, _active;
+    private PlainWord? _pressedPlain;
+    private TextRange? _activePlainRange;
+    private readonly Dictionary<Paragraph, Lazy<IReadOnlyList<ArticleWord>>> _plainParagraphs = [];
     public event EventHandler<ReadingWordEventArgs>? WordClicked;
 
     public ArticleTextReader()
@@ -140,6 +143,10 @@ public sealed class ArticleTextReader : RichTextBox
     {
         if (_viewport is not null) SmoothScroll.Cancel(_viewport);
         ClearWordSelection();
+        _plainParagraphs.Clear();
+        // A long article must not allocate a Span, Run and event handlers for every
+        // word before its first frame. Resolve words only when the user uses them.
+        var plain = paragraphs.Sum(text => (long)text.Length) >= 6000;
         var document = new FlowDocument
         {
             FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, Microsoft YaHei"),
@@ -150,6 +157,13 @@ public sealed class ArticleTextReader : RichTextBox
         foreach (var text in paragraphs)
         {
             var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 16) };
+            if (plain)
+            {
+                paragraph.Inlines.Add(new Run(text));
+                _plainParagraphs.Add(paragraph, new(() => ArticleWords.Tokenize(text)));
+                document.Blocks.Add(paragraph);
+                continue;
+            }
             var offset = 0;
             foreach (var word in ArticleWords.Tokenize(text))
             {
@@ -175,18 +189,26 @@ public sealed class ArticleTextReader : RichTextBox
     {
         if (e.ChangedButton != MouseButton.Left) return;
         _pressed = e.ClickCount == 1 ? FindWord(e.OriginalSource) : null;
+        _pressedPlain = e.ClickCount == 1 && _pressed is null ? FindPlainWord(e.GetPosition(this)) : null;
         _down = e.GetPosition(this);
     }
     private void WordUp(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
-        var pressed = _pressed; var down = _down; _pressed = null; _down = null;
+        var pressed = _pressed; var plain = _pressedPlain; var down = _down;
+        _pressed = null; _pressedPlain = null; _down = null;
+        if (down is null || (e.GetPosition(this) - down.Value).Length > 4 || !Selection.IsEmpty) return;
+        if (plain is not null)
+        {
+            var hit = FindPlainWord(e.GetPosition(this));
+            if (hit is not null && hit.Paragraph == plain.Paragraph && hit.Word.Start == plain.Word.Start) ActivatePlainWord(hit);
+            return;
+        }
         var span = FindWord(e.OriginalSource);
         // RichTextBox captures the mouse while selecting; release may be routed to the reader itself.
         if (span is null && ReferenceEquals(e.OriginalSource, this))
             span = FindWord(GetPositionFromPoint(e.GetPosition(this), snapToText: false)?.Parent);
-        if (span?.Tag is not ReadingWordSelection word || pressed != span || down is null
-            || (e.GetPosition(this) - down.Value).Length > 4 || !Selection.IsEmpty) return;
+        if (span?.Tag is not ReadingWordSelection word || pressed != span) return;
         ClearWordSelection();
         _active = span;
         span.SetResourceReference(TextElement.BackgroundProperty, "AccentSoft");
@@ -204,12 +226,25 @@ public sealed class ArticleTextReader : RichTextBox
     public void ClearWordSelection()
     {
         _active?.ClearValue(TextElement.BackgroundProperty);
-        _active = null; _pressed = null; _down = null;
+        _activePlainRange?.ApplyPropertyValue(TextElement.BackgroundProperty, Brushes.Transparent);
+        _activePlainRange = null;
+        _active = null; _pressed = null; _pressedPlain = null; _down = null;
     }
 
     private void OnSelectionKey(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None || Selection.IsEmpty) return;
+        if (Selection.Start.Paragraph is { } paragraph && _plainParagraphs.TryGetValue(paragraph, out var tokens))
+        {
+            var start = new TextRange(paragraph.ContentStart, Selection.Start).Text.Length;
+            var word = tokens.Value.FirstOrDefault(word => word.Start == start && word.Text == Selection.Text);
+            if (word is not null)
+            {
+                ActivatePlainWord(new(paragraph, word, PositionAt(paragraph, start), PositionAt(paragraph, start + word.Text.Length)));
+                e.Handled = true;
+            }
+            return;
+        }
         var span = Document.Blocks.OfType<Paragraph>().SelectMany(paragraph => paragraph.Inlines.OfType<Span>())
             .FirstOrDefault(item => item.Tag is ReadingWordSelection word && word.Word == Selection.Text.Trim()
                 && Selection.Start.CompareTo(item.ContentStart) >= 0 && Selection.End.CompareTo(item.ContentEnd) <= 0);
@@ -218,5 +253,54 @@ public sealed class ArticleTextReader : RichTextBox
         span.SetResourceReference(TextElement.BackgroundProperty, "AccentSoft");
         WordClicked?.Invoke(this, new(selected, span.ContentStart.GetCharacterRect(LogicalDirection.Forward)));
         e.Handled = true;
+    }
+
+    private sealed record PlainWord(Paragraph Paragraph, ArticleWord Word, TextPointer Start, TextPointer End);
+
+    private PlainWord? FindPlainWord(Point point)
+    {
+        var pointer = GetPositionFromPoint(point, snapToText: false);
+        if (pointer?.Paragraph is not { } paragraph || !_plainParagraphs.TryGetValue(paragraph, out var tokens)) return null;
+        var offset = new TextRange(paragraph.ContentStart, pointer).Text.Length;
+        var word = tokens.Value.FirstOrDefault(word => word.Start <= offset && offset <= word.Start + word.Text.Length);
+        if (word is null) return null;
+        var start = PositionAt(paragraph, word.Start); var end = PositionAt(paragraph, word.Start + word.Text.Length);
+        // Caret hit-testing snaps to character edges; reject adjacent whitespace.
+        for (var position = start; position is not null && position.CompareTo(end) < 0; position = position.GetNextInsertionPosition(LogicalDirection.Forward))
+        {
+            var next = position.GetNextInsertionPosition(LogicalDirection.Forward);
+            if (next is null) break;
+            var leading = position.GetCharacterRect(LogicalDirection.Forward);
+            var trailing = next.GetCharacterRect(LogicalDirection.Backward);
+            // WPF returns zero-width caret rectangles. Adjacent insertion edges
+            // bound the glyph, including a word at the end of a wrapped line.
+            if (Math.Abs(leading.Top - trailing.Top) > 1) continue;
+            leading.Union(trailing);
+            if (leading.Contains(point)) return new(paragraph, word, start, end);
+        }
+        return null;
+    }
+
+    private void ActivatePlainWord(PlainWord hit)
+    {
+        ClearWordSelection();
+        _activePlainRange = new TextRange(hit.Start, hit.End);
+        _activePlainRange.ApplyPropertyValue(TextElement.BackgroundProperty, TryFindResource("AccentSoft") as Brush ?? Brushes.LightGray);
+        WordClicked?.Invoke(this, new(hit.Word.CreateSelection(), hit.Start.GetCharacterRect(LogicalDirection.Forward)));
+    }
+
+    private static TextPointer PositionAt(Paragraph paragraph, int offset)
+    {
+        for (var position = paragraph.ContentStart; position is not null && position.CompareTo(paragraph.ContentEnd) < 0;)
+        {
+            if (position.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text)
+            {
+                var length = position.GetTextRunLength(LogicalDirection.Forward);
+                if (offset <= length) return position.GetPositionAtOffset(offset, LogicalDirection.Forward)!;
+                offset -= length;
+            }
+            position = position.GetNextContextPosition(LogicalDirection.Forward);
+        }
+        return paragraph.ContentEnd;
     }
 }

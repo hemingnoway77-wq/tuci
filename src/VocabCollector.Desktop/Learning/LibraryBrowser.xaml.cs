@@ -68,6 +68,7 @@ public partial class LibraryBrowser : UserControl, INotifyPropertyChanged, IDisp
     public event EventHandler<string>? WebLinkRequested;
     public event EventHandler? ReloadRequested;
     public event EventHandler<IReadOnlyList<string>>? ImportRequested;
+    public event EventHandler<IReadOnlyList<LibraryNote>>? NotesChanged;
     public void Configure(LibraryCatalog catalog, IReadOnlyList<LibraryNote> notes, string wordRoot)
     {
         if (_disposed) return;
@@ -77,6 +78,8 @@ public partial class LibraryBrowser : UserControl, INotifyPropertyChanged, IDisp
         {
             _catalog = catalog; _wordRoot = root; Tree.Clear(); _beforeSearch = null;
         }
+        var liveIds = notes.Select(note => note.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var removed in _notes.Where(note => !liveIds.Contains(note.Id))) Reader.ForgetNote(removed.Id);
         _notes = notes.ToArray();
         _refreshing = true;
         try { Reader.Configure(_catalog, _notes); }
@@ -227,6 +230,7 @@ public partial class LibraryBrowser : UserControl, INotifyPropertyChanged, IDisp
         DocumentPathText.Text = Reader.Note?.RelativePath ?? "笔记阅读";
         DocumentPathText.ToolTip = Reader.Note?.RelativePath;
         BrowserBackButton.IsEnabled = Reader.CanGoBack; BrowserForwardButton.IsEnabled = Reader.CanGoForward;
+        BrowserDeleteNoteButton.IsEnabled = !_operating && Reader.Note is { } note && _notes.Any(current => current.Id == note.Id);
         ReaderEmptyState.Visibility = Reader.Note is null ? Visibility.Visible : Visibility.Collapsed;
     }
     private void UpdateEmptyState()

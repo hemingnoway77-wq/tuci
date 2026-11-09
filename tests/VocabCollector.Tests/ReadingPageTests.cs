@@ -7,7 +7,6 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using VocabCollector.Core.Reading;
 using VocabCollector.Desktop;
-using VocabCollector.Desktop.Controls;
 using VocabCollector.Desktop.Reading;
 
 namespace VocabCollector.Tests;
@@ -19,100 +18,116 @@ public sealed class ReadingPageTestCollection;
 public sealed class ReadingPageTests
 {
     [Fact]
-    public void ModuleEntranceHasVisibleTravelAndRestoresTheOriginalTransform() => Run(fixture =>
+    public void CancelledModuleNavigationCannotRestartAnArticleAfterPendingFeedLoading() => Run(fixture =>
     {
-        var page = fixture.Page;
-        var original = page.RenderTransform;
-        var opacity = page.Opacity;
-        var maxTravel = 0d;
-        var saved = false;
-        EventHandler frame = (_, _) =>
-        {
-            if (page.RenderTransform is not TransformGroup group) return;
-            var travel = group.Children.OfType<TranslateTransform>().Last().X;
-            maxTravel = Math.Max(maxTravel, travel);
-            if (!saved && travel is > 4 and < 14 && page.Opacity < .98)
-                saved = SaveMotionFrame(page, "module-middle", travel, page.Opacity);
-        };
-        CompositionTarget.Rendering += frame;
-        try
-        {
-            PageMotion.Enter(page);
-            Until(() => !page.HasAnimatedProperties);
-            if (SystemParameters.ClientAreaAnimation)
-                Assert.True(maxTravel >= 8, $"The module should visibly travel before settling; observed {maxTravel:F2} DIP.");
-            Assert.Same(original, page.RenderTransform);
-            Assert.Equal(opacity, page.Opacity);
-            PageMotion.Enter(page, forward: false);
-            PageMotion.Reset(page);
-            Assert.Same(original, page.RenderTransform);
-            Assert.False(page.HasAnimatedProperties);
-        }
-        finally { CompositionTarget.Rendering -= frame; PageMotion.Reset(page); }
+        var feeds = new PendingDailyFixture();
+        var content = new ControlledContent();
+        using var page = new ReadingPage(new DailyReadingViewModel(feeds), articleContentService: content,
+            wordTranslationService: new ControlledTranslations());
+        var opening = page.OpenArticleAsync(fixture.First);
+        page.Cancel();
+        content.Requests[0].Complete("A cancelled article response must be ignored.");
+        Await(opening);
+        using var navigation = new CancellationTokenSource();
+        var returning = page.EnsureLoadedAsync(navigation.Token);
+        navigation.Cancel(); page.Cancel();
+        feeds.Result.SetResult(new(DateOnly.FromDateTime(DateTime.Now), [fixture.First], false, false, "Local fixture"));
+        Until(() => returning.IsCompleted || content.Requests.Count > 1);
+        Assert.Single(content.Requests);
+        Await(returning);
     });
 
     [Fact]
-    public void ArticleEntranceHasVisibleTravelThenPreservesSelectionAndScrollPosition() => Run(fixture =>
+    public void ArticleAppearsImmediatelyWithoutASecondEntranceAndPreservesSelectionAndScrollPosition() => Run(fixture =>
     {
+        fixture.Load(fixture.First, Enumerable.Repeat("An apple remains selectable while this article opens.", 60).ToArray());
         var surface = Find<Grid>(fixture.Page, "ArticleSurface");
-        var movement = Assert.IsType<TranslateTransform>(surface.RenderTransform);
-        var maxTravel = 0d;
-        var saved = false;
-        EventHandler frame = (_, _) =>
-        {
-            maxTravel = Math.Max(maxTravel, movement.X);
-            if (!saved && movement.X is > 6 and < 21 && surface.Opacity < .98)
-                saved = SaveMotionFrame(fixture.Page, "article-middle", movement.X, surface.Opacity);
-        };
-        CompositionTarget.Rendering += frame;
-        try
-        {
-            fixture.Load(fixture.First, Enumerable.Repeat("An apple remains selectable while this article opens.", 60).ToArray());
-            var reader = Find<ArticleTextReader>(fixture.Page, "ArticleBodyReader");
-            var document = reader.Document;
-            var word = WordRun(reader, "apple");
-            reader.Selection.Select(word.ContentStart, word.ContentEnd);
-            reader.ScrollToVerticalOffset(180);
-            Until(() => !surface.HasAnimatedProperties && !movement.HasAnimatedProperties && surface.Opacity == 1 &&
-                movement.X == 0 && reader.VerticalOffset > 100);
-            if (SystemParameters.ClientAreaAnimation)
-                Assert.True(maxTravel >= 12, $"The article should visibly turn into place; observed {maxTravel:F2} DIP.");
-            Assert.Same(document, reader.Document);
-            Assert.Equal("apple", reader.Selection.Text);
-            Assert.Equal(0, movement.X); Assert.Equal(1, surface.Opacity);
-        }
-        finally { CompositionTarget.Rendering -= frame; }
+        Assert.False(surface.HasAnimatedProperties); Assert.True(surface.RenderTransform.Value.IsIdentity); Assert.Equal(1, surface.Opacity);
+        var reader = Find<ArticleTextReader>(fixture.Page, "ArticleBodyReader");
+        var document = reader.Document; var word = WordRun(reader, "apple");
+        reader.Selection.Select(word.ContentStart, word.ContentEnd); reader.ScrollToVerticalOffset(180);
+        Until(() => reader.VerticalOffset > 100);
+        Assert.Same(document, reader.Document); Assert.Equal("apple", reader.Selection.Text);
+        Assert.False(surface.HasAnimatedProperties); Assert.True(surface.RenderTransform.Value.IsIdentity); Assert.Equal(1, surface.Opacity);
     });
 
-    // Optional local verification output, never reads or writes application configuration.
-    private static bool SaveMotionFrame(FrameworkElement view, string name, double travel, double opacity)
-    {
-        var directory = Environment.GetEnvironmentVariable("TUCI_MOTION_ARTIFACTS");
-        if (string.IsNullOrWhiteSpace(directory)) return true;
-        Directory.CreateDirectory(directory);
-        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(view.ActualWidth), (int)Math.Ceiling(view.ActualHeight), 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(view);
-        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using (var stream = File.Create(Path.Combine(directory, name + ".png"))) encoder.Save(stream);
-        File.WriteAllText(Path.Combine(directory, name + ".json"), System.Text.Json.JsonSerializer.Serialize(new
-        { travel, opacity, animationEnabled = SystemParameters.ClientAreaAnimation, renderTier = RenderCapability.Tier >> 16 }));
-        return true;
-    }
-
     [Fact]
-    public void ArticleEntranceUsesAFullWidthViewportAndCancelsItsVisualMotionOnReturn() => Run(fixture =>
+    public void ArticleUsesAFullWidthViewportAndReturnsWithoutPendingVisualMotion() => Run(fixture =>
     {
         fixture.Load(fixture.First, Enumerable.Repeat("An apple remains selectable while this article opens.", 40).ToArray());
         var reader = Find<ArticleTextReader>(fixture.Page, "ArticleBodyReader");
         Assert.True(double.IsPositiveInfinity(reader.MaxWidth), "The text column must not constrain the scrollbar viewport.");
         var surface = Find<Grid>(fixture.Page, "ArticleSurface");
-        var movement = Assert.IsType<System.Windows.Media.TranslateTransform>(surface.RenderTransform);
         var document = reader.Document;
         fixture.Page.ReturnToDirectory();
-        Assert.False(movement.HasAnimatedProperties);
         Assert.False(surface.HasAnimatedProperties);
-        Assert.Equal(0, movement.X); Assert.Equal(1, surface.Opacity);
+        Assert.True(surface.RenderTransform.Value.IsIdentity); Assert.Equal(1, surface.Opacity);
         Assert.Same(document, reader.Document);
+    });
+
+    [Fact]
+    public void ALongArticleBuildsPlainParagraphsAndLazilyActivatesTheSelectedOccurrence() => Run(fixture =>
+    {
+        var paragraph = "An apple fell. Another apple grew nearby!";
+        fixture.Load(fixture.First, Enumerable.Repeat(paragraph, 180).ToArray());
+        var reader = Find<ArticleTextReader>(fixture.Page, "ArticleBodyReader");
+        var document = reader.Document;
+        Assert.Equal(180, document.Blocks.Count);
+        Assert.All(document.Blocks.OfType<Paragraph>(), p => Assert.IsType<Run>(Assert.Single(p.Inlines.Cast<Inline>())));
+        var run = Assert.IsType<Run>(Assert.IsType<Paragraph>(document.Blocks.FirstBlock).Inlines.FirstInline);
+        var offset = paragraph.LastIndexOf("apple", StringComparison.Ordinal);
+        reader.Selection.Select(run.ContentStart.GetPositionAtOffset(offset), run.ContentStart.GetPositionAtOffset(offset + 5));
+        ReadingWordSelection? captured = null; fixture.Page.WordCaptureRequested += (_, selection) => captured = selection;
+        reader.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(reader)!, Environment.TickCount, Key.Enter)
+        { RoutedEvent = Keyboard.PreviewKeyDownEvent }); Pump();
+        Assert.True(fixture.Page.WordActionsPopup.IsOpen); Assert.Equal("apple", reader.Selection.Text);
+        Click(fixture.Page, "ReadingCaptureButton");
+        Assert.Equal(new ReadingWordSelection("apple", "Another apple grew nearby!"), captured);
+        Assert.Same(document, reader.Document);
+        Assert.True(document.Blocks.OfType<Paragraph>().First().Inlines.Count <= 3,
+            "Only the used word may split its paragraph's text run; the other words stay plain text.");
+    });
+
+    [Fact]
+    public void ReturningToTheSameArticleReusesItsDocumentWithoutRefetching() => Run(fixture =>
+    {
+        fixture.Load(fixture.First, Enumerable.Repeat("An apple remains in a retained document.", 80).ToArray());
+        var reader = Find<ArticleTextReader>(fixture.Page, "ArticleBodyReader"); var document = reader.Document;
+        reader.ScrollToVerticalOffset(180); Until(() => reader.VerticalOffset > 100);
+        fixture.Page.ReturnToDirectory();
+        Await(fixture.Page.OpenArticleAsync(fixture.First)); Pump();
+        Assert.Single(fixture.Content.Requests); Assert.Same(document, reader.Document);
+        Assert.True(reader.VerticalOffset > 100);
+    });
+
+    [Fact]
+    public void LongArticleWordHitTestingUsesGlyphBoundsAndRepeatedUseRetainsItsDocument() => Run(fixture =>
+    {
+        const string text = "An apple fell. Another apple grew nearby!";
+        fixture.Load(fixture.First, Enumerable.Repeat(text, 180).ToArray());
+        var reader = Find<ArticleTextReader>(fixture.Page, "ArticleBodyReader");
+        var document = reader.Document; var paragraph = Assert.IsType<Paragraph>(document.Blocks.FirstBlock);
+        var first = Assert.IsType<Run>(paragraph.Inlines.FirstInline);
+        var start = text.LastIndexOf("apple", StringComparison.Ordinal);
+        var bounds = first.ContentStart.GetPositionAtOffset(start + 1)!.GetCharacterRect(LogicalDirection.Forward);
+        var next = first.ContentStart.GetPositionAtOffset(start + 2)!.GetCharacterRect(LogicalDirection.Forward);
+        var point = new Point((bounds.Left + next.Left) / 2, bounds.Top + bounds.Height / 2);
+        var find = typeof(ArticleTextReader).GetMethod("FindPlainWord", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var activate = typeof(ArticleTextReader).GetMethod("ActivatePlainWord", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        for (var i = 0; i < 12; i++)
+        {
+            var hit = find.Invoke(reader, [point]);
+            Assert.NotNull(hit); activate.Invoke(reader, [hit]); Pump();
+            Assert.True(fixture.Page.WordActionsPopup.IsOpen);
+            Assert.Equal("apple", Find<TextBlock>(fixture.Page, "ReadingSelectedWord").Text);
+            fixture.Page.WordActionsPopup.IsOpen = false; Pump();
+        }
+        Assert.Same(document, reader.Document);
+        Assert.Equal(180, document.Blocks.Count);
+        Assert.True(paragraph.Inlines.Count <= 3, "Repeatedly highlighting one word cannot grow the document tree.");
+        var whitespace = first.ContentStart.GetPositionAtOffset(2)!.GetCharacterRect(LogicalDirection.Forward);
+        var whitespaceEnd = first.ContentStart.GetPositionAtOffset(3)!.GetCharacterRect(LogicalDirection.Forward);
+        Assert.Null(find.Invoke(reader, [new Point((whitespace.Left + whitespaceEnd.Left) / 2, whitespace.Top + whitespace.Height / 2)]));
     });
 
     [Fact]
@@ -425,6 +440,11 @@ public sealed class ReadingPageTests
     private sealed class DailyFixture(IReadOnlyList<ReadingArticle> articles) : IDailyReadingService
     {
         public Task<DailyReadingResult> GetAsync(bool forceRefresh, CancellationToken cancellationToken) => Task.FromResult(new DailyReadingResult(DateOnly.FromDateTime(DateTime.Now), articles, false, false, "模拟阅读来源，无网络或 API 配置。"));
+    }
+    private sealed class PendingDailyFixture : IDailyReadingService
+    {
+        public TaskCompletionSource<DailyReadingResult> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<DailyReadingResult> GetAsync(bool forceRefresh, CancellationToken cancellationToken) => Result.Task;
     }
     private sealed class ControlledContent : IArticleContentService
     {

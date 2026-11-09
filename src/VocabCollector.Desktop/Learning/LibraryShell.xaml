@@ -10,7 +10,7 @@
    <DockPanel Margin="5,5,5,8">
     <StackPanel DockPanel.Dock="Bottom">
      <Button x:Name="NotebookThemeButton" Click="Theme_Click" ToolTip="切换明暗主题"><local:NotebookIcon Kind="moon"/></Button>
-     <Button Click="Trash_Click" ToolTip="已删除的笔记"><local:NotebookIcon Kind="trash"/></Button>
+     <Button x:Name="NotebookTrashButton" Click="Trash_Click" ToolTip="回收站 · 恢复已删除的笔记" AutomationProperties.Name="回收站"><local:NotebookIcon Kind="trash"/></Button>
      <Button Click="Settings_Click" ToolTip="兔词设置"><local:NotebookIcon Kind="settings"/></Button>
     </StackPanel>
     <StackPanel>

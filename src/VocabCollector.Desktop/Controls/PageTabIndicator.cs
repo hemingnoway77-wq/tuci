@@ -34,30 +34,26 @@ public sealed class PageTabIndicator : FrameworkElement, IDisposable
     {
         if (_disposed) return;
         if (!double.IsFinite(left) || !double.IsFinite(width) || width < 0) throw new ArgumentOutOfRangeException(nameof(width));
+        if (animate && Math.Abs(left - _left) + Math.Abs(left + width - _right) < .1) return;
         var fromLeft = LeftEdge; var fromRight = RightEdge;
         _left = left; _right = left + width;
         StopClocks();
         if (!animate || !AnimateTransitions || !SystemParameters.ClientAreaAnimation || !IsLoaded || !IsVisible ||
             Math.Abs(fromLeft - _left) + Math.Abs(fromRight - _right) < .1) { Settle(); return; }
+        // WPF can expose the base value until the replacement clock's first
+        // tick. Keep that value at the current position to avoid a one-frame jump.
         SetValue(LeftEdgeProperty, fromLeft); SetValue(RightEdgeProperty, fromRight);
-        var forward = _left + _right >= fromLeft + fromRight;
-        var leftMotion = Edge(fromLeft, _left, !forward);
-        var rightMotion = Edge(fromRight, _right, forward);
+        var leftMotion = Edge(fromLeft, _left);
+        var rightMotion = Edge(fromRight, _right);
         var version = _version;
-        (forward ? leftMotion : rightMotion).Completed += (_, _) => { if (!_disposed && version == _version) Settle(); };
+        rightMotion.Completed += (_, _) => { if (!_disposed && version == _version) Settle(); };
         BeginAnimation(LeftEdgeProperty, leftMotion, HandoffBehavior.SnapshotAndReplace);
         BeginAnimation(RightEdgeProperty, rightMotion, HandoffBehavior.SnapshotAndReplace);
     }
-    private static DoubleAnimationUsingKeyFrames Edge(double from, double to, bool leading)
-    {
-        var motion = new DoubleAnimationUsingKeyFrames { Duration = TimeSpan.FromMilliseconds(250), FillBehavior = FillBehavior.HoldEnd };
-        motion.KeyFrames.Add(new DiscreteDoubleKeyFrame(from, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-        if (!leading) motion.KeyFrames.Add(new DiscreteDoubleKeyFrame(from, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(80))));
-        motion.KeyFrames.Add(new EasingDoubleKeyFrame(to, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(leading ? 150 : 250)),
-            new CubicEase { EasingMode = leading ? EasingMode.EaseOut : EasingMode.EaseInOut }));
-        if (leading) motion.KeyFrames.Add(new DiscreteDoubleKeyFrame(to, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(250))));
-        return motion;
-    }
+    // Only this small indicator animates during module navigation. Both edges
+    // start together, and a new selection takes over the current visual position.
+    private static DoubleAnimation Edge(double from, double to) => new(from, to, TimeSpan.FromMilliseconds(140))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, FillBehavior = FillBehavior.HoldEnd };
     private void StopClocks() { _version++; BeginAnimation(LeftEdgeProperty, null); BeginAnimation(RightEdgeProperty, null); }
     private void Settle() { StopClocks(); SetValue(LeftEdgeProperty, _left); SetValue(RightEdgeProperty, _right); }
     public void Dispose() { if (_disposed) return; Settle(); _disposed = true; }
