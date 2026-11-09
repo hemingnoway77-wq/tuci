@@ -19,7 +19,7 @@ public partial class AccountLoginWindow : Window
         SourceInitialized += (_, _) => TitleBarTheme.Apply(this);
         Loaded += (_, _) => { if (UsernameBox.Text.Length == 0) UsernameBox.Focus(); else PasswordBox.Focus(); };
         Closing += OnClosing;
-        Closed += (_, _) => { _closed = true; PasswordBox.Clear(); };
+        Closed += (_, _) => { _closed = true; PasswordBox.Clear(); InviteBox.Clear(); };
     }
 
     public bool Authenticated => _sync.CanUseAccount;
@@ -36,12 +36,20 @@ public partial class AccountLoginWindow : Window
             if (string.IsNullOrWhiteSpace(UsernameBox.Text)) UsernameBox.Focus(); else PasswordBox.Focus();
             return;
         }
+        // Registration is invite-only; check here so nobody spends a round trip to learn it.
+        if (register && string.IsNullOrWhiteSpace(InviteBox.Text))
+        {
+            StatusText.Text = "创建账号需要邀请码，请向管理员索取。已有账号请直接登录。";
+            InviteBox.Focus();
+            return;
+        }
         SetBusy(true);
         StatusText.Text = register ? "正在创建账号…" : "正在登录…";
         var authenticated = false;
         try
         {
-            await _sync.SignInPrivate(UrlBox.Text, UsernameBox.Text.Trim(), PasswordBox.Password, register);
+            await _sync.SignInPrivate(UrlBox.Text, UsernameBox.Text.Trim(), PasswordBox.Password, register,
+                register ? InviteBox.Text.Trim() : null);
             authenticated = _sync.CanUseAccount;
             if (!authenticated) StatusText.Text = "账号尚未准备好，请重新登录。";
         }
@@ -49,6 +57,7 @@ public partial class AccountLoginWindow : Window
         finally { if (!_closed) SetBusy(false); }
         if (!authenticated || _closed) return;
         PasswordBox.Clear();
+        InviteBox.Clear();
         // App uses a modal gate; modeless hosts and UI tests can also use this window.
         try { DialogResult = true; }
         catch (InvalidOperationException) { Close(); }

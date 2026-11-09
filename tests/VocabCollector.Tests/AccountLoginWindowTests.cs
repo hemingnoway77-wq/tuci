@@ -91,6 +91,7 @@ public sealed class AccountLoginWindowTests
             window.Show();
             Find<TextBox>(window, "UsernameBox").Text = "alice";
             Find<PasswordBox>(window, "PasswordBox").Password = "private-window-password";
+            Find<TextBox>(window, "InviteBox").Text = "TEST-INVT-CODE";
             Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Until(() => fixture.Remote.Started.Task.IsCompleted);
             Assert.False(Find<Button>(window, "LoginButton").IsEnabled);
@@ -111,6 +112,46 @@ public sealed class AccountLoginWindowTests
         finally { fixture.Remote.Release.TrySetResult(); window.Close(); }
     });
 
+    [Fact]
+    public void RegistrationWithoutAnInviteIsRefusedBeforeAnyRequest() => OnUi(() =>
+    {
+        using var fixture = new Fixture();
+        using var sync = new DesktopSync(fixture.Directory, Dispatcher.CurrentDispatcher, fixture.Remote);
+        var window = new AccountLoginWindow(sync);
+        try
+        {
+            window.Show();
+            Find<TextBox>(window, "UsernameBox").Text = "alice";
+            Find<PasswordBox>(window, "PasswordBox").Password = "private-window-password";
+            Find<TextBox>(window, "InviteBox").Text = "";
+            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Until(() => Find<TextBlock>(window, "StatusText").Text.Length > 0);
+            Assert.Contains("邀请码", Find<TextBlock>(window, "StatusText").Text, StringComparison.Ordinal);
+            Assert.Empty(fixture.Remote.Requests);
+            Assert.False(window.Authenticated);
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public void RegistrationSendsTheInviteCodeTypedIntoTheGate() => OnUi(() =>
+    {
+        using var fixture = new Fixture();
+        using var sync = new DesktopSync(fixture.Directory, Dispatcher.CurrentDispatcher, fixture.Remote);
+        var window = new AccountLoginWindow(sync);
+        try
+        {
+            window.Show();
+            Find<TextBox>(window, "UsernameBox").Text = "alice";
+            Find<PasswordBox>(window, "PasswordBox").Password = "private-window-password";
+            Find<TextBox>(window, "InviteBox").Text = "ABCD-EFGH-IJKL";
+            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Until(() => !window.IsVisible);
+            Assert.Single(fixture.Remote.Requests, request => request.InviteCode == "ABCD-EFGH-IJKL");
+        }
+        finally { window.Close(); }
+    });
+
     private static T Find<T>(Window window, string name) where T : class => Assert.IsType<T>(window.FindName(name));
     private static void OnUi(Action action) => ((Lazy<Dispatcher>)typeof(ReadingPageTests)
         .GetField("Ui", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Value.Invoke(action);
@@ -127,7 +168,7 @@ public sealed class AccountLoginWindowTests
         public LoginRemote Remote { get; } = new();
         public void Dispose() { if (System.IO.Directory.Exists(Directory)) System.IO.Directory.Delete(Directory, true); }
     }
-    private sealed record Request(string Path, string? Token, string? Username, bool Browser);
+    private sealed record Request(string Path, string? Token, string? Username, bool Browser, string? InviteCode = null);
     private sealed class LoginRemote : HttpMessageHandler
     {
         public bool Hold, Failure;
@@ -140,7 +181,8 @@ public sealed class AccountLoginWindowTests
             if (path.EndsWith("/account/login") || path.EndsWith("/account/register"))
             {
                 var body = await request.Content!.ReadFromJsonAsync<JsonElement>(ct);
-                Requests.Add(new(path, request.Headers.Authorization?.Parameter, body.GetProperty("username").GetString(), body.GetProperty("browser").GetBoolean()));
+                var invite = body.TryGetProperty("inviteCode", out var code) && code.ValueKind == JsonValueKind.String ? code.GetString() : null;
+                Requests.Add(new(path, request.Headers.Authorization?.Parameter, body.GetProperty("username").GetString(), body.GetProperty("browser").GetBoolean(), invite));
                 Started.TrySetResult();
                 if (Hold) await Release.Task.WaitAsync(ct);
                 if (Failure) return new(HttpStatusCode.Unauthorized) { Content = JsonContent.Create(new { error = "invalid credentials" }) };

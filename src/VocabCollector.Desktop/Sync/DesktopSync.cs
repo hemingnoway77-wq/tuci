@@ -138,11 +138,11 @@ public sealed class DesktopSync : IDisposable
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
-    public Task SignIn(string url, string username, string password, VaultOptions vault, bool register = false) =>
-        SignInCore(url, username, password, vault, register, privateCache: false);
+    public Task SignIn(string url, string username, string password, VaultOptions vault, bool register = false, string? inviteCode = null) =>
+        SignInCore(url, username, password, vault, register, privateCache: false, inviteCode);
 
-    public Task SignInPrivate(string url, string username, string password, bool register = false) =>
-        SignInCore(url, username, password, null, register, privateCache: true);
+    public Task SignInPrivate(string url, string username, string password, bool register = false, string? inviteCode = null) =>
+        SignInCore(url, username, password, null, register, privateCache: true, inviteCode);
 
     private VaultOptions PrivateVault(string server, AccountIdentity identity)
     {
@@ -163,7 +163,7 @@ public sealed class DesktopSync : IDisposable
         return new(parent, "英语单词", true);
     }
 
-    private async Task SignInCore(string url, string username, string password, VaultOptions? vault, bool register, bool privateCache)
+    private async Task SignInCore(string url, string username, string password, VaultOptions? vault, bool register, bool privateCache, string? inviteCode = null)
     {
         await _gate.WaitAsync(_stop.Token);
         try
@@ -175,7 +175,7 @@ public sealed class DesktopSync : IDisposable
             if (password.Length is < 8 or > 128) throw new ArgumentException("密码长度应为 8–128 位。");
             var client = !privateCache && register && _binding is { } old && old.Server == server.AbsoluteUri ? Client(old) : new SyncClient(_http, server);
             var identity = register
-                ? await client.RegisterAsync(username.Trim(), password, Environment.MachineName, _stop.Token)
+                ? await client.RegisterAsync(username.Trim(), password, Environment.MachineName, _stop.Token, inviteCode)
                 : await client.LoginAsync(username.Trim(), password, Environment.MachineName, _stop.Token);
             if (string.IsNullOrWhiteSpace(identity.Token) || string.IsNullOrWhiteSpace(identity.VaultId) || string.IsNullOrWhiteSpace(identity.UserId) ||
                 string.IsNullOrWhiteSpace(identity.Username) || string.IsNullOrWhiteSpace(identity.DeviceId))
@@ -449,6 +449,9 @@ public sealed class DesktopSync : IDisposable
     }
     internal static string Friendly(Exception error) => error switch
     {
+        // The service explains account refusals itself (wrong password, spent invite code),
+        // so prefer its wording over a generic message.
+        SyncRequestException explained => explained.Message,
         HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } => "账号、密码或设备凭证无效，请核对后重新登录或配对。",
         HttpRequestException { StatusCode: HttpStatusCode.Conflict } => "用户名已使用，或此词库已属于其他账号；请核对账号与词库。",
         HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests } => "尝试过于频繁，请稍后重试。",

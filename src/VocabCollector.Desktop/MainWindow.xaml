@@ -46,7 +46,7 @@
        <TextBlock Text="刷新关联" />
       </StackPanel>
      </Button>
-     <Button x:Name="SyncButton" Content="词库同步" Style="{StaticResource UtilityButton}" Click="Sync_Click" Margin="6,0,0,0" />
+     <Button x:Name="SyncButton" Content="账号与同步" Style="{StaticResource UtilityButton}" Click="Sync_Click" Margin="6,0,0,0" ToolTip="账号、同步、退出登录" />
      <Button x:Name="UpdateButton" Content="检查更新" Style="{StaticResource UtilityButton}" Click="Update_Click" Margin="6,0,0,0" ToolTip="检查并下载兔词的新版本" />
      <Button x:Name="SettingsButton" Style="{StaticResource UtilityOutline}" Click="Settings_Click" IsEnabled="{Binding CanConfigure}" Margin="7,0,0,0" ToolTip="API 与词库设置">
       <StackPanel Orientation="Horizontal">

@@ -1,8 +1,13 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace VocabCollector.Core.Sync;
+
+/// <summary>A refusal explained by the service itself, e.g. an expired invite code.</summary>
+public sealed class SyncRequestException(string message, HttpStatusCode status)
+    : HttpRequestException(message, null, status);
 
 public sealed record SyncOperation(string OperationId, string NoteId, long BaseVersion, string Path, string Markdown, bool Deleted,
     Dictionary<string, string>? Regions = null);
@@ -37,7 +42,7 @@ public sealed class SyncClient(HttpClient http, Uri server, string? token = null
         if (vaultId != null) request.Headers.Add("X-Tuci-Vault", vaultId);
         if (body != null) request.Content = JsonContent.Create(body);
         using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode) throw await FailureAsync(response, ct).ConfigureAwait(false);
         return await response.Content.ReadFromJsonAsync<T>(ct).ConfigureAwait(false) ?? throw new JsonException("同步服务响应缺少内容。");
     }
     public Task<SyncIdentity> RedeemAsync(string code, string deviceName, CancellationToken ct) =>
@@ -48,8 +53,8 @@ public sealed class SyncClient(HttpClient http, Uri server, string? token = null
         SendAsync<SyncReceipt>("v1/operations", operation, ct);
     public Task<SyncPage> ChangesAsync(long cursor, CancellationToken ct) =>
         SendAsync<SyncPage>("v1/changes?after=" + cursor.ToString(System.Globalization.CultureInfo.InvariantCulture), null, ct);
-    public Task<AccountIdentity> RegisterAsync(string username, string password, string deviceName, CancellationToken ct) =>
-        SendAsync<AccountIdentity>("v1/account/register", new { username, password, deviceName, browser = false }, ct);
+    public Task<AccountIdentity> RegisterAsync(string username, string password, string deviceName, CancellationToken ct, string? inviteCode = null) =>
+        SendAsync<AccountIdentity>("v1/account/register", new { username, password, deviceName, browser = false, inviteCode }, ct);
     public Task<AccountIdentity> LoginAsync(string username, string password, string deviceName, CancellationToken ct) =>
         SendAsync<AccountIdentity>("v1/account/login", new { username, password, deviceName, browser = false }, ct);
     public Task<AccountProfile> AccountAsync(CancellationToken ct) => SendAsync<AccountProfile>("v1/account/me", null, ct);
@@ -66,6 +71,22 @@ public sealed class SyncClient(HttpClient http, Uri server, string? token = null
         if (token != null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (vaultId != null) request.Headers.Add("X-Tuci-Vault", vaultId);
         using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode) throw await FailureAsync(response, ct).ConfigureAwait(false);
+    }
+    // The account endpoints explain refusals in Chinese, which is far more useful to a
+    // person than "Response status code does not indicate success".
+    private static async Task<SyncRequestException> FailureAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        string message = $"服务器拒绝了请求（{(int)response.StatusCode}）。";
+        try
+        {
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+            if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String &&
+                error.GetString() is { Length: > 0 } text)
+                message = text;
+        }
+        catch (JsonException) { }
+        return new SyncRequestException(message, response.StatusCode);
     }
 }
