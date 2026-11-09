@@ -26,7 +26,7 @@ public sealed class AccountLoginWindowTests
             Assert.Equal("https://101.133.134.128/tuci-sync/", Find<TextBox>(window, "UrlBox").Text);
             Assert.False(Find<Expander>(window, "AdvancedOptions").IsExpanded);
             Assert.Equal("登录", Find<Button>(window, "LoginButton").Content);
-            Assert.Equal("创建账号", Find<Button>(window, "RegisterButton").Content);
+            Assert.Equal("用邀请码注册", Find<Button>(window, "RegisterButton").Content);
             foreach (var name in new[] { "FolderBox", "ChooseButton", "PairButton", "CodeBox", "SkipButton", "GuestButton" })
                 Assert.Null(window.FindName(name));
             Assert.Empty(fixture.Remote.Requests);
@@ -89,10 +89,12 @@ public sealed class AccountLoginWindowTests
         try
         {
             window.Show();
+            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Find<TextBox>(window, "UsernameBox").Text = "alice";
             Find<PasswordBox>(window, "PasswordBox").Password = "private-window-password";
+            Find<PasswordBox>(window, "ConfirmPasswordBox").Password = "private-window-password";
             Find<TextBox>(window, "InviteBox").Text = "TEST-INVT-CODE";
-            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Find<Button>(window, "LoginButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Until(() => fixture.Remote.Started.Task.IsCompleted);
             Assert.False(Find<Button>(window, "LoginButton").IsEnabled);
             Assert.False(Find<Button>(window, "RegisterButton").IsEnabled);
@@ -121,10 +123,12 @@ public sealed class AccountLoginWindowTests
         try
         {
             window.Show();
+            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Find<TextBox>(window, "UsernameBox").Text = "alice";
             Find<PasswordBox>(window, "PasswordBox").Password = "private-window-password";
+            Find<PasswordBox>(window, "ConfirmPasswordBox").Password = "private-window-password";
             Find<TextBox>(window, "InviteBox").Text = "";
-            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Find<Button>(window, "LoginButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Until(() => Find<TextBlock>(window, "StatusText").Text.Length > 0);
             Assert.Contains("邀请码", Find<TextBlock>(window, "StatusText").Text, StringComparison.Ordinal);
             Assert.Empty(fixture.Remote.Requests);
@@ -142,12 +146,61 @@ public sealed class AccountLoginWindowTests
         try
         {
             window.Show();
+            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Find<TextBox>(window, "UsernameBox").Text = "alice";
             Find<PasswordBox>(window, "PasswordBox").Password = "private-window-password";
+            Find<PasswordBox>(window, "ConfirmPasswordBox").Password = "private-window-password";
             Find<TextBox>(window, "InviteBox").Text = "ABCD-EFGH-IJKL";
-            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Find<Button>(window, "LoginButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Until(() => !window.IsVisible);
             Assert.Single(fixture.Remote.Requests, request => request.InviteCode == "ABCD-EFGH-IJKL");
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public void RegisterModeRevealsInviteAndConfirmationFields() => OnUi(() =>
+    {
+        using var fixture = new Fixture();
+        using var sync = new DesktopSync(fixture.Directory, Dispatcher.CurrentDispatcher, fixture.Remote);
+        var window = new AccountLoginWindow(sync);
+        try
+        {
+            Assert.Equal(Visibility.Collapsed, Find<StackPanel>(window, "InvitePanel").Visibility);
+            Assert.Equal(Visibility.Collapsed, Find<StackPanel>(window, "ConfirmPanel").Visibility);
+            Assert.Equal("登录", Find<Button>(window, "LoginButton").Content);
+            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(Visibility.Visible, Find<StackPanel>(window, "InvitePanel").Visibility);
+            Assert.Equal(Visibility.Visible, Find<StackPanel>(window, "ConfirmPanel").Visibility);
+            Assert.Equal("创建账号", Find<Button>(window, "LoginButton").Content);
+            Assert.Equal("返回登录", Find<Button>(window, "RegisterButton").Content);
+            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(Visibility.Collapsed, Find<StackPanel>(window, "InvitePanel").Visibility);
+            Assert.Equal("登录", Find<Button>(window, "LoginButton").Content);
+            Assert.Empty(fixture.Remote.Requests);
+            Assert.False(window.Authenticated);
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public void RegistrationWithMismatchedConfirmationNeverReachesTheServer() => OnUi(() =>
+    {
+        using var fixture = new Fixture();
+        using var sync = new DesktopSync(fixture.Directory, Dispatcher.CurrentDispatcher, fixture.Remote);
+        var window = new AccountLoginWindow(sync);
+        try
+        {
+            window.Show();
+            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Find<TextBox>(window, "UsernameBox").Text = "alice";
+            Find<PasswordBox>(window, "PasswordBox").Password = "private-window-password";
+            Find<PasswordBox>(window, "ConfirmPasswordBox").Password = "private-window-passwerd";
+            Find<TextBox>(window, "InviteBox").Text = "ABCD-EFGH-IJKL";
+            Find<Button>(window, "LoginButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Contains("不一致", Find<TextBlock>(window, "StatusText").Text, StringComparison.Ordinal);
+            Assert.Empty(fixture.Remote.Requests);
+            Assert.False(window.Authenticated);
         }
         finally { window.Close(); }
     });

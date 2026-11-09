@@ -14,15 +14,21 @@
    <StackPanel x:Name="CredentialsPanel">
     <TextBlock Text="用户名" Style="{StaticResource FieldLabel}"/>
     <TextBox x:Name="UsernameBox" MaxLength="40" Margin="0,7,0,18" MinHeight="40" AutomationProperties.Name="用户名"/>
-    <TextBlock Text="密码" Style="{StaticResource FieldLabel}"/>
+    <TextBlock Text="密码（8–128 位）" Style="{StaticResource FieldLabel}"/>
     <PasswordBox x:Name="PasswordBox" MaxLength="128" Margin="0,7,0,18" MinHeight="40" AutomationProperties.Name="密码"/>
-    <TextBlock Text="邀请码" Style="{StaticResource FieldLabel}"/>
-    <TextBox x:Name="InviteBox" MaxLength="32" Margin="0,7,0,6" MinHeight="40" CharacterCasing="Upper" AutomationProperties.Name="邀请码"/>
-    <TextBlock Text="创建账号时必填，需要向管理员索取；已有账号登录时留空。" TextWrapping="Wrap" Style="{StaticResource HintText}" Margin="0,0,0,22"/>
+    <StackPanel x:Name="ConfirmPanel" Visibility="Collapsed">
+     <TextBlock Text="确认密码" Style="{StaticResource FieldLabel}"/>
+     <PasswordBox x:Name="ConfirmPasswordBox" MaxLength="128" Margin="0,7,0,18" MinHeight="40" AutomationProperties.Name="确认密码"/>
+    </StackPanel>
+    <StackPanel x:Name="InvitePanel" Visibility="Collapsed">
+     <TextBlock Text="邀请码" Style="{StaticResource FieldLabel}"/>
+     <TextBox x:Name="InviteBox" MaxLength="32" Margin="0,7,0,6" MinHeight="40" CharacterCasing="Upper" AutomationProperties.Name="邀请码"/>
+     <TextBlock Text="新账号需要管理员签发的邀请码，7 天内有效、仅可使用一次。" TextWrapping="Wrap" Style="{StaticResource HintText}" Margin="0,0,0,22"/>
+    </StackPanel>
     <Grid>
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
      <Button x:Name="LoginButton" Content="登录" IsDefault="True" Style="{StaticResource PrimaryAction}" MinHeight="44" Click="Login_Click"/>
-     <Button x:Name="RegisterButton" Grid.Column="2" Content="创建账号" Style="{StaticResource OutlineAction}" MinHeight="44" Click="Register_Click"/>
+     <Button x:Name="RegisterButton" Grid.Column="2" Content="用邀请码注册" Style="{StaticResource OutlineAction}" MinHeight="44" Click="Register_Click"/>
     </Grid>
     <Expander x:Name="AdvancedOptions" Header="高级设置" IsExpanded="False" Margin="0,22,0,0">
      <StackPanel Margin="0,12,0,0">

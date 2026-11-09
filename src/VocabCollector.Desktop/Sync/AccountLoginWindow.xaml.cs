@@ -7,7 +7,7 @@ public partial class AccountLoginWindow : Window
 {
     private const string DefaultServer = "https://101.133.134.128/tuci-sync/";
     private readonly DesktopSync _sync;
-    private bool _busy, _closed;
+    private bool _busy, _closed, _registerMode;
 
     public AccountLoginWindow(DesktopSync sync)
     {
@@ -19,13 +19,29 @@ public partial class AccountLoginWindow : Window
         SourceInitialized += (_, _) => TitleBarTheme.Apply(this);
         Loaded += (_, _) => { if (UsernameBox.Text.Length == 0) UsernameBox.Focus(); else PasswordBox.Focus(); };
         Closing += OnClosing;
-        Closed += (_, _) => { _closed = true; PasswordBox.Clear(); InviteBox.Clear(); };
+        Closed += (_, _) => { _closed = true; PasswordBox.Clear(); ConfirmPasswordBox.Clear(); InviteBox.Clear(); };
     }
 
     public bool Authenticated => _sync.CanUseAccount;
 
-    private async void Login_Click(object sender, RoutedEventArgs args) => await AuthenticateAsync(false);
-    private async void Register_Click(object sender, RoutedEventArgs args) => await AuthenticateAsync(true);
+    private async void Login_Click(object sender, RoutedEventArgs args) => await AuthenticateAsync(_registerMode);
+
+    private void Register_Click(object sender, RoutedEventArgs args)
+    {
+        if (_busy || _closed) return;
+        SetMode(!_registerMode);
+    }
+
+    private void SetMode(bool register)
+    {
+        _registerMode = register;
+        var visible = register ? Visibility.Visible : Visibility.Collapsed;
+        ConfirmPanel.Visibility = InvitePanel.Visibility = visible;
+        LoginButton.Content = register ? "创建账号" : "登录";
+        RegisterButton.Content = register ? "返回登录" : "用邀请码注册";
+        StatusText.Text = register ? "填写邀请码即可创建新账号；邀请码需要向管理员索取。" : "登录后，词库与学习记录会随账号同步。";
+        if (register) InviteBox.Focus(); else PasswordBox.Focus();
+    }
 
     private async Task AuthenticateAsync(bool register)
     {
@@ -34,6 +50,18 @@ public partial class AccountLoginWindow : Window
         {
             StatusText.Text = "请填写用户名和密码。";
             if (string.IsNullOrWhiteSpace(UsernameBox.Text)) UsernameBox.Focus(); else PasswordBox.Focus();
+            return;
+        }
+        if (register && PasswordBox.Password.Length is < 8 or > 128)
+        {
+            StatusText.Text = "密码长度应为 8–128 位。";
+            PasswordBox.Focus();
+            return;
+        }
+        if (register && PasswordBox.Password != ConfirmPasswordBox.Password)
+        {
+            StatusText.Text = "两次输入的密码不一致。";
+            ConfirmPasswordBox.Focus();
             return;
         }
         // Registration is invite-only; check here so nobody spends a round trip to learn it.
@@ -57,6 +85,7 @@ public partial class AccountLoginWindow : Window
         finally { if (!_closed) SetBusy(false); }
         if (!authenticated || _closed) return;
         PasswordBox.Clear();
+        ConfirmPasswordBox.Clear();
         InviteBox.Clear();
         // App uses a modal gate; modeless hosts and UI tests can also use this window.
         try { DialogResult = true; }

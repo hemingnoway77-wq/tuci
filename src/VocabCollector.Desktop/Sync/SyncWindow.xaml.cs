@@ -30,9 +30,23 @@ public partial class SyncWindow : Window
         Details.Text = _sync.Folder + Environment.NewLine + _sync.Server;
         AccountLabel.Text = _sync.SignedIn ? "已登录 · " + _sync.Username : "已通过设备配对连接";
         LogoutButton.Visibility = ChangePasswordPanel.Visibility = _sync.SignedIn ? Visibility.Visible : Visibility.Collapsed;
+        InvitePanel.Visibility = _sync.CanInvite ? Visibility.Visible : Visibility.Collapsed;
         DisconnectButton.Visibility = ClaimPanel.Visibility = Visibility.Collapsed;
         StatusText.Text = _sync.Status;
     }
+    private async void Invite_Expanded(object sender, RoutedEventArgs e) => await Perform(async () =>
+        InviteListText.Text = await _sync.RefreshInvites());
+    private async void Invite_Click(object sender, RoutedEventArgs e) => await Perform(async () =>
+    {
+        var issued = await _sync.IssueInvite();
+        InviteCodeBox.Text = issued.Code;
+        InviteCodeBox.Visibility = Visibility.Visible;
+        InviteCodeBox.SelectAll();
+        InviteCodeBox.Focus();
+        InviteListText.Text = await _sync.RefreshInvites();
+    });
+    private async void Invites_Click(object sender, RoutedEventArgs e) => await Perform(async () =>
+        InviteListText.Text = await _sync.RefreshInvites());
     private void Choose_Click(object sender, RoutedEventArgs args)
     {
         var picker = new OpenFolderDialog { Title = "选择要同步的单词目录", Multiselect = false };

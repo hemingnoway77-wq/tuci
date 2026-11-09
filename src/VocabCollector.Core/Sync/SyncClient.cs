@@ -16,8 +16,13 @@ public sealed record SyncChange(long Seq, string NoteId, long Version, string Pa
 public sealed record SyncPage(SyncChange[] Changes, long Cursor, bool HasMore);
 public sealed record SyncReceipt(string NoteId, long Version, string Path, bool Conflict);
 public sealed record SyncIdentity(string Token, string VaultId);
-public sealed record AccountIdentity(string Token, string VaultId, string UserId, string Username, string DeviceId);
-public sealed record AccountProfile(string UserId, string Username, string VaultId, string DeviceId);
+public sealed record AccountIdentity(string Token, string VaultId, string UserId, string Username, string DeviceId, bool CanInvite = false);
+public sealed record AccountProfile(string UserId, string Username, string VaultId, string DeviceId, bool CanInvite = false);
+/// <summary>One freshly minted invite. The plaintext code is shown once and never stored.</summary>
+public sealed record InviteIssued(string Code, long ExpiresAt);
+/// <summary>A previously issued invite as the server lists it: epochs in seconds.</summary>
+public sealed record InviteSummary(long Created, long Expires, bool Used);
+internal sealed record InviteList(InviteSummary[] Invites);
 
 public interface ISyncRemote
 {
@@ -58,6 +63,9 @@ public sealed class SyncClient(HttpClient http, Uri server, string? token = null
     public Task<AccountIdentity> LoginAsync(string username, string password, string deviceName, CancellationToken ct) =>
         SendAsync<AccountIdentity>("v1/account/login", new { username, password, deviceName, browser = false }, ct);
     public Task<AccountProfile> AccountAsync(CancellationToken ct) => SendAsync<AccountProfile>("v1/account/me", null, ct);
+    public Task<InviteIssued> IssueInviteAsync(CancellationToken ct) => SendAsync<InviteIssued>("v1/invites", new { }, ct);
+    public async Task<InviteSummary[]> InvitesAsync(CancellationToken ct) =>
+        (await SendAsync<InviteList>("v1/invites", null, ct)).Invites;
     public Task<StatePage> StateChangesAsync(long cursor, CancellationToken ct) =>
         SendAsync<StatePage>("v1/state/changes?after=" + cursor.ToString(System.Globalization.CultureInfo.InvariantCulture), null, ct);
     public Task<StateReceipt> PushStateAsync(StateOperation operation, CancellationToken ct) =>

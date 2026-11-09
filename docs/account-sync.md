@@ -10,6 +10,7 @@ Windows 1.3.0 与 `/tuci/` 手机 PWA 均需登录后使用，同一账号对应
 - `GET /v1/account/me` 返回当前资料。`POST logout` 撤销当前设备；`POST password {currentPassword,newPassword}` 改密并撤销其他设备与未兑换配对码。
 - 密码使用随机盐、600,000 轮 PBKDF2-HMAC-SHA256。登录按来源限流，同时按账号记录 15 分钟内的连续失败；会话令牌仅以 SHA-256 摘要入库。
 - 注册携带显式旧 Bearer 时，可以认领尚无账号的旧词库。浏览器共享 cookie 不会被用作隐式认领依据。
+- 新账号只能凭邀请码创建：`POST /v1/invites` 生成、`GET /v1/invites` 列出，仅 `TUCI_INVITE_ADMIN`（默认 `trinhrae`）可调用，每个码 7 天有效且只能用一次。网页在「设置」、Windows 在「账号与同步」里提供同一套生成与列表入口。
 
 ## 隔离
 

@@ -21,6 +21,12 @@
     <TextBlock Text="新密码（8–128 位）" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="NewPasswordBox" Margin="0,5,0,10"/>
     <Button Content="保存新密码" Style="{StaticResource OutlineAction}" Click="ChangePassword_Click"/>
    </StackPanel></Expander>
+   <Expander x:Name="InvitePanel" Header="邀请码" Visibility="Collapsed" Expanded="Invite_Expanded" Margin="0,16,0,0"><StackPanel Margin="0,10,0,0">
+    <TextBlock Text="新用户需要邀请码才能创建账号。每个邀请码只能使用一次，7 天内有效。" TextWrapping="Wrap" Style="{StaticResource HintText}" Margin="0,0,0,10"/>
+    <WrapPanel><Button Content="生成邀请码" Style="{StaticResource OutlineAction}" Click="Invite_Click" Margin="0,0,8,0"/><Button Content="刷新列表" Style="{StaticResource QuietAction}" Click="Invites_Click"/></WrapPanel>
+    <TextBox x:Name="InviteCodeBox" IsReadOnly="True" Visibility="Collapsed" Margin="0,10,0,0" AutomationProperties.Name="新生成的邀请码"/>
+    <TextBlock x:Name="InviteListText" TextWrapping="Wrap" Style="{StaticResource HintText}" Margin="0,10,0,0"/>
+   </StackPanel></Expander>
    <Expander x:Name="ClaimPanel" Header="为当前配对词库注册账号" Margin="0,16,0,0"><StackPanel Margin="0,10,0,0">
     <TextBlock Text="关联当前词库后，可用用户名和密码登录手机网页版。" TextWrapping="Wrap" Style="{StaticResource HintText}" Margin="0,0,0,10"/>
     <TextBlock Text="用户名" Style="{StaticResource FieldLabel}"/><TextBox x:Name="ClaimUsernameBox" Margin="0,5,0,10"/>

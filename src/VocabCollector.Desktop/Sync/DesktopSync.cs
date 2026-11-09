@@ -16,7 +16,7 @@ public enum AccountAccess { LoginRequired, Checking, Online, Offline }
 public sealed class DesktopSync : IDisposable
 {
     private sealed record Binding(string Server, string VaultId, VaultOptions Vault, string EncryptedToken,
-        string? UserId = null, string? Username = null, string? DeviceId = null, DateTimeOffset? ExpiresAt = null);
+        string? UserId = null, string? Username = null, string? DeviceId = null, DateTimeOffset? ExpiresAt = null, bool CanInvite = false);
     private readonly string _dir;
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _poll;
@@ -37,6 +37,7 @@ public sealed class DesktopSync : IDisposable
     public AccountAccess Access { get; private set; } = AccountAccess.LoginRequired;
     public bool CanUseAccount => SignedIn && Access is AccountAccess.Online or AccountAccess.Offline;
     public string Username => _binding?.Username ?? "";
+    public bool CanInvite => _binding?.CanInvite == true;
     public string DeviceId => _binding?.DeviceId ?? "";
     public VaultOptions? ActiveVault => _binding?.Vault;
     public string? AccountStateDirectory => _binding is { UserId: not null } b ? Path.Combine(_dir, "accounts", AccountKey(b)) : null;
@@ -181,8 +182,13 @@ public sealed class DesktopSync : IDisposable
                 string.IsNullOrWhiteSpace(identity.Username) || string.IsNullOrWhiteSpace(identity.DeviceId))
                 throw new InvalidDataException("服务器未返回完整账号身份。");
             var encrypted = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(identity.Token), null, DataProtectionScope.CurrentUser));
+            // The login grant carries no role information; ask the profile once so the
+            // account window knows whether this account may mint invite codes.
+            var canInvite = false;
+            try { canInvite = (await new SyncClient(_http, server, identity.Token).AccountAsync(_stop.Token)).CanInvite; }
+            catch (Exception error) when (error is HttpRequestException or TaskCanceledException) { }
             var binding = new Binding(server.AbsoluteUri, identity.VaultId, privateCache ? PrivateVault(server.AbsoluteUri, identity) : vault!, encrypted,
-                identity.UserId, identity.Username, identity.DeviceId, DateTimeOffset.UtcNow.AddDays(90));
+                identity.UserId, identity.Username, identity.DeviceId, DateTimeOffset.UtcNow.AddDays(90), canInvite);
             LastBindingWasRegistration = register && !privateCache;
             try { await InstallBinding(binding); }
             catch
@@ -229,6 +235,13 @@ public sealed class DesktopSync : IDisposable
             {
                 await RequireLogin("账号身份与本机缓存不符，请重新登录。", ct); return false;
             }
+            if (binding.CanInvite != profile.CanInvite)
+            {
+                binding = binding with { CanInvite = profile.CanInvite };
+                _binding = binding;
+                await SaveJson(ConfigPath, binding, ct);
+                Updated?.Invoke(this, EventArgs.Empty);
+            }
             await SaveJson(Path.Combine(ProfileDirectory(binding), "library-binding.json"), binding.Vault, ct);
             SetAccess(AccountAccess.Online); return true;
         }
@@ -253,6 +266,44 @@ public sealed class DesktopSync : IDisposable
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         }
         Disconnect(); SetStatus(message);
+    }
+
+    public async Task<InviteIssued> IssueInvite(CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(_stop.Token);
+        try
+        {
+            if (!SignedIn || _binding is null) throw new InvalidOperationException("请先登录账号。");
+            if (!CanInvite) throw new InvalidOperationException("当前账号没有生成邀请码的权限。");
+            var issued = await Client(_binding).IssueInviteAsync(ct);
+            SetStatus("已生成邀请码：" + issued.Code + "，7 天内有效，仅可使用一次。");
+            return issued;
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<string> RefreshInvites(CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(_stop.Token);
+        try
+        {
+            if (!SignedIn || _binding is null) throw new InvalidOperationException("请先登录账号。");
+            if (!CanInvite) throw new InvalidOperationException("当前账号没有查看邀请码的权限。");
+            var invites = await Client(_binding).InvitesAsync(ct);
+            if (invites.Length == 0) return "还没有生成过邀请码。";
+            return string.Join(Environment.NewLine, invites.Select(Describe));
+        }
+        finally { _gate.Release(); }
+    }
+
+    private static string Describe(InviteSummary invite)
+    {
+        static string Local(long seconds) => DateTimeOffset.FromUnixTimeSeconds(seconds).ToLocalTime().ToString("MM-dd HH:mm");
+        var created = Local(invite.Created);
+        var expires = Local(invite.Expires);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var state = invite.Used ? "已使用" : invite.Expires <= now ? "已过期" : "未使用";
+        return created + " 生成 · " + expires + " 过期 · " + state;
     }
 
     public async Task ChangePassword(string currentPassword, string newPassword)
