@@ -1,6 +1,16 @@
 # 兔词同步服务
 
-服务为每位用户保存一份私有词库，Windows 和 iPhone 分别上线时传送 Markdown 笔记。一个 ASP.NET Core 10 进程写入一个 SQLite 数据库，数据库包含设备令牌摘要、配对凭证摘要、笔记版本、冲突副本及重试回执。管理员可以读取数据库中的笔记正文，备份按私人词库资料管理。
+服务为每个账号保存一份私有词库，Windows 和手机 PWA 上线时同步 Markdown、漫游事件、阅读位置与主题。一个 ASP.NET Core 10 进程使用独立 SQLite 数据库，包含账号密码的 PBKDF2 摘要、设备令牌摘要、笔记版本、冲突副本与幂等回执。API Key 仅在各设备本地保存。数据库中的笔记正文可由服务器管理员读取。
+
+## 当前部署
+
+现有云服务器复用 Nginx 80/443，以及 `tuci-sync` 的 `127.0.0.1:18096`。官网 `/`，iPhone 网页版 `/tuci/`，接口 `/tuci-sync/`，Windows 更新 `/tuci-updates/`。未使用 PostgreSQL，也未改动其他业务的端口、数据库和 Nginx 站点。
+
+数据库：`/var/lib/tuci-sync/tuci.sqlite3`，schema 2 在原表上增加账号、会话及独立状态变更流，保留旧配对与 Markdown 历史。新服务目录 `/opt/tuci-sync/current`；部署脚本 [deploy-accounts.py](../scripts/server/deploy-accounts.py) 在替换前做在线备份和 Linux 实际进程检查。`tuci-backup.timer` 每天备份到仅 root 可读的 `/var/backups/tuci-sync`，保留 14 天；应另行定期转移备份到独立存储。
+
+新用户直接注册用户名和密码。已经配对的设备可在注册时用现有 Bearer 认领未关联账号的原词库；认领后其他旧设备需使用账号重新登录或重新配对。用户名规范、会话、状态协议和多标签隔离见 [账号与跨端同步](../docs/account-sync.md)。
+
+网页账号和同步请求显式使用 `referrerPolicy: same-origin`，保留同源 POST 的实际 Origin。[Fetch 标准 §3.2](https://fetch.spec.whatwg.org/#append-a-request-origin-header) 规定 `mode: same-origin` 配合 `no-referrer` 会将 POST 的 Origin 序列化为 `null`。为兼容已缓存的旧版主屏幕网页，服务端仅在 `Origin: null` 且浏览器的 `Sec-Fetch-Site: same-origin` 同时成立时接受请求；缺失该证明、same-site、cross-site 或明确外站 Origin 仍被拒绝，不以 User-Agent 或 Referer 放行。API Key 的外部 AI 请求保持 `credentials: omit`、`referrerPolicy: no-referrer`。
 
 ## 本地开发
 
@@ -9,6 +19,7 @@
 ```sh
 dotnet restore server/Tuci.Sync.csproj --locked-mode
 python3 server/tests/integration.py
+python3 server/tests/accounts.py
 export TUCI_DB="$PWD/.artifacts/sync-dev/tuci.sqlite3"
 dotnet server/bin/Release/net10.0/Tuci.Sync.dll invite
 dotnet server/bin/Release/net10.0/Tuci.Sync.dll --urls http://127.0.0.1:5080
@@ -30,7 +41,7 @@ docker compose exec sync dotnet Tuci.Sync.dll invite
 
 服务器启动后应得到 `{"ok":true}`。命令行与运维工具执行 Compose 命令时需要同一个 `TUCI_HOST` 值，可写入部署主机上 `server/.env`。数据库保存在 Compose 命名卷 `tuci_data`，服务端口仅在容器网络中使用。若已有 HTTPS 网关，请将 `sync` 服务接入该网关所在网络，通过网关把专用域名转发至 `sync:8080`，仅启动 `sync` 服务。数据库目录须使用持久本地磁盘，单实例运行。
 
-## 建立与维护词库
+## 旧配对方式的兼容维护
 
 1. 每位用户运行一次 `invite`，得到新的 `vaultId` 和有效期 24 小时的一次性激活码。管理员留存词库 ID，通过私密渠道把激活码交给对应用户。
 2. 在任一设备的兔词设置填写 HTTPS 站点地址并兑换激活码。由已绑定设备生成十分钟有效的配对码，将另一台设备加入同一词库。每台设备只保留最近一次生成的待用配对码。

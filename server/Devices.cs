@@ -47,6 +47,11 @@ internal sealed partial class Database
         if (vault is null) throw new RequestFault(401, "凭证无效或已过期。");
         string token = Wire.Secret(32);
         db.Execute("INSERT INTO devices VALUES($p0,$p1,$p2,$p3)", Wire.Id(), vault, request.DeviceName.Trim(), Wire.Digest(token));
+        db.Execute("""
+            INSERT INTO account_sessions(device,account,expires)
+            SELECT d.id,a.id,$p2 FROM devices d JOIN accounts a ON a.vault=d.vault
+            WHERE d.vault=$p0 AND d.tokenhash=$p1
+            """, vault, Wire.Digest(token), DateTimeOffset.UtcNow.AddDays(90).ToUnixTimeSeconds());
         db.Commit();
         return new(token, vault);
     }
@@ -55,7 +60,12 @@ internal sealed partial class Database
         if (authorization is { Length: 71 } && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
             using var db = Open();
-            using var cmd = db.Cmd("SELECT id,vault FROM devices WHERE tokenhash=$p0", Wire.Digest(authorization[7..]));
+            using var cmd = db.Cmd("""
+                SELECT d.id,d.vault FROM devices d
+                LEFT JOIN accounts a ON a.vault=d.vault
+                LEFT JOIN account_sessions s ON s.device=d.id AND s.account=a.id
+                WHERE d.tokenhash=$p0 AND (a.id IS NULL OR s.expires>$p1)
+                """, Wire.Digest(authorization[7..]), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             using var row = cmd.ExecuteReader();
             if (row.Read()) return new(row.GetString(0), row.GetString(1));
         }

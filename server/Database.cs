@@ -18,7 +18,7 @@ internal sealed partial class Database
         using var db = Open();
         db.Scalar("PRAGMA journal_mode=WAL");
         db.StartWrite();
-        if (Convert.ToInt64(db.Scalar("PRAGMA user_version")) > 1)
+        if (Convert.ToInt64(db.Scalar("PRAGMA user_version")) > 2)
             throw new InvalidOperationException("数据库版本比本程序新。");
         db.Execute("""
             CREATE TABLE IF NOT EXISTS vaults(id TEXT PRIMARY KEY, seq INTEGER NOT NULL DEFAULT 0);
@@ -35,7 +35,20 @@ internal sealed partial class Database
             CREATE UNIQUE INDEX IF NOT EXISTS live_paths ON heads(vault,pathkey) WHERE live=1;
             CREATE TABLE IF NOT EXISTS receipts(vault TEXT NOT NULL REFERENCES vaults, op TEXT NOT NULL,
                 digest TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(vault,op));
-            PRAGMA user_version=1;
+            CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY, username TEXT NOT NULL,
+                namekey TEXT NOT NULL UNIQUE, vault TEXT NOT NULL UNIQUE REFERENCES vaults,
+                password TEXT NOT NULL, created INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS account_sessions(device TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+                account TEXT NOT NULL REFERENCES accounts(id), expires INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS auth_failures(namekey TEXT PRIMARY KEY, failures INTEGER NOT NULL, since INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS state_sequences(vault TEXT PRIMARY KEY REFERENCES vaults, seq INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS state_changes(vault TEXT NOT NULL REFERENCES vaults, seq INTEGER NOT NULL,
+                key TEXT NOT NULL, value TEXT NOT NULL, deleted INTEGER NOT NULL, PRIMARY KEY(vault,seq));
+            CREATE TABLE IF NOT EXISTS state_heads(vault TEXT NOT NULL, key TEXT NOT NULL, seq INTEGER NOT NULL,
+                PRIMARY KEY(vault,key), FOREIGN KEY(vault,seq) REFERENCES state_changes(vault,seq));
+            CREATE TABLE IF NOT EXISTS state_receipts(vault TEXT NOT NULL REFERENCES vaults, op TEXT NOT NULL,
+                digest TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(vault,op));
+            PRAGMA user_version=2;
             """);
         db.Commit();
     }

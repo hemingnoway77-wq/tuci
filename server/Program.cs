@@ -45,6 +45,12 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
+    options.AddPolicy("account", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "local",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.AddPolicy("reading", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "local",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 90, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     // At the HTTPS proxy all requests may share an address. These generous authenticated
     // limits are independent of the stricter short-code guessing limit.
     options.AddPolicy("redeem", context => RateLimitPartition.GetFixedWindowLimiter(
@@ -70,8 +76,19 @@ app.Use(async (context, next) =>
     context.Response.Headers.CacheControl = "no-store";
     try
     {
+        AccountWeb.GuardOrigin(context);
         if (context.GetEndpoint()?.Metadata.GetMetadata<DeviceRequired>() is not null)
-            context.Items["device"] = db.Authenticate(context.Request.Headers.Authorization.ToString());
+        {
+            var device = db.Authenticate(AccountWeb.Authorization(context));
+            var expectedVault = context.Request.Headers["X-Tuci-Vault"].ToString();
+            if (expectedVault.Length > 0 && expectedVault != device.VaultId)
+                throw new RequestFault(403, "另一个页面已切换账号，请重新登录当前账号。本机改动已保留。");
+            bool cookie = string.IsNullOrEmpty(context.Request.Headers.Authorization) && context.Request.Cookies.ContainsKey(AccountWeb.CookieName);
+            if (cookie && expectedVault.Length == 0 && context.Request.Path is var path &&
+                (path.StartsWithSegments("/v1/state") || path=="/v1/operations" || path=="/v1/changes"))
+                throw new RequestFault(400, "请明确当前词库后再同步。");
+            context.Items["device"] = device;
+        }
         await next(context);
     }
     catch (RequestFault problem)
@@ -81,6 +98,12 @@ app.Use(async (context, next) =>
     }
 });
 app.UseRateLimiter();
+LearningWeb.Map(app);
+AccountWeb.Map(app, db);
+app.MapGet("/v1/state/changes", (HttpContext ctx, long? after) => db.StateChanges(((Device)ctx.Items["device"]!).VaultId, after ?? 0))
+    .WithMetadata(new DeviceRequired());
+app.MapPost("/v1/state/operations", (HttpContext ctx, StateOperation op) => db.ApplyState(((Device)ctx.Items["device"]!).VaultId, op))
+    .WithMetadata(new DeviceRequired());
 app.MapGet("/health", () => new { ok = true });
 app.MapPost("/v1/redeem", (RedeemRequest input) => db.Redeem(input)).RequireRateLimiting("redeem");
 app.MapPost("/v1/pair", (HttpContext ctx) => new { code = db.Pair((Device)ctx.Items["device"]!) })
