@@ -37,7 +37,7 @@ def main(archive, expected):
     (backup/'listeners-before.txt').write_bytes(subprocess.check_output(['ss','-ltn']))
     nginx={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('/etc/nginx/sites-available').iterdir() if p.is_file()}
     (backup/'nginx-before.json').write_text(json.dumps(nginx))
-    release=Path('/opt/tuci-sync/releases')/('accounts-'+expected[:20]); release.mkdir(mode=0o755); release.chmod(0o755)
+    release=Path('/opt/tuci-sync/releases')/('accounts-'+expected[:20]+'-'+stamp); release.mkdir(mode=0o755); release.chmod(0o755)
     with zipfile.ZipFile(source) as package:
         entries=package.infolist(); seen=set()
         if len(entries)>1500 or sum(e.file_size for e in entries)>250*1024*1024: raise ValueError('Oversized release')
@@ -71,24 +71,34 @@ def main(archive, expected):
                         if json.load(urllib.request.urlopen(base+'/health',timeout=2))['ok']: break
                     except OSError: time.sleep(.1)
                 else: raise RuntimeError('Staged service did not become healthy')
-                req=urllib.request.Request(base+'/v1/account/register',data=json.dumps(dict(username='staging-'+uuid.uuid4().hex[:10],password=uuid.uuid4().hex,deviceName='Deployment check')).encode(),headers={'Content-Type':'application/json'})
+                invite=json.loads(subprocess.check_output(['runuser','-u','tuci-sync','--',str(release/'Tuci.Sync'),'invite-web'],cwd=release,env=env))
+                req=urllib.request.Request(base+'/v1/account/register',data=json.dumps(dict(username='staging-'+uuid.uuid4().hex[:10],password=uuid.uuid4().hex,deviceName='Deployment check',inviteCode=invite['code'])).encode(),headers={'Content-Type':'application/json'})
                 result=json.load(urllib.request.urlopen(req,timeout=10))
                 req=urllib.request.Request(base+'/v1/account/me',headers={'Authorization':'Bearer '+result['token']})
                 if json.load(urllib.request.urlopen(req,timeout=5))['userId']!=result['userId']: raise RuntimeError('Staged login failed')
+                req=urllib.request.Request(base+'/v1/practice/banks',data=json.dumps({'noteIds':[]}).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+result['token']})
+                if json.load(urllib.request.urlopen(req,timeout=5))!={'banks':[]}: raise RuntimeError('Staged practice lookup failed')
+                staged_plan=json.loads(subprocess.check_output(['runuser','-u','tuci-sync','--',str(release/'Tuci.Sync'),'practice-plan'],cwd=release,env=env))
+                (backup/'staged-practice-plan.json').write_text(json.dumps(staged_plan))
             finally: process.terminate(); process.wait(timeout=10)
     link=Path('/opt/tuci-sync')/('next-'+uuid.uuid4().hex); link.symlink_to(release); os.replace(link,'/opt/tuci-sync/current')
-    subprocess.run(['systemctl','restart','tuci-sync'],check=True)
-    for _ in range(100):
-        try:
-            if json.load(urllib.request.urlopen('http://127.0.0.1:18096/health',timeout=2))['ok']: break
-        except OSError: time.sleep(.1)
-    else: raise RuntimeError('New service failed health; database and prior release retained at '+str(backup))
+    try:
+        subprocess.run(['systemctl','restart','tuci-sync'],check=True)
+        for _ in range(100):
+            try:
+                if json.load(urllib.request.urlopen('http://127.0.0.1:18096/health',timeout=2))['ok']: break
+            except OSError: time.sleep(.1)
+        else: raise RuntimeError('New service failed health')
+    except Exception:
+        restored=Path('/opt/tuci-sync')/('restore-'+uuid.uuid4().hex); restored.symlink_to(previous); os.replace(restored,'/opt/tuci-sync/current')
+        subprocess.run(['systemctl','restart','tuci-sync'],check=True)
+        raise
     with sqlite3.connect(database) as con:
         after={t:con.execute('SELECT COUNT(*) FROM '+t).fetchone()[0] for t in before}
         version=con.execute('PRAGMA user_version').fetchone()[0]
         if any(after[t]<n for t,n in before.items()) or version!=2: raise RuntimeError('Migration counts changed unexpectedly')
         if con.execute('PRAGMA integrity_check').fetchone()[0]!='ok': raise RuntimeError('Migrated database integrity failed')
-    report=dict(backup=str(backup),previous=str(previous),release=str(release),before=before,after=after,schemaVersion=version,
+    report=dict(backup=str(backup),previous=str(previous),release=str(release),before=before,after=after,schemaVersion=version,stagedPracticePlan=staged_plan,
                 nginxUnchanged=nginx=={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('/etc/nginx/sites-available').iterdir() if p.is_file()})
     (backup/'report.json').write_text(json.dumps(report,indent=2))
     print(json.dumps(report))

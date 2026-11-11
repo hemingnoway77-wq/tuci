@@ -1,6 +1,8 @@
 services:
   sync:
-    build: .
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     restart: unless-stopped
     volumes:
       - tuci_data:/data

@@ -12,13 +12,14 @@ if (args.Length > 0 && !args[0].StartsWith('-'))
     {
         object output = args switch
         {
+            _ when args[0] is "practice-plan" or "practice-backfill" => await PracticeBackfill.RunAsync(db, args),
             ["invite"] => Invitation(null),
             ["invite", var vault] => Invitation(vault),
             ["invite-web"] => OperatorInvite(),
             ["devices", var vault] => db.Devices(vault),
             ["revoke", var device] => Revoke(device),
             ["backup", var file] => Backup(file),
-            _ => throw new ArgumentException("invite [vaultId] | invite-web | devices <vaultId> | revoke <deviceId> | backup <new-file>")
+            _ => throw new ArgumentException("invite [vaultId] | invite-web | devices <vaultId> | revoke <deviceId> | backup <new-file> | practice-plan | practice-backfill --config <file> --state <file> [--limit <n>]")
         };
         Console.WriteLine(JsonSerializer.Serialize(output));
         return 0;
@@ -91,7 +92,7 @@ app.Use(async (context, next) =>
                 throw new RequestFault(403, "另一个页面已切换账号，请重新登录当前账号。本机改动已保留。");
             bool cookie = string.IsNullOrEmpty(context.Request.Headers.Authorization) && context.Request.Cookies.ContainsKey(AccountWeb.CookieName);
             if (cookie && expectedVault.Length == 0 && context.Request.Path is var path &&
-                (path.StartsWithSegments("/v1/state") || path=="/v1/operations" || path=="/v1/changes"))
+                (path.StartsWithSegments("/v1/state") || path=="/v1/operations" || path=="/v1/changes" || path.StartsWithSegments("/v1/practice")))
                 throw new RequestFault(400, "请明确当前词库后再同步。");
             context.Items["device"] = device;
         }
@@ -106,6 +107,9 @@ app.Use(async (context, next) =>
 app.UseRateLimiter();
 LearningWeb.Map(app);
 AccountWeb.Map(app, db);
+app.MapPost("/v1/practice/banks", (HttpContext ctx, PracticeBankRequest input) =>
+    db.PracticeBanks(((Device)ctx.Items["device"]!).VaultId, input.NoteIds))
+    .WithMetadata(new DeviceRequired());
 app.MapGet("/v1/state/changes", (HttpContext ctx, long? after) => db.StateChanges(((Device)ctx.Items["device"]!).VaultId, after ?? 0))
     .WithMetadata(new DeviceRequired());
 app.MapPost("/v1/state/operations", (HttpContext ctx, StateOperation op) => db.ApplyState(((Device)ctx.Items["device"]!).VaultId, op))

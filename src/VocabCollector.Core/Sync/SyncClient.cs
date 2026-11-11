@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using VocabCollector.Core.Library;
 
 namespace VocabCollector.Core.Sync;
 
@@ -70,6 +71,63 @@ public sealed class SyncClient(HttpClient http, Uri server, string? token = null
         SendAsync<StatePage>("v1/state/changes?after=" + cursor.ToString(System.Globalization.CultureInfo.InvariantCulture), null, ct);
     public Task<StateReceipt> PushStateAsync(StateOperation operation, CancellationToken ct) =>
         SendAsync<StateReceipt>("v1/state/operations", operation, ct);
+    public async Task<CloudPracticeBankPage> PracticeBanksAsync(IEnumerable<string> noteIds, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested(); ArgumentNullException.ThrowIfNull(noteIds);
+        var submitted = noteIds.Take(33).ToArray();
+        if (submitted.Length is < 1 or > 32 || submitted.Any(id => string.IsNullOrEmpty(id) || id.Length > 128 ||
+            id.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_')))
+            throw new ArgumentException("请一次查询 1–32 个有效笔记编号。", nameof(noteIds));
+        var ids = submitted.Distinct(StringComparer.Ordinal).ToArray();
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(server, "v1/practice/banks"))
+        { Content = JsonContent.Create(new { noteIds = ids }) };
+        if (token != null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (vaultId != null) request.Headers.Add("X-Tuci-Vault", vaultId);
+        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        byte[] body;
+        try { body = await ReadPracticeBanksBodyAsync(response.Content, ct).ConfigureAwait(false); }
+        catch (InvalidDataException) when (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        { throw new SyncRequestException("账号会话已失效，请重新登录。", response.StatusCode); }
+        if (!response.IsSuccessStatusCode)
+        {
+            using var boundedError = new HttpResponseMessage(response.StatusCode) { Content = new ByteArrayContent(body) };
+            throw await FailureAsync(boundedError, ct).ConfigureAwait(false);
+        }
+        var page = JsonSerializer.Deserialize<CloudPracticeBankPage>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web) { MaxDepth = 16 });
+        if (page?.Banks is null || page.Banks.Count > ids.Length) throw new InvalidDataException("云端语境响应格式无效。");
+        var allowed = ids.ToHashSet(StringComparer.Ordinal); var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var bank in page.Banks)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (bank is null || bank.NoteId is null || !allowed.Contains(bank.NoteId) || !seen.Add(bank.NoteId) ||
+                bank.Contexts is null || bank.Contexts.Count is < 1 or > 128)
+                throw new InvalidDataException("云端语境响应包含范围外或不完整的词条。");
+            try { _ = WordInput.Normalize(bank.Word); }
+            catch (ArgumentException error) { throw new InvalidDataException("云端语境的词形无效。", error); }
+            var senses = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var context in bank.Contexts)
+                if (context is null || string.IsNullOrWhiteSpace(context.SenseId) || context.SenseId.Length > 256 || !senses.Add(context.SenseId) ||
+                    string.IsNullOrWhiteSpace(context.English) || context.English.Length > 8000 ||
+                    string.IsNullOrWhiteSpace(context.Chinese) || context.Chinese.Length > 8000)
+                    throw new InvalidDataException("云端语境响应包含不完整的义项。");
+        }
+        return page;
+    }
+
+    private static async Task<byte[]> ReadPracticeBanksBodyAsync(HttpContent content, CancellationToken ct)
+    {
+        const int limit = 2 * 1024 * 1024;
+        if (content.Headers.ContentLength > limit) throw new InvalidDataException("云端语境响应超过 2 MiB。");
+        await using var source = await content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var body = new MemoryStream(); var buffer = new byte[8192];
+        while (true)
+        {
+            var read = await source.ReadAsync(buffer.AsMemory(), ct).ConfigureAwait(false);
+            if (read == 0) return body.ToArray();
+            if (body.Length + read > limit) throw new InvalidDataException("云端语境响应超过 2 MiB。");
+            body.Write(buffer, 0, read);
+        }
+    }
     public async Task LogoutAsync(CancellationToken ct) => await SendEmptyAsync("v1/account/logout", new {}, ct);
     public async Task ChangePasswordAsync(string currentPassword, string newPassword, CancellationToken ct) =>
         await SendEmptyAsync("v1/account/password", new { currentPassword, newPassword }, ct);

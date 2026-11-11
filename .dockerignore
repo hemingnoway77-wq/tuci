@@ -1,0 +1,5 @@
+.git
+.artifacts
+dist
+**/bin
+**/obj

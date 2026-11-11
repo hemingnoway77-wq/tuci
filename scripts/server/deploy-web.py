@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import stat
 import subprocess
@@ -22,12 +23,13 @@ def main(archive, expected):
     required={'tuci/index.html','tuci/app.js','tuci/account.js','tuci/storage.js','tuci/sw.js','tuci/manifest.json','tuci/icons/apple-touch.png'}
     with zipfile.ZipFile(source) as package:
         entries=package.infolist(); seen=set()
-        if len(entries)>256 or sum(e.file_size for e in entries)>80*1024*1024: raise ValueError('Oversized PWA')
+        if len(entries)>256 or sum(e.file_size for e in entries)>96*1024*1024: raise ValueError('Oversized PWA')
         for entry in entries:
             path=PurePosixPath(entry.filename)
+            translation_binary=re.fullmatch(r'tuci/offline-translation/[a-f0-9]{16}/(?:bergamot-translator\.wasm|en-zh/(?:model\.enzh\.intgemm\.alphas\.bin|lex\.50\.50\.enzh\.s2t\.bin|(?:srcvocab|trgvocab)\.enzh\.spm))', entry.filename)
             if (path.is_absolute() or '..' in path.parts or '\\' in entry.filename or path.parts[0]!='tuci' or
                 any(p.startswith('.') for p in path.parts) or entry.filename.lower() in seen or stat.S_ISLNK(entry.external_attr>>16) or
-                path.suffix not in {'.html','.css','.js','.json','.jsonl','.png','.svg','.ico','.txt','.woff2'} or
+                (path.suffix not in {'.html','.css','.js','.json','.jsonl','.png','.svg','.ico','.txt','.woff2'} and not translation_binary) or
                 path.suffix=='.woff2' and path.parts[:2]!=('tuci','fonts')): raise ValueError('Unsafe PWA file')
             seen.add(entry.filename.lower())
             target=release/entry.filename; target.parent.mkdir(parents=True,exist_ok=True)

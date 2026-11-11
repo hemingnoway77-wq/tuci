@@ -1,6 +1,6 @@
 """Run the actual HTTP service against an isolated SQLite file (Python 3.9+, .NET 10)."""
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 import hashlib
 import json
@@ -165,7 +165,7 @@ def run(temp):
         assert http("/v1/redeem", {"code":"bad","deviceName":"x"}, forwarded="192.0.2.1")[0] == 429
         backup=temp/"backup.db"
         admin("backup",str(backup))
-    with sqlite3.connect(backup) as con:
+    with closing(sqlite3.connect(backup)) as con:
         assert con.execute("pragma integrity_check").fetchone()[0]=="ok"
         assert con.execute("select tokenhash from devices where name='Mac'").fetchone()[0] == hashlib.sha256(device.encode()).hexdigest().upper()
     with service(backup, trust_local_proxy=True) as restored:

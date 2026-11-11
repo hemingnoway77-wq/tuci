@@ -22,6 +22,9 @@ public sealed record RoamingExposure(Guid Id, LibraryNote Note, bool RememberedT
 
 public sealed class RoamingSession
 {
+    // Local replay protection only. Keep a bounded window without extending the
+    // cloud's existing shown/completed(bool) schema with a third grade.
+    private const int NeutralHistoryLimit = 4096;
     private readonly string _stateFile;
     private readonly TimeProvider _clock;
     private readonly Func<double> _random;
@@ -70,7 +73,9 @@ public sealed class RoamingSession
                 (_state.CurrentExposure is null) != (_state.CurrentNoteId is null) ||
                 (_state.CurrentNoteId is not null && string.IsNullOrWhiteSpace(_state.CurrentNoteId)) ||
                 (_state.CurrentWeight is { } weight && (!double.IsFinite(weight) || weight <= 0)) ||
-                (_state.CurrentWeightLevel is { } level && (!double.IsFinite(level) || level < 0 || level > 1)))
+                (_state.CurrentWeightLevel is { } level && (!double.IsFinite(level) || level < 0 || level > 1)) ||
+                (_state.NeutralCompletions is { } neutral && (neutral.Count > NeutralHistoryLimit ||
+                    neutral.Contains(Guid.Empty) || neutral.Distinct().Count() != neutral.Count)))
                 throw new JsonException("学习记录格式无效。");
             if (_state.Activity is not null)
                 foreach (var day in _state.Activity)
@@ -90,7 +95,17 @@ public sealed class RoamingSession
         { throw new IOException("无法读取本机学习记录，请检查文件：" + _stateFile, error); }
     }
 
-    public async Task<RoamingExposure?> NextAsync(IReadOnlyList<LibraryNote> notes, Guid? finishingExposure = null, bool remembered = false, CancellationToken cancellationToken = default)
+    public Task<RoamingExposure?> NextAsync(IReadOnlyList<LibraryNote> notes, Guid? finishingExposure = null,
+        bool remembered = false, CancellationToken cancellationToken = default) =>
+        NextCoreAsync(notes, finishingExposure, remembered, avoidRepeat: false, cancellationToken);
+
+    /// <summary>Finish a practice card. A null grade is neutral and is never exported as a completed(bool) event.</summary>
+    public Task<RoamingExposure?> NextPracticeAsync(IReadOnlyList<LibraryNote> notes, Guid finishingExposure,
+        bool? remembered, CancellationToken cancellationToken = default) =>
+        NextCoreAsync(notes, finishingExposure, remembered, avoidRepeat: true, cancellationToken);
+
+    private async Task<RoamingExposure?> NextCoreAsync(IReadOnlyList<LibraryNote> notes, Guid? finishingExposure,
+        bool? remembered, bool avoidRepeat, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -110,21 +125,33 @@ public sealed class RoamingSession
 
             var records = new Dictionary<string, ReviewRecord>(_state.Records);
             var syncEntries = new Dictionary<string, JsonElement>(_state.SyncEntries!, StringComparer.Ordinal);
+            var neutralCompletions = new List<Guid>(_state.NeutralCompletions ?? []);
             if (finishingExposure is not null && finishingExposure == _state.CurrentExposure && _state.CurrentNoteId is { } completedId)
             {
-                var record = Record(completedId);
-                var (m, s) = record.Counts(now, timeZone);
-                records[completedId] = record with
+                if (remembered is { } grade)
                 {
-                    Day = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, timeZone).DateTime),
-                    Remembered = checked(m + (remembered ? 1 : 0)),
-                    Skipped = checked(s + (remembered ? 0 : 1))
-                };
-                syncEntries[EventKey(finishingExposure.Value, "completed")] = JsonSerializer.SerializeToElement(new
-                { noteId = completedId, at = now, day = today.ToString("yyyy-MM-dd"), remembered });
+                    var record = Record(completedId);
+                    var (m, s) = record.Counts(now, timeZone);
+                    records[completedId] = record with
+                    {
+                        Day = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, timeZone).DateTime),
+                        Remembered = checked(m + (grade ? 1 : 0)),
+                        Skipped = checked(s + (grade ? 0 : 1))
+                    };
+                    syncEntries[EventKey(finishingExposure.Value, "completed")] = JsonSerializer.SerializeToElement(new
+                    { noteId = completedId, at = now, day = today.ToString("yyyy-MM-dd"), remembered = grade });
+                }
+                else
+                {
+                    neutralCompletions.Add(finishingExposure.Value);
+                    if (neutralCompletions.Count > NeutralHistoryLimit) neutralCompletions.RemoveAt(0);
+                }
             }
 
-            var choices = notes.Where(note => note.IsWord).Select(note =>
+            var eligible = notes.Where(note => note.IsWord).ToArray();
+            if (avoidRepeat && eligible.Any(note => note.Id != _state.CurrentNoteId))
+                eligible = eligible.Where(note => note.Id != _state.CurrentNoteId).ToArray();
+            var choices = eligible.Select(note =>
                 (Note: note, Weight: records.GetValueOrDefault(note.Id, new ReviewRecord()).Weight(note.AddedAt, now, timeZone))).ToArray();
             var oldest = DateOnly.FromDayNumber(Math.Max(0, today.DayNumber - 399));
             var activity = (_state.Activity ?? []).Where(day => day.Key >= oldest && day.Key <= today)
@@ -156,10 +183,13 @@ public sealed class RoamingSession
                 { noteId = selected.Note.Id, exposureId = next.Id.ToString("D"), at = now, weight = selected.Weight, weightLevel });
             }
 
+            if (avoidRepeat && next is null) syncEntries.Remove("roaming/current");
+
             if (next is null && _state.CurrentExposure is null && finishingExposure is null) return null;
             var candidate = _state with { Records = records, CurrentExposure = next?.Id, CurrentNoteId = next?.Note.Id,
                 Activity = activity, TrackingStartedOn = trackingStartedOn, CurrentWeight = next?.Weight,
-                CurrentWeightLevel = next?.WeightLevel, CurrentAt = next is null ? null : now, SyncEntries = syncEntries };
+                CurrentWeightLevel = next?.WeightLevel, CurrentAt = next is null ? null : now, SyncEntries = syncEntries,
+                NeutralCompletions = neutralCompletions };
             try { await LocalLibraryState.WriteAsync(_stateFile, candidate, cancellationToken); }
             catch (Exception error) when (LocalLibraryState.IsStorageError(error))
             { throw new IOException("无法保存本机学习记录，当前卡片尚未推进。" + error.Message, error); }
@@ -257,6 +287,7 @@ public sealed class RoamingSession
         try
         {
             var entries = new Dictionary<string, JsonElement>(_state.SyncEntries!, StringComparer.Ordinal);
+            var neutralCompletions = (_state.NeutralCompletions ?? []).ToHashSet();
             foreach (var change in changes)
             {
                 if (change.Deleted) continue;
@@ -267,8 +298,12 @@ public sealed class RoamingSession
                 if (key.StartsWith("event/", StringComparison.Ordinal))
                 {
                     var parts = key.Split('/');
-                    key = EventKey(Guid.Parse(parts[1]), parts[2]);
+                    var exposure = Guid.Parse(parts[1]);
+                    if (parts[2] == "completed" && neutralCompletions.Contains(exposure)) continue;
+                    key = EventKey(exposure, parts[2]);
                 }
+                if (key == "roaming/current" && neutralCompletions.Contains(Guid.Parse(change.Value.GetProperty("exposureId").GetString()!)))
+                    continue;
                 // A newer locally drawn card can be committed while the network request is in flight.
                 if (key == "roaming/current" && entries.TryGetValue(key, out var localCurrent) &&
                     localCurrent.GetProperty("at").GetDateTimeOffset() > change.Value.GetProperty("at").GetDateTimeOffset()) continue;
@@ -317,6 +352,7 @@ public sealed class RoamingSession
 
     private ReviewState Rebuild(ReviewState state, DateTimeOffset now)
     {
+        var neutralCompletions = (state.NeutralCompletions ?? []).ToHashSet();
         var totals = new Dictionary<(string Id, DateOnly Day), (int Remembered, int Skipped, int Shown)>();
         var lastShown = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         void Add(string id, DateOnly day, int remembered, int skipped, int shown, DateTimeOffset? at)
@@ -337,6 +373,7 @@ public sealed class RoamingSession
             else if (key.EndsWith("/shown", StringComparison.Ordinal)) Add(id, day, 0, 0, 1, value.GetProperty("at").GetDateTimeOffset());
             else if (key.EndsWith("/completed", StringComparison.Ordinal))
             {
+                if (neutralCompletions.Contains(Guid.Parse(key.Split('/')[1]))) continue;
                 var remembered = value.GetProperty("remembered").GetBoolean();
                 Add(id, day, remembered ? 1 : 0, remembered ? 0 : 1, 0, null);
             }
@@ -368,7 +405,7 @@ public sealed class RoamingSession
             currentAt = current.GetProperty("at").GetDateTimeOffset();
             weight = current.GetProperty("weight").GetDouble();
             level = current.GetProperty("weightLevel").GetDouble();
-            if (state.SyncEntries.ContainsKey(EventKey(currentExposure.Value, "completed")))
+            if (state.SyncEntries.ContainsKey(EventKey(currentExposure.Value, "completed")) || neutralCompletions.Contains(currentExposure.Value))
             { currentExposure = null; currentNote = null; currentAt = null; weight = null; level = null; }
         }
         var firstActivity = totals.Where(pair => pair.Value.Shown > 0).Select(pair => (DateOnly?)pair.Key.Day).Min();
@@ -392,5 +429,5 @@ public sealed class RoamingSession
         Dictionary<DateOnly, Dictionary<string, int>>? Activity = null, bool HasLegacyHistory = false,
         DateOnly? TrackingStartedOn = null, double? CurrentWeight = null, double? CurrentWeightLevel = null,
         Dictionary<string, JsonElement>? SyncEntries = null, List<LegacyBaseline>? PendingBaseline = null,
-        string? SourceDeviceId = null, DateTimeOffset? CurrentAt = null);
+        string? SourceDeviceId = null, DateTimeOffset? CurrentAt = null, List<Guid>? NeutralCompletions = null);
 }

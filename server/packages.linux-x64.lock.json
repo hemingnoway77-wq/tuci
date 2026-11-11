@@ -13,6 +13,11 @@
           "SQLitePCLRaw.core": "2.1.13"
         }
       },
+      "AngleSharp": {
+        "type": "Transitive",
+        "resolved": "1.9.1",
+        "contentHash": "QgOLaoPvDofo66KBOHlI9WLH+L/3xGDDd1joM4CrsFsxm0knRu/6ZoiWU0DUOhBZzSCa13zYKAeVPS/CxnF12Q=="
+      },
       "Microsoft.Data.Sqlite.Core": {
         "type": "Transitive",
         "resolved": "10.0.14",
@@ -46,6 +51,12 @@
         "contentHash": "ZU60dSqoSNRe49KcQDUmOVgdRtjITOssVXFtiISs+zJXDI4D2Sndwpn2NOtzDQNPu0ZAvpoLPQ+GLKv6iEZn8Q==",
         "dependencies": {
           "SQLitePCLRaw.core": "2.1.13"
+        }
+      },
+      "vocabcollector.core": {
+        "type": "Project",
+        "dependencies": {
+          "AngleSharp": "[1.9.1, )"
         }
       }
     },

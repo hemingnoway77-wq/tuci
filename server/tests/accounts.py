@@ -1,5 +1,6 @@
 """Real HTTP tests: account migration, isolation, immutable review events, cookie/CSRF and revocation."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 import hashlib
 import json
@@ -17,12 +18,15 @@ def origin_checks(temp):
     """No-referrer + same-origin POST legitimately serializes Origin as null (Fetch 3.2)."""
     with service(temp / 'origin.db') as oldcall:
         url = next(cell.cell_contents for cell in oldcall.__closure__ if isinstance(cell.cell_contents,str) and cell.cell_contents.startswith('http://'))
-        def call(path, body, origin=None, site=None, cookie=None):
-            headers = {'Content-Type':'application/json'}
+        def call(path, body=None, origin=None, site=None, cookie=None, proof=None, referer=None):
+            headers = {'Content-Type':'application/json'} if body is not None else {}
             if origin is not None: headers['Origin'] = origin
             if site is not None: headers['Sec-Fetch-Site'] = site
             if cookie: headers['Cookie'] = cookie
-            request = urllib.request.Request(url+path,data=json.dumps(body).encode(),headers=headers)
+            if proof: headers['X-Tuci-Origin-Proof'] = proof
+            if referer: headers['Referer'] = referer
+            data = None if body is None else json.dumps(body).encode()
+            request = urllib.request.Request(url+path,data=data,headers=headers)
             try:
                 with urllib.request.urlopen(request,timeout=20) as response:
                     return response.status,json.loads(response.read()),response.headers
@@ -35,18 +39,47 @@ def origin_checks(temp):
         status,_,headers = call('/v1/account/login',credentials,origin='null',site='same-origin')
         assert status == 200, ('same-origin no-referrer login',status)
         cookie = headers['Set-Cookie'].split(';')[0]
+        proof_path = '/v1/account/origin-proof'
+        status, reply, headers = call(proof_path)
+        assert status == 200 and 0 < reply['expiresIn'] <= 120
+        assert headers['Cache-Control'] == 'no-store'
+        assert headers['Cross-Origin-Resource-Policy'] == 'same-origin'
+        proof = reply['proof']
+        proof_cookie, *attributes = headers['Set-Cookie'].split('; ')
+        assert proof_cookie == '__Host-tuci-origin-proof=' + proof
+        assert {'secure', 'httponly', 'samesite=strict', 'path=/', 'max-age=120'} <= {value.lower() for value in attributes}
+        assert not any(value.lower().startswith('domain=') for value in attributes)
+        assert call(proof_path, cookie=proof_cookie)[1]['proof'] == proof
+
         # Fetch Metadata is a forbidden header: other origins cannot claim same-origin in JS.
         # An opaque origin by itself, Referer, User-Agent or a caller-controlled custom
         # header must never be treated as proof of origin.
-        for site in [None, 'cross-site', 'same-site', 'none', 'same-origin, cross-site']:
-            assert call('/v1/account/login',credentials,origin='null',site=site)[0] == 403, site
+        status, _, headers = call('/v1/account/login', credentials, origin='null', referer='https://101.133.134.128/tuci/')
+        assert status == 403 and headers['X-Tuci-Origin-Error'] == 'proof-required'
+        fake = 'A' * 96
+        assert call('/v1/account/login', credentials, origin='null', proof=fake,
+                    cookie='__Host-tuci-origin-proof='+fake)[0] == 403
+        assert call('/v1/account/login', credentials, origin='null', proof=fake, cookie=proof_cookie)[0] == 403
+        assert call('/v1/account/login', credentials, origin='null', proof=proof)[0] == 403
+        for site in ['cross-site', 'same-site', 'none', 'same-origin, cross-site']:
+            status, _, headers = call('/v1/account/login', credentials, origin='null', site=site, cookie=proof_cookie, proof=proof)
+            assert status == 403 and headers['X-Tuci-Origin-Error'] is None, site
+            assert call(proof_path, site=site)[0] == 403, site
+        status, _, headers = call('/v1/account/login', credentials, site='same-site', cookie=proof_cookie, proof=proof)
+        assert status == 403 and headers['X-Tuci-Origin-Error'] is None
         for origin,site in [('https://evil.example','same-origin'), ('https://101.133.134.128.evil.example','same-origin'),
                             ('https://101.133.134.128','cross-site')]:
-            assert call('/v1/account/login',credentials,origin=origin,site=site)[0] == 403, (origin,site)
-            assert call('/v1/account/logout',{},origin=origin,site=site,cookie=cookie)[0] == 403
+            status, _, headers = call('/v1/account/login', credentials, origin=origin, site=site, cookie=proof_cookie, proof=proof)
+            assert status == 403 and headers['X-Tuci-Origin-Error'] is None, (origin,site)
+            assert call('/v1/account/logout', {}, origin=origin, site=site, cookie=cookie+'; '+proof_cookie, proof=proof)[0] == 403
+            assert call(proof_path, origin=origin, site=site)[0] == 403
         assert call('/v1/account/login',credentials,origin='https://101.133.134.128',site='same-origin')[0] == 200
+        status, _, headers = call('/v1/account/login', credentials, origin='null', cookie=proof_cookie, proof=proof)
+        assert status == 200
+        legacy_cookie = headers['Set-Cookie'].split(';')[0]
+        assert call('/v1/account/logout', {}, origin='null', cookie=legacy_cookie+'; '+proof_cookie, proof=proof)[0] == 200
         assert call('/v1/account/logout',{},origin='null',site='same-origin',cookie=cookie)[0] == 200
-    print('PASS: same-origin no-referrer compatibility; opaque and hostile origins remain rejected')
+    print('PASS: no-referrer login with Fetch Metadata or browser proof, hostile origins rejected')
 
 
 def run(temp):
@@ -156,7 +189,7 @@ def run(temp):
             assert status==401,status
         assert call('/v1/account/login',dict(request,password='a new password'),ip='192.0.3.50')[0]==429
         backup=temp/'accounts-backup.db'; command(database,'backup',str(backup))
-    with sqlite3.connect(backup) as con:
+    with closing(sqlite3.connect(backup)) as con:
         assert con.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
         assert con.execute('PRAGMA user_version').fetchone()[0]==2
         password=con.execute('SELECT password FROM accounts WHERE id=?',(alice['userId'],)).fetchone()[0]

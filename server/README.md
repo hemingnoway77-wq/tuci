@@ -10,7 +10,7 @@
 
 新用户直接注册用户名和密码。已经配对的设备可在注册时用现有 Bearer 认领未关联账号的原词库；认领后其他旧设备需使用账号重新登录或重新配对。用户名规范、会话、状态协议和多标签隔离见 [账号与跨端同步](../docs/account-sync.md)。
 
-网页账号和同步请求显式使用 `referrerPolicy: same-origin`，保留同源 POST 的实际 Origin。[Fetch 标准 §3.2](https://fetch.spec.whatwg.org/#append-a-request-origin-header) 规定 `mode: same-origin` 配合 `no-referrer` 会将 POST 的 Origin 序列化为 `null`。为兼容已缓存的旧版主屏幕网页，服务端仅在 `Origin: null` 且浏览器的 `Sec-Fetch-Site: same-origin` 同时成立时接受请求；缺失该证明、same-site、cross-site 或明确外站 Origin 仍被拒绝，不以 User-Agent 或 Referer 放行。API Key 的外部 AI 请求保持 `credentials: omit`、`referrerPolicy: no-referrer`。
+网页账号和同步请求显式使用 `referrerPolicy: same-origin`。[Fetch 标准 §3.2](https://fetch.spec.whatwg.org/#append-a-request-origin-header) 规定 `mode: same-origin` 配合 `no-referrer` 会将 POST 的 Origin 序列化为 `null`。浏览器标明 `Sec-Fetch-Site: same-origin` 时，服务端接受这类请求。缺少 Fetch Metadata 的 JSON POST 需要通过有效期两分钟的同源证明重试一次。服务端拒绝明确的跨站请求及外站 Origin。外部 AI 请求继续使用 `credentials: omit` 和 `referrerPolicy: no-referrer`。
 
 ## 本地开发
 
@@ -29,7 +29,7 @@ dotnet server/bin/Release/net10.0/Tuci.Sync.dll --urls http://127.0.0.1:5080
 
 ## 阿里云部署
 
-将 `server/` 复制到已有 Docker 和 Compose 的 Linux 主机。以下部署示例适合一条专用域名和可供 Caddy 监听的 80、443 端口。用指向该主机的真实域名替换示例。安全组放行 80、443。管理 SSH 按主机原有策略访问。
+将仓库复制到已有 Docker 和 Compose 的 Linux 主机（至少包含 `server/`、`src/VocabCollector.Core/`、`Directory.Build.props` 和对应锁文件）。Compose 从仓库根目录构建，共用 Core 的语境校验。以下部署示例适合一条专用域名和可供 Caddy 监听的 80、443 端口。用指向该主机的真实域名替换示例。安全组放行 80、443。管理 SSH 按主机原有策略访问。
 
 ```sh
 cd server
@@ -70,6 +70,41 @@ sqlite3 "./$stamp.db" 'PRAGMA integrity_check;'
 恢复正式实例时，先停止服务，将当前整个数据卷制作保留副本，然后用备份文件建立**新数据卷**，确保目标文件由容器的 `app` 用户可读写。将新卷挂载为 `/data`，将快照命名为 `tuci.sqlite3` 后再启动，使用测试设备检查笔记数与冲突记录。恢复旧快照可能让设备游标领先，此时服务返回 409。保存各端当前本地词库和待同步工作，通过重新关联和初始合并恢复差异。应以恢复前保存的设备撤销记录复核授权。
 
 ## API 约定
+
+### 语境题库
+
+语境保存在独立的 `practice_contexts` 表，不写入 Markdown 或旧学习状态流。
+`POST /v1/practice/banks` 接收 `{ "noteIds": ["..."] }`，每次最多 32 个
+笔记编号、完整响应最多 2 MiB。它仅返回认证设备所属词库中仍有效且义项已
+补齐的词条，浏览器还必须携带匹配的 `X-Tuci-Vault`。空间不足时省略完整
+词条，新客户端会继续查询未返回的编号。旧版同步协议保持可用。
+
+管理员在服务器本地使用下列命令盘点和补齐历史词库，不开放跨用户管理 HTTP
+接口。`TUCI_DB` 指向实际数据库；正式运行前先做在线备份。配置 JSON 包含
+`baseUrl`、`apiKey`、`model`，只使用管理员明确提供的模型凭据，Linux 文件
+权限应为 0600 或 0400。不要将配置或任务 checkpoint 提交进仓库。
+
+```sh
+umask 077
+export TUCI_DB=/var/lib/tuci-sync/tuci.sqlite3
+/opt/tuci-sync/current/Tuci.Sync practice-plan
+/opt/tuci-sync/current/Tuci.Sync practice-backfill \
+  --config /root/private-api.json --state /root/private-job/state.json --limit 3
+```
+
+`practice-plan` 不调用 AI。`--limit` 限制本次运行的实际模型请求数，省略时
+处理全量；断点文件记录成功生成的各个义项，重复运行复用它们，避免因入库
+竞态或中断重复付费。每个词缺失的义项一起生成，相同单词与词义可复用结果，
+最终仍按各自词库和笔记保存。生成不持有数据库写事务，提交时复核原版本；
+修改或删除的笔记不会写入旧结果，已有有效语境不覆盖。完成后核对报告中的
+`missingWords`、`missingSenses`，并移除临时模型配置。
+
+语境可带可选 `answerForm`，仅接受源义项明确标注且属于可信同词族规则的
+复数。旧三字段语境及旧断点保持兼容；数据库仅追加可空 `answer_form` 列，
+不改原笔记、旧行或 schema 2 的既有同步协议。
+
+Windows 在笔记与状态同步之后独立下载题库，校验当前义项后只补本机缺项，保留
+已有的有效题目。手机网页版在需要语境题时读取题库。原生 iOS 的练习入口待接入。
 
 请阅读 [三端协议](../docs/ios/implementation.md)。`POST /v1/redeem` 返回设备 `token` 和该用户稳定的 `vaultId`。后续请求使用 `Authorization: Bearer TOKEN`。设备凭证的撤销立即对新请求生效。
 

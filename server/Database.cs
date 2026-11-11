@@ -51,8 +51,16 @@ internal sealed partial class Database
                 PRIMARY KEY(vault,key), FOREIGN KEY(vault,seq) REFERENCES state_changes(vault,seq));
             CREATE TABLE IF NOT EXISTS state_receipts(vault TEXT NOT NULL REFERENCES vaults, op TEXT NOT NULL,
                 digest TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(vault,op));
+            CREATE TABLE IF NOT EXISTS practice_contexts(vault TEXT NOT NULL REFERENCES vaults, note TEXT NOT NULL,
+                word TEXT NOT NULL, sense TEXT NOT NULL, meaning TEXT NOT NULL, english TEXT NOT NULL,
+                chinese TEXT NOT NULL, created INTEGER NOT NULL, answer_form TEXT, PRIMARY KEY(vault,note,word,sense),
+                FOREIGN KEY(vault,note) REFERENCES heads(vault,note));
             PRAGMA user_version=2;
             """);
+        // Schema-v2 deployments already have valid three-field context banks.
+        // Adding a nullable field changes only the table metadata and leaves those rows intact.
+        if (Convert.ToInt64(db.Scalar("SELECT COUNT(*) FROM pragma_table_info('practice_contexts') WHERE name='answer_form'")) == 0)
+            db.Execute("ALTER TABLE practice_contexts ADD COLUMN answer_form TEXT");
         db.Commit();
     }
     public void Backup(string destination)
@@ -86,6 +94,7 @@ internal sealed class DbSession : IDisposable
         Connection.Open();
     }
     public void StartWrite() => transaction = Connection.BeginTransaction(deferred: false);
+    public void StartRead() => transaction = Connection.BeginTransaction(deferred: true);
     public void Commit() => transaction!.Commit();
     public SqliteCommand Cmd(string sql, params object?[] args)
     {

@@ -1,9 +1,12 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /build
-COPY Tuci.Sync.csproj packages.lock.json ./
-RUN dotnet restore --locked-mode
-COPY *.cs ./
-RUN dotnet publish Tuci.Sync.csproj -c Release --no-restore -o /out
+COPY Directory.Build.props ./
+COPY server/Tuci.Sync.csproj server/packages.lock.json ./server/
+COPY src/VocabCollector.Core/VocabCollector.Core.csproj src/VocabCollector.Core/packages.lock.json ./src/VocabCollector.Core/
+RUN dotnet restore server/Tuci.Sync.csproj --locked-mode
+COPY server/ ./server/
+COPY src/VocabCollector.Core/ ./src/VocabCollector.Core/
+RUN dotnet publish server/Tuci.Sync.csproj -c Release --no-restore -o /out
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app

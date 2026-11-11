@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <ProjectReference Include="../src/VocabCollector.Core/VocabCollector.Core.csproj" />
   </ItemGroup>
 </Project>
