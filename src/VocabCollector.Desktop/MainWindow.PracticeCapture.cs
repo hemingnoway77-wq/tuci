@@ -1,5 +1,6 @@
 using System.IO;
 using VocabCollector.Core;
+using VocabCollector.Core.Ai;
 using VocabCollector.Core.Library;
 using VocabCollector.Core.Reading;
 using VocabCollector.Core.Storage;
@@ -69,6 +70,10 @@ public partial class MainWindow
             CompleteNotice(" 语境练习题已准备。");
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (AnalysisException error)
+        {
+            CompleteNotice(" 语境题未准备。" + error.Message + " 可在漫游中重新准备。");
+        }
         catch (Exception)
         {
             // The Markdown commit succeeded before this optional work began.

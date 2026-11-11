@@ -51,6 +51,48 @@ public sealed class PracticeContextGenerationTests
         Assert.Equal(2, PracticeQuestionBank.WithContexts(Senses(), result).Count);
     }
 
+    [Theory]
+    [InlineData(null, "\n", true)]
+    [InlineData("json", "\n", true)]
+    [InlineData("JSON", "\r\n", true)]
+    [InlineData("json", "\n", false)]
+    public async Task BondContextBankAcceptsCompleteJsonFencesAndStillRejectsUnapprovedPlural(string? fenceLanguage, string newline, bool exactForm)
+    {
+        var note = new LibraryNote("bond-note", "名词/bond.md", "bond.md", """
+            # bond
+
+            **释义**：
+            > n. 纽带；感情联系
+            > n. 债券
+            > vt. 粘合；使连接
+            """, DateTimeOffset.UnixEpoch);
+        var senses = PracticeQuestionBank.Build(note);
+        Assert.Equal(3, senses.Count);
+        var debtSentence = exactForm ? "She bought a government bond for her retirement savings."
+            : "She bought some government bonds for her retirement savings.";
+        PracticeContext[] contexts =
+        [
+            new(senses[0].Id, "The two sisters share a close bond after years apart.", "姐妹俩分别多年后仍关系亲密。"),
+            new(senses[1].Id, debtSentence, "她买了一只政府债券作为退休储蓄。"),
+            new(senses[2].Id, "Use this glue to bond the two pieces of wood.", "用这种胶水把两块木头粘起来。")
+        ];
+        var modelContent = JsonSerializer.Serialize(new { contexts = contexts.Select((context, index) => new
+        {
+            sense_id = context.SenseId, english = context.English, chinese = context.Chinese,
+            answer_form = !exactForm && index == 1 ? "bonds" : "bond"
+        }) });
+        if (fenceLanguage is not null) modelContent = "```" + fenceLanguage + newline + modelContent + newline + "```";
+        using var handler = new Handler((_, _) => Task.FromResult(Json(JsonSerializer.Serialize(new
+        {
+            choices = new[] { new { finish_reason = "stop", message = new { content = modelContent } } }
+        }))));
+        using var client = new HttpClient(handler);
+        var generator = new OpenAiPracticeContextGenerator(client);
+        if (exactForm) Assert.Equal(contexts, await generator.GenerateAsync("bond", senses, Options, default));
+        else await Assert.ThrowsAsync<AnalysisException>(() => generator.GenerateAsync("bond", senses, Options, default));
+        Assert.Equal(1, handler.Calls);
+    }
+
     [Fact]
     public async Task SecretsEchoedInsideModelJsonAreRemovedBeforeContextsCanReachCacheOrUi()
     {

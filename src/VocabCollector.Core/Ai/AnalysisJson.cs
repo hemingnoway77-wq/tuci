@@ -22,12 +22,7 @@ public static class AnalysisJson
     {
         try
         {
-            var value = json.Trim();
-            if (value.StartsWith("```json\n", StringComparison.OrdinalIgnoreCase) || value.StartsWith("```json\r\n", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!value.EndsWith("```")) throw new JsonException();
-                value = value[(value.IndexOf('\n') + 1)..^3].Trim();
-            }
+            var value = UnwrapJsonFence(json);
             using var document = JsonDocument.Parse(value, new JsonDocumentOptions { MaxDepth = 16 });
             var root = document.RootElement;
             Object(root, "response", "解析结果");
@@ -115,6 +110,15 @@ public static class AnalysisJson
         catch (JsonException)
         { throw Failure("invalid_json", "response", "valid_json;max_depth=16", "解析结果需为完整且层级不超过16的JSON"); }
     }
+    internal static string UnwrapJsonFence(string json)
+    {
+        var value = json.Trim();
+        if (!value.StartsWith("```json\n", StringComparison.OrdinalIgnoreCase) &&
+            !value.StartsWith("```json\r\n", StringComparison.OrdinalIgnoreCase)) return value;
+        if (!value.EndsWith("```", StringComparison.Ordinal)) throw new JsonException();
+        return value[(value.IndexOf('\n') + 1)..^3].Trim();
+    }
+
     private static SpellingAssessment Spelling(JsonElement value)
     {
         Object(value, "spelling", "拼写判断");

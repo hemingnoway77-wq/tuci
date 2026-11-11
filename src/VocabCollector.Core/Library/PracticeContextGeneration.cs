@@ -77,7 +77,7 @@ public sealed class OpenAiPracticeContextGenerator : IPracticeContextGenerator
             if (message.TryGetProperty("refusal", out var refusal) && refusal.ValueKind != JsonValueKind.Null && !string.IsNullOrEmpty(refusal.GetString()))
                 throw InvalidResponse();
             var modelContent = message.GetProperty("content").GetString() ?? throw new JsonException();
-            using var payload = JsonDocument.Parse(modelContent, new JsonDocumentOptions { MaxDepth = 8 });
+            using var payload = JsonDocument.Parse(AnalysisJson.UnwrapJsonFence(modelContent), new JsonDocumentOptions { MaxDepth = 8 });
             var items = payload.RootElement.GetProperty("contexts");
             if (items.ValueKind != JsonValueKind.Array || items.GetArrayLength() != snapshot.Length) throw InvalidResponse();
             var contexts = items.EnumerateArray().Select(item => new PracticeContext(

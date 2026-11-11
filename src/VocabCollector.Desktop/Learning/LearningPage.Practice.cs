@@ -381,8 +381,12 @@ public partial class LearningPage
         catch (Exception error) when (error is ArgumentException or IOException or InvalidDataException or AnalysisException or HttpRequestException or InvalidOperationException)
         {
             if (!_disposed && version == _practiceVersion)
-                _practicePreparationMessage = error is ArgumentException ? "请先在设置中填写有效的 AI 地址、API Key 和模型，再准备语境题。"
-                    : "语境题暂未准备完成。请检查网络或 AI 配置后重试；不会用纯释义代替语境。";
+                _practicePreparationMessage = error switch
+                {
+                    AnalysisException failure => failure.Message,
+                    ArgumentException => "请先在设置中填写有效的 AI 地址、API Key 和模型，再准备语境题。",
+                    _ => "语境题暂未准备完成，请重试。"
+                };
         }
         finally
         {

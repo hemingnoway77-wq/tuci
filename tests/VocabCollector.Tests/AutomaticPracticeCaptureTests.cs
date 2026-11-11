@@ -102,6 +102,8 @@ public sealed class AutomaticPracticeCaptureTests
         request.Result.SetException(new AnalysisException("Isolated provider failure."));
         Await(fixture.Window.CapturedPracticePreparation);
         Assert.Contains("已保存", fixture.ViewModel.Message);
+        Assert.Contains("Isolated provider failure.", fixture.ViewModel.Message);
+        Assert.Contains("可在漫游中重新准备", fixture.ViewModel.Message);
         Assert.DoesNotContain("处理失败", fixture.ViewModel.Message);
         Assert.Equal(markdown, fixture.ViewModel.Markdown);
         Assert.Equal(markdown, File.ReadAllText(saved.AbsolutePath));
