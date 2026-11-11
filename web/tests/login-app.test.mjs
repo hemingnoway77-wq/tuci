@@ -18,14 +18,18 @@ function app({authentication,opening,meResponse,reducedMotion=false,savedPrefere
     addEventListener(type,fn){this.listeners[type]=fn;}removeEventListener(type){delete this.listeners[type];}
     focus(){document.activeElement=this;}blur(){if(document.activeElement===this)document.activeElement=document.body;}
     getBoundingClientRect(){return this.className==='auth-login-word'?{top:560,width:55,height:32}:{top:0,width:390,height:844};}
-    querySelector(selector){
+    querySelectorAll(selector){
       const matches=node=>selector[0]==='.'?node.className.split(' ').includes(selector.slice(1)):selector[0]==='#'?node.id===selector.slice(1):selector==='[role=alert]'?node.attributes.role==='alert':selector==='[type=submit]'?node.type==='submit':node.tagName.toLowerCase()===selector;
-      for(const child of this.children){if(matches(child))return child;const nested=child.querySelector(selector);if(nested)return nested;}return null;
+      const result=[];for(const child of this.children){if(matches(child))result.push(child);result.push(...child.querySelectorAll(selector));}return result;
     }
+    querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
     set innerHTML(markup){
       this.markup=markup;this.replaceChildren();if(!markup.includes('class="auth-screen"'))return;
       const surface=new Element('section','auth-screen'),form=new Element('form','auth-form'),title=new Element('h1'),username=new Element('input'),password=new Element('input'),submit=new Element('button','auth-submit'),word=new Element('span','auth-login-word'),error=new Element('p','account-error'),line=new Element('span','auth-shutter-line');
-      username.value='alice';password.value='fixture-password';submit.type='submit';word.textContent='登录';title.textContent='兔词';error.setAttribute('role','alert');form.elements={username,password};submit.append(word);form.append(title,username,password,submit,error);surface.append(form,line);this.append(surface);
+      username.value='alice';password.value='fixture-password';submit.type='submit';word.textContent='登录';title.textContent='兔词';error.setAttribute('role','alert');form.elements={username,password};submit.append(word);form.append(title,username,password,submit,error);
+      if(markup.includes('class="auth-reveal"')){const reveal=new Element('button','auth-reveal');reveal.dataset.for='password';form.append(reveal);}
+      if(markup.includes('id="auth-swap"')){const swap=new Element('button','auth-swap-link');swap.id='auth-swap';form.append(swap);}
+      surface.append(form,line);this.append(surface);
     }
     animate(frames,options){const pending=deferred(),record={element:this,frames,options,pending,canceled:false};animations.push(record);return {finished:pending.promise,cancel(){record.canceled=true;pending.reject(new DOMException('canceled','AbortError'));}};}
   }
@@ -38,6 +42,7 @@ function app({authentication,opening,meResponse,reducedMotion=false,savedPrefere
   const makeStore=()=>{const value={closed:false,notes:()=>[],stateEntries:()=>[],status:()=>({bound:true,pending:0,syncing:false,needsBinding:false}),subscribe(){return ()=>{};},sync:async()=>{},close(){this.closed=true;},importLegacy:async()=>false};stores.push(value);return value;};
   const context={document,window,localStorage,sessionStorage:localStorage,location:{hash:'#capture'},navigator:{onLine:true},getComputedStyle:()=>({getPropertyValue:name=>({'--paper':'#f8f6ef','--ink':'#26251f','--line':'#d9d6c9','--muted':'#68675b','--accent':'#6f5943'}[name]||'')}),matchMedia:query=>({matches:query.includes('reduced-motion') && reducedMotion}),performance:{now:()=>clock},requestAnimationFrame:callback=>queueMicrotask(()=>{clock+=16;callback();}),setInterval:()=>1,clearInterval(){},setTimeout,clearTimeout,Event,DOMException,AbortController,Promise,console,createLoginLifecycle,settleLoginViewport:options=>settleLoginViewport({...options,view:window,document,now:()=>clock,frame:callback=>queueMicrotask(()=>{clock+=16;callback();})}),playLoginTransition,
     openStore:async()=>{openCalls++;return opening?await opening.promise:makeStore();},readLegacyStore:async()=>null,checkedIdentity:value=>value,accountRequest:async route=>route==='me' && meResponse?await meResponse.promise:authentication?await authentication.promise:profile,themeNames:{warm:'warmNeutral'},localThemes:{warmNeutral:'warm'},renderCapture:ctx=>ctx.root.append(new Element('section','main-ready')),renderLibrary(){},renderReading(){},renderRoam(){},dictionaryStatus:async()=>({}),downloadDictionary:async()=>({})};
+  context.createTabIndicator=()=>({select(){},dispose(){}});
   const source=original.replace(/^import .*;\r?$/gm,'').replace('await bootstrapAccount();','globalThis.appTest={renderAuth,closeAccount,loginLifecycle,getStore:()=>store,getSurface:()=>loginSurface,getIdentity:()=>identity,bootstrapAccount};');
   vm.runInNewContext(source,context,{filename:'web/app.js'});context.appTest.renderAuth();
   return {context,document,root,header,tabs,animations,stores,profile,makeStore,getOpenCalls:()=>openCalls,surface:()=>root.querySelector('.auth-screen'),submit:()=>root.querySelector('form').onsubmit({preventDefault(){}})};

@@ -63,6 +63,31 @@
 .nb-review-body > .nb-sound { flex:0 0 auto; margin:.1rem 0 .2rem; font-size:.87rem; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .nb-review-controls { display:grid; grid-template-columns:1fr 1.25fr; gap:.65rem; }
 .nb-review-controls .button { min-height:46px; font-size:.93rem; border-radius:4px; }
+.nb-practice-modes { position:relative; grid-column:1/-1; grid-row:2; display:flex; gap:.25rem; width:max-content; }
+.nb-practice-modes .tab-motion { bottom:0; }
+.nb-practice-mode { appearance:none; min-width:58px; min-height:38px; padding:0 .6rem .2rem; color:var(--muted,#746d65); background:transparent; border:0; border-radius:0; font:inherit; font-size:.9rem; cursor:pointer; }
+.nb-practice-mode[aria-pressed=true] { color:var(--ink,#26251f); }
+.nb-practice-mode:focus-visible { outline:1px solid var(--accent,#6f5943); outline-offset:-2px; }
+.nb-practice-card { grid-template-rows:auto minmax(0,1fr) auto; }
+.nb-practice-body { min-height:0; min-width:0; overflow-y:auto; overscroll-behavior:contain; overflow-wrap:anywhere; padding:.2rem .15rem .4rem; }
+.nb-practice-top { display:flex; align-items:baseline; flex-wrap:wrap; gap:.25rem .65rem; margin-bottom:.55rem; }
+.nb-practice-heading { font-size:1rem; font-weight:650; margin:0; }
+.nb-practice-timer { margin-left:auto; color:var(--muted,#746d65); font-size:.77rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.nb-practice-word { font-size:1.35rem; font-weight:550; margin:.5rem 0; }
+.nb-practice-prompt { font-size:1.1rem; line-height:1.45; margin:.35rem 0; }
+.nb-practice-hint { color:var(--muted,#746d65); font-size:.9rem; line-height:1.45; margin:.3rem 0 .65rem; }
+.nb-practice-form { display:grid; gap:.5rem; margin-top:.7rem; }
+.nb-practice-input { display:block; width:100%; padding:.55rem .7rem; min-width:0; border:1px solid var(--line,#d9cfc0); border-radius:4px; background:var(--surface,#fffcf6); color:inherit; font:inherit; font-size:max(1rem,16px); }
+.nb-practice-input:focus-visible { outline-offset:0; }
+.nb-practice-form .button { min-height:44px; }
+.nb-practice-result { border-top:1px solid var(--line,#d9cfc0); margin-top:.75rem; padding:.55rem 0 .2rem; font-size:.92rem; }
+.nb-practice-result p { margin:.3rem 0; }
+.nb-practice-card .nb-review-controls > :only-child { grid-column:1/-1; }
+.nb-practice-card .nb-review-controls > .nb-text-btn { min-height:36px; justify-self:center; }
+@media (prefers-reduced-motion:no-preference) {
+  .nb-roam-mode-enter { animation:nb-roam-mode-enter 160ms ease-out; }
+  @keyframes nb-roam-mode-enter { from {opacity:.65; transform:translateY(5px);} }
+}
 .nb-roam-failure { display:flex; align-items:center; gap:.6rem; min-width:0; }
 .nb-roam-failure p { font-size:.75rem; line-height:1.4; margin:0; flex:1; }
 .nb-roam-failure .nb-text-btn { flex-shrink:0; font-size:.8rem; }
@@ -122,6 +147,7 @@
 .nb-reveal:focus-visible, .nb-heat-cell:focus-visible, .nb-text-btn:focus-visible { outline:2px solid var(--accent,#6f5943); outline-offset:3px; }
 @media (max-height:700px) {
   #content[data-roam-mode=cards] { padding-top:10px; gap:8px; }
+  #content[data-roam-mode=cards]:has(.nb-practice-card) { height:auto; grid-template-rows:auto minmax(19rem,1fr); }
   .nb-review { padding:1rem; gap:.35rem; }
   .nb-review .nb-word { font-size:clamp(1.8rem,8.5vw,2.5rem); margin:.15rem 0 .3rem; }
   .nb-review .nb-word.is-long { font-size:clamp(1.55rem,6.5vw,2.05rem); }
@@ -141,3 +167,5 @@
 @media (prefers-reduced-motion:reduce) {
   .nb-meaning-mask.is-revealed .nb-meaning-ink, .nb-meaning-mask.is-revealed .nb-meaning-clear { transition:none; }
 }
+.nb-markdown hr { height:1px; border:0; background:var(--line); margin:1.15rem 0; }
+.nb-markdown .nb-image-alt { color:var(--muted); }

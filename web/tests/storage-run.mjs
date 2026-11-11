@@ -61,7 +61,7 @@ try {
         res.writeHead(upstream.status,{"Content-Type":"application/json"});
         return res.end(await upstream.text());
       }
-      if (["/storage.js","/managed-links.js","/tests/storage-roundtrip.js"].includes(req.url)) {
+      if (["/storage.js","/account.js","/managed-links.js","/tests/storage-roundtrip.js"].includes(req.url)) {
         res.writeHead(200,{"Content-Type":"text/javascript"});
         return res.end(readFileSync(join(root,"web",req.url)));
       }

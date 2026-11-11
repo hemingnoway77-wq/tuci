@@ -10,11 +10,49 @@ from shutil import copyfile
 SOURCE = Path(__file__).resolve().parent
 FILES = (
     "index.html", "update.html", "update-recovery.js", "manifest.json", "app.css", "app.js", "storage.js",
-    "account.js", "login-transition.js", "reading-state.js", "legacy-roaming.js", "dictionary.js",
+    "account.js", "login-transition.js", "tab-indicator.js", "practice.js", "reading-state.js", "legacy-roaming.js", "dictionary.js", "offline-translation.js",
     "dictionary/dictionary.manifest.json", "dictionary/LICENSE.MIT.txt", "library.js", "library.css", "managed-links.js", "learning.js", "learning-data.js", "learning.css", "reader-words.js", "word-lookup.js",
     "icons/notebook.svg", "icons/login-paper.svg", "icons/brand.png", "icons/apple-touch.png", "icons/icon-192.png", "icons/icon-512.png",
     "fonts/serif.css", "fonts/OFL.txt", "fonts/NOTICE.txt",
 )
+
+TRANSLATION_SOURCE = SOURCE.parent / "src/VocabCollector.Desktop/Assets/OfflineTranslation"
+TRANSLATION_FILES = {
+    "translation-worker.js": "text/javascript",
+    "bergamot-translator.js": "text/javascript",
+    "bergamot-translator.wasm": "application/wasm",
+    "en-zh/model.enzh.intgemm.alphas.bin": "application/octet-stream",
+    "en-zh/lex.50.50.enzh.s2t.bin": "application/octet-stream",
+    "en-zh/srcvocab.enzh.spm": "application/octet-stream",
+    "en-zh/trgvocab.enzh.spm": "application/octet-stream",
+}
+
+
+def package_translation(target, assets):
+    runtime = json.loads((TRANSLATION_SOURCE / "runtime.manifest.json").read_text(encoding="utf-8"))
+    model = json.loads((TRANSLATION_SOURCE / "models.manifest.json").read_text(encoding="utf-8"))
+    declared = {file["path"]: file for file in runtime["files"] + model["files"] + [model["license"]]}
+    files = {path: {"bytes": declared[path]["bytes"], "sha256": declared[path]["sha256"], "type": content_type}
+             for path, content_type in TRANSLATION_FILES.items()}
+    version = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()[:16]
+    directory = f"offline-translation/{version}"
+    notices = {"LICENSE-MPL-2.0.txt": "LICENSE-MPL-2.0.txt", "LICENSE.MPL-2.0.txt": "LICENSE.MPL-2.0.txt",
+               "LICENSES-THIRD-PARTY.txt": "LICENSES-THIRD-PARTY.txt", "RUNTIME-SOURCES.txt": "RUNTIME-SOURCES.md"}
+    for destination, path in {**{path: path for path in files}, **notices}.items():
+        data = (TRANSLATION_SOURCE / path).read_bytes()
+        asset = declared[path]
+        if len(data) != asset["bytes"] or hashlib.sha256(data).hexdigest() != asset["sha256"]:
+            raise ValueError("Translation asset is missing or corrupt: " + path)
+        output = target / directory / destination
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(data)
+    for name in ("runtime.manifest.json", "models.manifest.json"):
+        copyfile(TRANSLATION_SOURCE / name, target / directory / name)
+    manifest_path = "offline-translation/manifest.json"
+    manifest = json.dumps({"formatVersion": 1, "version": version, "files": files}, sort_keys=True).encode()
+    (target / manifest_path).write_bytes(manifest)
+    assets[manifest_path] = "sha256-" + b64encode(hashlib.sha256(manifest).digest()).decode("ascii")
+    return version, {f"{directory}/{path}": info for path, info in files.items()}
 
 
 def build(target):
@@ -64,6 +102,7 @@ def build(target):
         if len(data) != asset["bytes"] or hashlib.sha256(data).hexdigest() != asset["sha256"]:
             raise ValueError("Dictionary shard is missing or corrupt: " + name)
         copyfile(src, target / "dictionary" / name)
+    translation_version, translation_files = package_translation(target, assets)
     template = (SOURCE / "sw.template.js").read_text()
     manifest = json.dumps(assets, sort_keys=True)
     font_manifest = json.dumps(font_assets, sort_keys=True)
@@ -74,7 +113,9 @@ def build(target):
     worker = (template.replace('"__VERSION__"', json.dumps(release))
               .replace('"__ASSETS__"', json.dumps(offline_assets, sort_keys=True))
               .replace('"__FONT_VERSION__"', json.dumps(font_release))
-              .replace('"__FONT_ASSETS__"', font_manifest))
+              .replace('"__FONT_ASSETS__"', font_manifest)
+              .replace('"__TRANSLATION_VERSION__"', json.dumps(translation_version))
+              .replace('"__TRANSLATION_ASSETS__"', json.dumps(translation_files, sort_keys=True)))
     (target / "sw.js").write_text(worker)
     print(release)
 

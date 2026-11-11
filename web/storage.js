@@ -1,4 +1,5 @@
 import { prepareLegacyRoaming } from './legacy-roaming.js';
+import { apiRoot, fetchWithOriginProof, requiresOriginProof } from './account.js';
 import { linkTarget, linkIndex, refreshManaged } from "./managed-links.js";
 
 // The outbox, note versions and pull cursor belong to one IndexedDB database.
@@ -164,23 +165,43 @@ async function applyPage({meta, notes, outbox, trash}, after, page) {
   return true;
 }
 
-async function request(route, token, body, cookie = false, expectedVault = null) {
+export async function readBoundedJson(response, maxBytes) {
+  if (Number(response.headers.get('Content-Length')) > maxBytes || !response.body) throw Error('返回的数据无效或过大。');
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let raw = '', bytes = 0;
+  try {
+    for (;;) {
+      const {done,value} = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) { void reader.cancel().catch(() => {}); throw Error('返回的数据过大。'); }
+      raw += decoder.decode(value,{stream:true});
+    }
+    return JSON.parse(raw+decoder.decode());
+  } finally { reader.releaseLock(); }
+}
+
+async function request(route, token, body, cookie = false, expectedVault = null, limits) {
   const headers = {};
   if (token) headers.Authorization = "Bearer " + token;
   if (cookie && expectedVault) headers["X-Tuci-Vault"] = expectedVault;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   let res;
   const abort = new AbortController();
+  const cancel = () => abort.abort();
   const timeout = setTimeout(() => abort.abort(), 30000);
+  limits?.signal?.addEventListener("abort", cancel, { once: true });
   try {
-    res = await fetch("/tuci-sync/v1/" + route, {
+    limits?.signal?.throwIfAborted();
+    res = await fetchWithOriginProof(apiRoot + route, {
       method: body === undefined ? "GET" : "POST", headers, body: JSON.stringify(body),
       credentials: cookie ? "same-origin" : "omit", mode: "same-origin", referrerPolicy: "same-origin", redirect: "error", cache: "no-store", signal: abort.signal
     });
-    const reply = await res.json().catch(() => null);
+    const reply = await (limits ? readBoundedJson(res, limits.bytes) : res.json()).catch(() => null);
     if (!res.ok) {
       const error = new Error(reply?.error || `同步服务暂时不可用（${res.status}）。`);
       error.status = res.status;
+      error.requiresOriginProof = requiresOriginProof(res);
       throw error;
     }
     if (!reply) throw invalidReply();
@@ -188,7 +209,7 @@ async function request(route, token, body, cookie = false, expectedVault = null)
   } catch (error) {
     if (error instanceof TypeError || error.name === "AbortError") throw new Error("连接同步服务失败，请检查网络后重试。");
     throw error;
-  } finally { clearTimeout(timeout); }
+  } finally { clearTimeout(timeout); limits?.signal?.removeEventListener("abort", cancel); }
 }
 
 export async function openStore({ dbName = name, autoSync = true, identity = null } = {}) {
@@ -212,6 +233,7 @@ export async function openStore({ dbName = name, autoSync = true, identity = nul
   const listeners = new Set();
   let profile, pending, statePending = 0, cache = [], stateCache = [], trashCache = [];
   let inFlight = null, syncing = false, error = "", timer = null, closed = false;
+  const practiceLifetime = new AbortController();
   const notify = () => listeners.forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
   async function reload() {
     const data = await tx([...stores,"state","stateOutbox","trash"], "readonly", ({meta, notes, outbox,state,stateOutbox,trash}) =>
@@ -305,11 +327,11 @@ export async function openStore({ dbName = name, autoSync = true, identity = nul
     await changed();
     await sync().catch(() => {}); // Grant is durable even if the first transfer loses connectivity.
   }
-  async function authorised(route, token, body) {
+  async function authorised(route, token, body, limits) {
     try {
-      return await request(route, token, body, !!identity, identity?.vaultId);
+      return await request(route, token, body, !!identity, identity?.vaultId, limits);
     } catch (problem) {
-      if (problem.status === 401 || problem.status === 403) {
+      if (problem.status === 401 || (problem.status === 403 && !problem.requiresOriginProof)) {
         await tx(["meta"], "readwrite", async ({meta}) => {
           const state = await read(meta.get("profile"));
           if (state.token === token) {
@@ -322,6 +344,31 @@ export async function openStore({ dbName = name, autoSync = true, identity = nul
       throw problem;
     }
   }
+  const practice = {
+    signal: practiceLifetime.signal,
+    readBank(key) {
+      this.signal.throwIfAborted();
+      return tx(["meta"], "readonly", ({meta}) => read(meta.get("practice/bank/" + key)));
+    },
+    saveBank(key, bank) {
+      this.signal.throwIfAborted();
+      return tx(["meta"], "readwrite", ({meta}) => read(meta.put(bank, "practice/bank/" + key)));
+    },
+    updateLedger(update) {
+      this.signal.throwIfAborted();
+      return tx(["meta"], "readwrite", async ({meta}) => {
+        const key = "practice/ledger", before = await read(meta.get(key));
+        const result = update(before);
+        if (result.ledger !== before) await read(meta.put(result.ledger, key));
+        return result;
+      });
+    },
+    async fetchBanks(noteIds) {
+      this.signal.throwIfAborted();
+      if ((!profile.accountMode && !profile.token) || profile.needsBinding || !noteIds.every(validId)) return {banks:[]};
+      return authorised("practice/banks", profile.token, {noteIds}, {signal:this.signal, bytes:2_097_152});
+    }
+  };
   async function pair() {
     if (!profile.token) throw new Error("请先绑定词库。");
     const answer = await authorised("pair", profile.token, {});
@@ -447,10 +494,14 @@ export async function openStore({ dbName = name, autoSync = true, identity = nul
     }
     if(!good)throw new Error("学习状态内容无效。");
   }
-  async function setStates(entries) {
+  async function setStates(entries, {expectedExposure} = {}) {
     if (!Array.isArray(entries) || entries.length>128) throw new Error("学习状态批次无效。");
     entries.forEach(checkStateInput);
     await tx(["state","stateOutbox"],"readwrite",async({state,stateOutbox})=>{
+      if (expectedExposure !== undefined) {
+        const current = await read(state.get("roaming/current"));
+        if (current?.deleted || current?.value?.exposureId !== expectedExposure) return;
+      }
       for(const {key,value,deleted=false} of entries){
         const old=await read(state.get(key));
         if (/^(event|legacy)\//.test(key) && old) continue;
@@ -577,6 +628,7 @@ export async function openStore({ dbName = name, autoSync = true, identity = nul
   }
   return {
     notes: () => cache,
+    practice,
     stateEntries: () => stateCache.map(row => ({...row})),
     setState, setStates, moveNote, trashNote, restoreNote,
     trashItems: () => trashCache.slice().sort((a,b)=>b.deletedAt-a.deletedAt),
@@ -589,6 +641,7 @@ export async function openStore({ dbName = name, autoSync = true, identity = nul
     bind, pair, sync, recover, refreshLinks,
     close() {
       closed = true;
+      practiceLifetime.abort();
       clearInterval(interval);
       clearTimeout(timer);
       window.removeEventListener("online", schedule);

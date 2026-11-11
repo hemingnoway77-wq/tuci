@@ -1,5 +1,6 @@
 import { lookupOffline } from './dictionary.js';
 import { normalWord } from './learning-data.js';
+import { translateOffline } from './offline-translation.js';
 
 const successes=new Map(), cacheLimit=128;
 const dictionarySource='https://dictionaryapi.dev/';
@@ -127,12 +128,16 @@ export async function lookupPronunciation(word,{signal}={}) {
   return remember(key,result);
 }
 
-// Public dictionary assets are shared across accounts. Only a miss uses the online service.
-export async function lookupWord(word,{signal,dictionaryLookup=lookupOffline}={}) {
+// Public assets are shared across accounts. Online lookup follows both local options.
+export async function lookupWord(word,{signal,dictionaryLookup=lookupOffline,offlineTranslator=translateOffline}={}) {
   const target=normalWord(word);checkAbort(signal);
   try{
     const offline=await dictionaryLookup(target,{signal});checkAbort(signal);
     if(offline?.translation?.trim())return offline;
+  }catch(error){checkAbort(signal);if(error.name==='AbortError')throw error;}
+  try{
+    const translation=await offlineTranslator(target,{signal});checkAbort(signal);
+    if(translation?.trim())return {word:target,translation,phonetic:'',lemma:null,meanings:null,source:'offline-translation'};
   }catch(error){checkAbort(signal);if(error.name==='AbortError')throw error;}
   return {word:target,translation:await translateWord(target,{signal}),phonetic:'',lemma:null,meanings:null,source:'online'};
 }

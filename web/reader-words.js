@@ -108,8 +108,10 @@ export function mountReadingWords({ container, paragraphs, tools, onCollect }) {
       }
       lookupWord(token.word,{signal}).then(data=>{
         if(!valid())return;meaning.textContent=data.translation;translate.textContent='翻译';
-        if(data.source==='offline'){
-          provider.textContent='词典：ECDICT · MIT';provider.href=new URL('./dictionary/LICENSE.MIT.txt',import.meta.url).href;
+        if(data.source==='offline' || data.source==='offline-translation'){
+          if(data.source==='offline'){
+            provider.textContent='词典：ECDICT · MIT';provider.href=new URL('./dictionary/LICENSE.MIT.txt',import.meta.url).href;
+          }else provider.replaceWith(node('span','','Bergamot 本机参考译文'));
           pronunciation={phonetic:data.phonetic||'',audio:'',sourceUrl:''};phonetic.textContent=data.phonetic || '英文读音';useSpeech=true;
           listen.textContent='系统朗读';listen.disabled=!speechAvailable();
           if(data.lemma)notice.textContent='词形：'+data.word+' → '+data.lemma;

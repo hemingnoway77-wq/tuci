@@ -1,7 +1,9 @@
 import { analysisCard, capturePrompt, manualCard, matches, normalWord, offlineArticles, parts, pickDaily, regionHashes } from './learning-data.js';
+import { describeNote, noteBody, resolveWiki } from './library.js';
 import { mountReadingProgress } from './reading-state.js';
 import { mountReadingWords } from './reader-words.js';
 import { settleLoginViewport } from './login-transition.js';
+import { prepareCapturedPractice } from './practice.js';
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -133,13 +135,16 @@ export function renderCapture(ctx, initial, {temporary=false,onSaved,onExisting}
   part.value=Object.hasOwn(parts,draft.pos)?draft.pos:'other';
 
   const feedback=el('div','learn-feedback'); feedback.setAttribute('role','status');
+  const preview=el('section','learn-note-preview panel');
+  preview.hidden=true;
+  preview.setAttribute('aria-label','笔记预览');
   const actions=el('div','learn-actions'), submit=el('button','button',primaryLabel); submit.type='submit';
   const cancel=button('取消','secondary',()=>request?.abort()); cancel.hidden=true;
   const manual=el('details','learn-manual'); const summary=el('summary','',hasAI?'手动收录':'补充释义与词性');
   const saveManual=button('保存词条','secondary',()=>begin(true));
   manual.append(summary,label('释义（选填）',meaning),label('词性',part));
   if(hasAI) manual.append(saveManual);
-  const reconfigure=button('设置 AI 接口','learn-text',()=>ctx.navigate('settings'));
+  const reconfigure=button('设置 AI 接口','learn-text',()=>ctx.navigate('settings','ai'));
   actions.append(submit,cancel);
   if(!hasAI && !temporary) actions.append(reconfigure);
   const wordLabel=label('英文单词',word);
@@ -148,19 +153,35 @@ export function renderCapture(ctx, initial, {temporary=false,onSaved,onExisting}
     const details=el('details','learn-capture-context');details.append(el('summary','','原句'),contextField);contextField=details;
   }
   form.append(wordLabel,contextField, ...(hasAI?[actions,manual]:[manual,actions]));
-  root.replaceChildren(...(temporary?[]:[head]),form,feedback);
+  const input=el('div','learn-capture-input');input.append(form,feedback);
+  const layout=el('div','learn-capture-layout');layout.append(input,preview);
+  root.replaceChildren(...(temporary?[]:[head]),layout);
 
   let request=null, active=true, pending=null;
   const current=()=>active && ctx.scope()===scope;
   function storeDraft(){if(!temporary)setCache(draftKey,{word:word.value,context:sentence.value,definition:meaning.value,pos:part.value},sessionStorage);}
-  form.addEventListener('input',()=>{pending=null;feedback.replaceChildren();storeDraft();});
+  function clearPreview(){preview.hidden=true;preview.replaceChildren();}
+  function showPreview(raw, saved=true){
+    const note=describeNote(raw), title=el('h2','',note.title);
+    title.lang='en';
+    const body=noteBody(note,target=>{
+      const related=resolveWiki(target,note,ctx.notes().map(describeNote),ctx.settings().vaultPrefix);
+      if(related.length===1)ctx.navigate('library',related[0].path);
+      else ctx.toast(related.length?'关联到多篇笔记，请在词库中选择。':'词库中找不到关联笔记。');
+    });
+    preview.replaceChildren(el('p','learn-meta',saved?'笔记预览':'未保存的词卡'),title,body);
+    if(saved)preview.append(button('打开笔记 →','learn-text',()=>ctx.navigate('library',note.path)));
+    preview.hidden=false;
+  }
+  form.addEventListener('input',()=>{pending=null;feedback.replaceChildren();clearPreview();storeDraft();});
   function existing(target, prefix='已收录') {
     if(!current()) return false;
     const found=matches(target,ctx.notes());
     if(!found.length) return false;
-    if(temporary){onExisting?.(target);return true;}
+    if(onExisting){onExisting(target);return true;}
     feedback.replaceChildren(el('p','',prefix+' · '+target));
-    for (const n of found) feedback.append(button(found.length===1?'打开笔记 →':n.path,'learn-text',()=>ctx.navigate('library',n.path)));
+    if(found.length===1)showPreview(found[0]);
+    else for (const n of found) feedback.append(button(n.path,'learn-text',()=>showPreview(n)));
     return true;
   }
   function busy(on, manualMode){
@@ -168,19 +189,22 @@ export function renderCapture(ctx, initial, {temporary=false,onSaved,onExisting}
     cancel.hidden=!on || manualMode;
     submit.textContent=on?(manualMode?'正在保存…':'正在解析…'):primaryLabel;
   }
-  async function persist(card,generated) {
+  async function persist(card,generated,settings) {
     if (!current()) return;
     const managed=generated?await regionHashes(card.markdown):undefined;
     if (!current()) return;
     if (existing(card.word)) return;
-    pending={card,generated};
+    pending={card,generated,settings};
     await ctx.saveNote(card.path,card.markdown,managed,null);
     pending=null;
     if (!current()) return;
+    const saved=ctx.notes().find(note=>note.path.toUpperCase()===card.path.toUpperCase()) || card;
+    if(generated && ctx.practice)void prepareCapturedPractice(ctx,saved,settings).catch(()=>{});
     word.value=card.word;
-    if(temporary){onSaved?.(card);return;}
-    setCache(draftKey,{},sessionStorage);
-    feedback.replaceChildren(el('p','','已保存 · '+card.word),button('打开笔记 →','learn-text',()=>ctx.navigate('library',card.path)));
+    if(onSaved){onSaved(card);return;}
+    if(!temporary)setCache(draftKey,{},sessionStorage);
+    feedback.replaceChildren(el('p','','已保存 · '+card.word));
+    showPreview(saved);
   }
   async function begin(manualMode) {
     if (request || !current()) return;
@@ -190,10 +214,10 @@ export function renderCapture(ctx, initial, {temporary=false,onSaved,onExisting}
     try {
       const target=normalWord(word.value);
       if (existing(target)) return;
-      request=controller; busy(true,manualMode); feedback.replaceChildren();
+      request=controller; busy(true,manualMode); feedback.replaceChildren();clearPreview();
       const settings=ctx.settings(), context=sentence.value.trim();
       if (!manualMode && !settings.aiKey) {
-        feedback.append(el('p','','设置好 AI 接口后就能自动生成词卡，也可以先手动收录。'),button('前往设置','learn-text',()=>ctx.navigate('settings')));
+        feedback.append(el('p','','设置好 AI 接口后就能自动生成词卡，也可以先手动收录。'),button('前往设置','learn-text',()=>ctx.navigate('settings','ai')));
         return;
       }
       let card;
@@ -204,27 +228,29 @@ export function renderCapture(ctx, initial, {temporary=false,onSaved,onExisting}
         card=analysisCard(result,target,context,settings.classify!==false,ctx.notes());
       }
       if(controller.signal.aborted || !current()) return;
-      await persist(card,!manualMode);
+      await persist(card,!manualMode,settings);
     } catch(error) {
       if(!current()) return;
       feedback.replaceChildren(el('p','',controller.signal.aborted ? (timeout?'请求超时，请重试。':'已取消，输入已保留。') : error.message));
       if(pending) {
         const held=pending;
+        if(!onSaved)showPreview(held.card,false);
         const retry=button('重试保存','secondary',async()=>{
           retry.disabled=true;
-          try {await persist(held.card,held.generated);} catch(err){if(current()){feedback.replaceChildren(el('p','',err.message),retry);retry.disabled=false;}}
+          try {await persist(held.card,held.generated,held.settings);} catch(err){if(current()){feedback.replaceChildren(el('p','',err.message),retry);retry.disabled=false;}}
         });
         feedback.append(retry);
       }
     } finally {clearTimeout(timer);request=null;if(current())busy(false,manualMode);}
   }
   form.addEventListener('submit',e=>{e.preventDefault();begin(!hasAI);});
-  return ()=>{active=false;request?.abort();};
+  return ()=>{active=false;pending=null;request?.abort();};
 }
 
 // The article stays mounted underneath this surface. Fixed-body locking also works in
 // iOS home-screen mode, where overflow:hidden alone can still scroll the page behind it.
 export function openReadingCapture(ctx, initial, {onClosed=()=>{}}={}) {
+  if(window.innerWidth>=1200)return openCaptureDrawer(ctx,initial,onClosed);
   const scope=ctx.scope(), x=window.scrollX||0, y=window.scrollY||0;
   const restoreFocus=ctx.root.querySelector('.learn-prose') || document.activeElement;
   const bodyStyle=document.body.style, saved={};
@@ -301,6 +327,26 @@ export function openReadingCapture(ctx, initial, {onClosed=()=>{}}={}) {
   return {close,destroy:()=>close(true)};
 }
 
+function openCaptureDrawer(ctx,initial,onClosed){
+  const scope=ctx.scope(), previous=ctx.root.querySelector('.learn-prose') || document.activeElement;
+  const drawer=el('aside','learn-capture-sheet learn-capture-drawer');
+  drawer.setAttribute('aria-label','收录生词');drawer.tabIndex=-1;
+  const heading=el('header','learn-capture-sheet-head'), dismiss=button('×','learn-word-close',close);
+  dismiss.setAttribute('aria-label','关闭收录');heading.append(el('h2','','收录生词'),dismiss);
+  const host=el('div','learn-capture-sheet-content');drawer.append(heading,host);ctx.root.append(drawer);
+  const cleanup=renderCapture({...ctx,root:host},initial,{temporary:true});
+  let removed=false;
+  function keydown(event){if(event.key==='Escape' && !event.defaultPrevented){event.preventDefault();close();}}
+  function close(){
+    if(removed)return;removed=true;
+    cleanup();document.removeEventListener('keydown',keydown);drawer.remove();
+    if(ctx.scope()===scope && previous?.isConnected)previous.focus({preventScroll:true});
+    onClosed();
+  }
+  document.addEventListener('keydown',keydown);drawer.focus({preventScroll:true});
+  return {close,destroy:close};
+}
+
 const readAPI='/tuci-sync/v1/reading';
 const editionKey='tuci:reading:edition-v1', bodyKey='tuci:reading:bodies-v1';
 const catNames={general:'泛读',technology:'科技'};
@@ -328,17 +374,28 @@ export function renderReading(ctx) {
   const {root}=ctx, scope=ctx.scope();
   const cache=readCache(editionKey,{}), today=dayKey();
   let articles=(Array.isArray(cache.articles)?cache.articles:[]).filter(safeStory);
-  let filter='all',current=null,alive=true,controller=null,loading=false,cleanupWords=()=>{},cleanupProgress=()=>{},captureSheet=null,captureOpen=false,pendingBody=null;
+  let filter='all',current=null,alive=true,controller=null,feedController=null,loading=false,cleanupWords=()=>{},cleanupProgress=()=>{},captureSheet=null,captureOpen=false,pendingBody=null;
+  let directoryScroll=0;
   let note=cache.day!==today&&articles.length?'显示上次保存的推荐。':'';
   const openKey='tuci:reading:open:'+ctx.scope();
-  function bodyView(story,body,message,{preservePosition=false}={}) {
+  function discardCapture(){pendingBody=null;captureSheet?.destroy();}
+  function bodyView(story,body,message,{preservePosition=false,stage='ready',animate=false}={}) {
     const x=window.scrollX||0,y=window.scrollY||0;
     cleanupWords();cleanupProgress();
-    const back=button('← 每日阅读','learn-text',()=>{cleanupWords();cleanupProgress();controller?.abort();current=null;setCache(openKey,null,sessionStorage);list();});
+    const back=button('← 每日阅读','learn-text',()=>{
+      cleanupWords();cleanupProgress();controller?.abort();controller=null;current=null;
+      discardCapture();
+      setCache(openKey,null,sessionStorage);list();window.scrollTo(0,directoryScroll);
+    });
     const head=el('header','learn-article-head');head.append(back,el('p','learn-meta',catNames[story.category]+' · '+story.source),el('h1','',story.title));
     const content=el('article','learn-prose'),tools=el('aside','learn-word-tools'),reader=el('div','learn-reader'),paragraphs=[]; tools.hidden=true;content.tabIndex=-1;
     const source=story.url ? readingSource(story) : null;
-    if(message) content.append(el('p','learn-message',message));
+    if(animate){head.className+=' learn-article-arrival';reader.className+=' learn-article-arrival';}
+    if(message){
+      const status=el('p','learn-message',message);status.setAttribute('role','status');content.append(status);
+      if(stage==='failed')content.append(button('重试全文','secondary',()=>open(story,true)));
+      if(body.length && stage!=='ready')content.append(el('p','learn-meta learn-summary-label','来源摘要'));
+    }
     for(const paragraph of body){
       const p=el('p','',paragraph);p.lang='en';
       paragraphs.push(p);content.append(p);
@@ -346,7 +403,7 @@ export function renderReading(ctx) {
     const tip=el('p','learn-reader-tip','轻点英文单词，可收录或临时翻译、听读音。');
     reader.append(content,tools);
     root.replaceChildren(head,...(body.length?[tip]:[]),reader,...(source?[source]:[]));
-    cleanupProgress=mountReadingProgress(ctx,story,content,{paused:()=>captureOpen,restore:!preservePosition});
+    cleanupProgress=mountReadingProgress(ctx,story,content,{paused:()=>captureOpen || stage!=='ready',restore:!preservePosition && stage==='ready'});
     if(preservePosition)window.scrollTo(x,y);
     cleanupWords=mountReadingWords({container:reader,paragraphs,tools,onCollect:(word,context)=>{
       if(!alive || captureOpen)return;
@@ -354,40 +411,46 @@ export function renderReading(ctx) {
       captureSheet=openReadingCapture(ctx,{word,context},{onClosed:()=>{
         captureOpen=false;captureSheet=null;
         const waiting=pendingBody;pendingBody=null;
-        if(waiting && alive && ctx.scope()===scope && current===waiting.story.id)bodyView(waiting.story,waiting.body,waiting.message,{preservePosition:true});
+        if(waiting && alive && ctx.scope()===scope && current===waiting.story.id)
+          bodyView(waiting.story,waiting.body,waiting.message,{preservePosition:true,stage:waiting.stage});
       }});
     }});
   }
-  function updateBody(story,body,message){
+  function updateBody(story,body,message,stage='ready'){
     if(!alive || ctx.scope()!==scope || current!==story.id)return;
     // Keep the selected article and its position intact while a reading capture is
     // open, even if the original network request finishes behind the sheet.
-    if(captureOpen){pendingBody={story,body,message};return;}
-    bodyView(story,body,message);
+    if(captureOpen){pendingBody={story,body,message,stage};return;}
+    bodyView(story,body,message,{stage});
   }
-  async function open(story) {
-    pendingBody=null;
+  async function open(story,force=false) {
+    if(!alive || ctx.scope()!==scope)return;
+    if(!current)directoryScroll=window.scrollY||0;
+    controller?.abort();controller=null;
+    discardCapture();
     current=story.id;
     setCache(openKey,story.id,sessionStorage);
-    if(story.paragraphs){bodyView(story,story.paragraphs,'');window.scrollTo(0,0);return;}
+    if(story.paragraphs){bodyView(story,story.paragraphs,'',{animate:!force});window.scrollTo(0,0);return;}
     const bodies=readCache(bodyKey,[]);
     const saved=Array.isArray(bodies) && bodies.find(b=>b.id===story.id && Array.isArray(b.paragraphs));
-    if(saved){bodyView(story,saved.paragraphs,'');window.scrollTo(0,0);return;}
-    controller?.abort();controller=new AbortController();
+    if(saved && !force){bodyView(story,saved.paragraphs,'',{animate:true});window.scrollTo(0,0);return;}
+    controller=new AbortController();
     const request=controller, timeout=setTimeout(()=>request.abort(),14000);
-    bodyView(story,[story.summary].filter(Boolean),'正在载入原文…');window.scrollTo(0,0);
+    const active=()=>alive && ctx.scope()===scope && current===story.id && controller===request;
+    bodyView(story,[story.summary].filter(Boolean),'正在载入全文…',{stage:'loading',animate:!force});window.scrollTo(0,0);
     try {
       const res=await fetch(readAPI+'/'+story.id,{signal:request.signal,credentials:'omit'});
       if(!res.ok) throw Error();
       const data=await res.json();
       if(!Array.isArray(data.paragraphs) || !data.paragraphs.length || !data.paragraphs.every(p=>typeof p==='string')) throw Error();
-      if(!alive || ctx.scope()!==scope || current!==story.id) return;
+      if(!active())return;
+      if(request.signal.aborted)throw Error();
       const latest=readCache(bodyKey,[]);
       setCache(bodyKey,[{id:story.id,paragraphs:data.paragraphs},...(Array.isArray(latest)?latest:[]).filter(b=>b.id!==story.id)].slice(0,8));
       updateBody(story,data.paragraphs,'');
     }catch{
-      updateBody(story,[story.summary].filter(Boolean),'暂时无法载入全文，下面是来源摘要。');
-    }finally{clearTimeout(timeout);}
+      if(active())updateBody(story,[story.summary].filter(Boolean),'暂时无法载入全文。请重试，或打开来源网页。','failed');
+    }finally{clearTimeout(timeout);if(controller===request)controller=null;}
   }
   function list(){
     if(!alive || current) return;
@@ -413,20 +476,20 @@ export function renderReading(ctx) {
   async function load(refresh=false){
     if(loading || (!refresh && cache.day===today && articles.length)) return;
     loading=true;list();
-    const request=new AbortController(); const timeout=setTimeout(()=>request.abort(),14500);
+    const request=feedController=new AbortController(); const timeout=setTimeout(()=>request.abort(),14500);
     try{
       const res=await fetch(readAPI,{cache:'no-store',credentials:'omit',signal:request.signal});
       if(!res.ok) throw Error();
       const data=await res.json(), pool=data.stories.filter(safeStory);
       if(!pool.length) throw Error();
-      if(!alive) return;
+      if(!alive || ctx.scope()!==scope || request.signal.aborted)return;
       if(cache.day!==today || !articles.length) articles=pickDaily(pool,today);
       note=''; setCache(editionKey,{day:today,articles});
     }catch{if(alive) note=articles.length?'来源暂不可用，显示上次保存的推荐。':'来源暂不可用，可以先读兔词原创短文。';}
-    finally{clearTimeout(timeout);loading=false;list();}
+    finally{clearTimeout(timeout);if(feedController===request)feedController=null;loading=false;list();}
   }
   const previousId=readCache(openKey,null,sessionStorage), previous=[...articles,...offlineArticles].find(a=>a.id===previousId);
   if(previous) open(previous); else list();
   load();
-  return ()=>{alive=false;pendingBody=null;captureSheet?.destroy();cleanupProgress();controller?.abort();cleanupWords();};
+  return ()=>{alive=false;discardCapture();cleanupProgress();controller?.abort();feedController?.abort();cleanupWords();};
 }

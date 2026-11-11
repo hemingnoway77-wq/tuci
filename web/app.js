@@ -4,12 +4,13 @@ import { openStore, readLegacyStore } from './storage.js';
 import { accountRequest,checkedIdentity,invitesRequest,themeNames,localThemes } from './account.js';
 import { renderLibrary, renderRoam } from './library.js';
 import { renderCapture, renderReading } from './learning.js';
+import { createTabIndicator } from './tab-indicator.js';
 
 const root = document.querySelector('#content');
 const tabs = document.querySelector('#tabs');
 const statusLabel = document.querySelector('#sync-status');
 const toastBox = document.querySelector('#toast');
-const sections = { capture: '收录', reading: '阅读', library: '词库', roam: '漫游', settings: '设置' };
+const sections = { capture: '收录', reading: '每日阅读', library: '词库', roam: '漫游', settings: '设置' };
 const symbols = {
   capture: '<path d="m14.5 5.5 4 4M4 20l4.5-1 12-12a2.8 2.8 0 0 0-4-4l-12 12L4 20Z"/><path d="M13 20h7"/>',
   reading: '<path d="M3 4.5C6 4 9 4.5 12 6.5 15 4.5 18 4 21 4.5v14c-3-.5-6 0-9 2-3-2-6-2.5-9-2zM12 6.5v14"/>',
@@ -18,13 +19,15 @@ const symbols = {
   settings: '<path d="M3 7h6m4 0h8M3 17h11m4 0h3"/><circle cx="11" cy="7" r="2.4"/><circle cx="16" cy="17" r="2.4"/>'
 };
 function icon(name) { return '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24">'+symbols[name]+'</svg>'; }
-for (const name of ['capture', 'reading', 'library', 'roam']) {
+for (const name of ['capture', 'library', 'roam', 'reading']) {
   const a = document.createElement('a');
   a.className = 'tab'; a.href = '#'+name; a.dataset.route = name;
   a.innerHTML = icon(name)+'<span>'+sections[name]+'</span>';
   tabs.append(a);
 }
-document.querySelector('#settings-link').innerHTML = icon('settings');
+const moduleIndicator = createTabIndicator(tabs);
+const settingsLink = document.querySelector('#settings-link');
+settingsLink.innerHTML = icon('settings');
 let prefsKey = 'tuci.web.preferences.v1';
 const identityKey='tuci.web.account.identity.v1', loggedOutKey='tuci.web.account.logged-out.v1';
 let identity=null, legacy=null, unsubscribe=null,legacyLoad=null;
@@ -45,8 +48,17 @@ function savePrefs(patch) {
   prefs = changed; applyTheme();
   if (patch.theme && store) store.setState('preference/theme',{name:themeNames[patch.theme]}).catch(e=>toast(e.message));
 }
-let store, cleanup, routeKey, toastTimer;
-let dictionaryTransfer=null,dictionaryInfo=null,dictionaryMessage='';
+let store, cleanup, routeKey, activePage, pageMotion, toastTimer;
+let webRegistration, webUpdateReady=false;
+const dictionaryDownload=offlineDownloadPanel({
+  panelId:'offline-dictionary', title:'离线词典', initialLabel:'下载完整离线词典（约 27 MB）',
+  status:dictionaryStatus, download:downloadDictionary
+});
+const translatorDownload=offlineDownloadPanel({
+  panelId:'offline-translator', title:'离线翻译模型', initialLabel:'下载离线翻译模型（约 55 MB）',
+  status:async()=>(await import('./offline-translation.js')).offlineTranslationStatus(),
+  download:async(options)=>(await import('./offline-translation.js')).downloadOfflineTranslation(options)
+});
 function toast(text) {
   clearTimeout(toastTimer); toastBox.textContent = text; toastBox.classList.add('show');
   toastTimer = setTimeout(() => toastBox.classList.remove('show'), 3600);
@@ -80,6 +92,7 @@ const ctx = {
   deleteNote: (...args) => store.deleteNote(...args),
   settings: () => ({ ...prefs }),
   scope: () => store?.scope(),
+  practice: () => store?.practice,
   stateEntries: () => store.stateEntries(),
   setState: (...args) => store.setState(...args),
   setStates: (...args) => store.setStates(...args),
@@ -95,18 +108,27 @@ function render() {
   cleanup = undefined;
   const {name,detail} = currentRoute();
   const different = routeKey !== location.hash;
+  const changedPage = activePage && activePage !== name;
+  activePage = name;
   routeKey = location.hash;
   document.body.dataset.page = name;
   root.replaceChildren();
+  let selectedTab;
   for (const tab of tabs.children) {
-    if (tab.dataset.route === name) tab.setAttribute('aria-current','page');
+    if (tab.dataset.route === name) { tab.setAttribute('aria-current','page'); selectedTab=tab; }
     else tab.removeAttribute('aria-current');
   }
+  moduleIndicator.select(selectedTab);
   document.title = sections[name]+' · 兔词';
   const view = {capture:renderCapture,reading:renderReading,library:renderLibrary,roam:renderRoam,settings:renderSettings}[name];
   try { cleanup = view(ctx,detail); }
   catch (e) { showFailure(e); }
   if (different && name !== 'library' && name !== 'reading') window.scrollTo(0,0);
+  if (changedPage && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    pageMotion?.cancel();
+    pageMotion=root.animate?.([{opacity:.8,transform:'translateY(5px)'},{opacity:1,transform:'none'}],
+      {duration:165,easing:'cubic-bezier(.2,.7,.25,1)'});
+  }
 }
 function showFailure(error) {
   const p = document.createElement('p'); p.className = 'panel';
@@ -122,50 +144,112 @@ function refreshSyncPanel() {
   line.textContent=s.needsBinding?'请重新登录以继续同步。本机数据已保留。':s.needsRecovery?'云端历史需要重新核对，请先保留本机数据。':s.error || (s.syncing?'正在同步词库和学习记录…':s.pending?'有 '+s.pending+' 项改动待同步。':s.lastSync?'最近同步于 '+new Date(s.lastSync).toLocaleString('zh-CN'):'已连接账号词库。');
   const recover=root.querySelector('#recover');if(recover)recover.hidden=!s.needsRecovery;
 }
-function renderSettings() {
-  root.innerHTML=`<div class="page-head"><h1>设置</h1><p class="hint">把日常留在自己的词库里。</p></div><div class="settings-grid">
-    <section class="panel"><h2>我的账号</h2><p id="account-name"></p><p class="hint">词库、漫游记录、阅读位置和主题会在 Windows 与手机间同步。API Key 仅保存在这台设备。</p><div class="actions"><button class="secondary" id="logout">退出账号</button></div></section>
-    ${identity.canInvite?'<section class="panel" id="invite-panel"><h2>邀请码</h2><p class="hint">新用户需要邀请码才能注册：在登录页点「用邀请码注册」。每个邀请码只能使用一次，7 天内有效。</p><div class="actions"><button class="button" id="make-invite">生成邀请码</button></div><div class="invite-new" id="invite-code" hidden><code id="invite-text"></code><button class="secondary" type="button" id="copy-invite">复制</button></div><p class="hint" id="invite-status" role="status"></p><ul class="invite-list" id="invite-list"></ul></section>':''}<section class="panel" id="sync-panel"><h2>词库与学习记录</h2><p class="hint" id="sync-description"></p><div class="actions"><button class="button" id="sync-now">立即同步</button><button class="secondary" id="recover" hidden>重新核对词库</button></div><p class="hint">Safari 与添加到主屏幕的兔词可能使用各自的存储；请在两个入口登录同一账号。离线改动会在下次联网时同步。</p></section>
-    <form class="panel" id="ai-settings"><h2>AI 词卡</h2><p class="hint">单词与原句会发送给你填写的 AI 服务商。API Key 只在当前设备使用，不上传到兔词云端。</p>
+function renderSettings(_ctx,detail) {
+  const profile=identity,ownedStore=store;
+  const labels={account:'账号与同步',library:'本地词库',ai:'AI 接口',app:'应用'};
+  root.innerHTML=`<div class="page-head"><h1>设置</h1></div><div class="settings-layout">
+    <div class="settings-nav" role="tablist" aria-label="设置分类">
+      ${Object.entries(labels).map(([key,label])=>`<button type="button" role="tab" id="settings-tab-${key}" data-settings-tab="${key}" aria-controls="settings-${key}">${label}${key==='app'?'<i class="update-dot" id="update-tab-dot" aria-hidden="true" hidden></i>':''}</button>`).join('')}
+    </div>
+    <div class="settings-grid" role="tabpanel" id="settings-account" aria-labelledby="settings-tab-account">
+    <section class="panel" id="sync-panel"><h2>账号与同步</h2><p id="account-name"></p><p class="hint" id="sync-description" role="status"></p><div class="actions"><button class="button" id="sync-now">立即同步</button><button class="secondary" id="logout">退出账号</button><button class="secondary" id="recover" hidden>重新核对词库</button></div></section>
+    <details class="panel settings-disclosure"><summary>修改密码</summary><form id="password-settings"><label class="field">当前密码<input id="current-password" type="password" autocomplete="current-password" required></label><label class="field">新密码<input id="new-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><div><button class="secondary">保存新密码</button></div></form></details>
+    ${profile.canInvite?`<details class="panel settings-disclosure" id="invite-panel"><summary>邀请码</summary><p class="hint">邀请码用于注册账号，7 天内有效，仅可使用一次。</p><div class="actions"><button class="button" id="make-invite">生成邀请码</button><button class="secondary" id="refresh-invites">刷新列表</button></div><div class="invite-new" id="invite-code" hidden><code id="invite-text"></code><button class="secondary" type="button" id="copy-invite">复制</button></div><p class="hint" id="invite-status" role="status"></p><ul class="invite-list" id="invite-list"></ul></details>`:''}
+    </div>
+    <div class="settings-grid" role="tabpanel" id="settings-ai" aria-labelledby="settings-tab-ai" hidden>
+    <form class="panel" id="ai-settings"><h2>AI 接口</h2>
       <label class="field">API 地址<input type="url" id="ai-address" placeholder="https://…/v1" autocapitalize="none" autocomplete="off" spellcheck="false"></label>
       <label class="field">模型名<input id="ai-model" autocapitalize="none" autocomplete="off" spellcheck="false"></label>
       <label class="field">API Key<input type="password" id="ai-key" autocapitalize="none" autocomplete="off" spellcheck="false"></label>
-      <label class="check"><input type="checkbox" id="classify">按主要词性分目录</label><div><button class="button">保存 AI 设置</button></div></form>
-    <section class="panel" id="offline-dictionary"><h2>离线查词</h2><p class="hint">与 Windows 使用同一份英汉词典，约 40 万词。查词时按字母下载需要的部分；也可一次下载完整词典（约 27 MB），之后离线使用。</p><p id="dictionary-status" class="hint" role="status">正在检查下载状态…</p><progress id="dictionary-progress" value="0" max="26" aria-label="词典下载进度" hidden></progress><div class="actions"><button class="secondary" id="dictionary-download">下载完整离线词典（约 27 MB）</button><button class="secondary" id="dictionary-cancel" hidden>暂停下载</button></div><p class="hint">已下载部分会保留，支持继续下载。未收录的词可联网翻译；发音使用设备系统朗读。词典是公开资源，不包含账号笔记或 API Key。</p></section>
-    <section class="panel"><h2>纸页主题</h2><div class="theme-options"></div></section>
-    <form class="panel" id="password-settings"><h2>修改密码</h2><label class="field">当前密码<input id="current-password" type="password" autocomplete="current-password" required></label><label class="field">新密码<input id="new-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><p class="hint">至少 8 个字符，建议使用一段容易记住的长密码。</p><div><button class="secondary">更新密码</button></div></form>
-    <form class="panel" id="links"><h2>笔记链接</h2><label class="field">Obsidian 中的词库相对目录<input id="prefix" autocapitalize="none" spellcheck="false"></label><div class="actions"><button class="secondary">保存目录</button><button class="secondary" type="button" id="refresh-links">刷新词条链接</button></div></form></div>`;
-  const $=key=>root.querySelector(key);
+      <p class="hint">API Key 保存在此设备。收录与生成练习使用你填写的服务商。</p><div><button class="button">保存 AI 设置</button></div></form>
+    </div>
+    <div class="settings-grid" role="tabpanel" id="settings-library" aria-labelledby="settings-tab-library" hidden>
+    <form class="panel" id="links"><h2>本地词库</h2><label class="field">词库相对目录<input id="prefix" autocapitalize="none" spellcheck="false"></label><label class="check"><input type="checkbox" id="classify">按主要词性分目录</label><div class="actions"><button class="button">保存词库设置</button><button class="secondary" type="button" id="refresh-links">刷新词条链接</button></div></form>
+    <section class="panel" id="offline-dictionary"><h2>离线查词</h2><p class="hint">与 Windows 使用同一份英汉词典，约 40 万词。查词会按需下载字母分片，也可提前下载完整词典。</p><p id="dictionary-status" class="hint" role="status">正在检查下载状态…</p><progress id="dictionary-progress" value="0" max="26" aria-label="词典下载进度" hidden></progress><div class="actions"><button class="secondary" id="dictionary-download" data-download>下载完整离线词典（约 27 MB）</button><button class="secondary" id="dictionary-cancel" data-cancel hidden>暂停下载</button></div></section>
+    <section class="panel" id="offline-translator"><h2>离线翻译</h2><p class="hint">下载后，查词遇到词典未收录的词时可在此设备上翻译。</p><p class="hint" role="status">正在检查下载状态…</p><progress value="0" max="1" aria-label="翻译模型下载进度" hidden></progress><div class="actions"><button class="secondary" data-download>下载离线翻译模型（约 55 MB）</button><button class="secondary" data-cancel hidden>暂停下载</button></div></section>
+    </div>
+    <div class="settings-grid" role="tabpanel" id="settings-app" aria-labelledby="settings-tab-app" hidden>
+      <section class="panel"><h2>应用更新</h2><p class="hint" id="web-update-status" role="status"></p><div class="actions"><button class="secondary" id="check-web-update">检查更新</button><a class="secondary" href="./update.html">修复离线缓存</a></div></section>
+      <section class="panel"><h2>主题</h2><div class="theme-options"></div></section>
+    </div></div>`;
+  const layout=root.querySelector('.settings-layout');
+  const $=key=>layout.querySelector(key);
+  const nav=$('.settings-nav'), buttons=[...nav.querySelectorAll('[data-settings-tab]')];
+  const indicator=createTabIndicator(nav,{vertical:()=>matchMedia('(min-width: 680px)').matches});
+  let inviteLoad=null, activeSection=null;
+  const stopInviteLoad=()=>{
+    if(!inviteLoad)return;
+    const request=inviteLoad;inviteLoad=null;request.abort();
+    $('#refresh-invites').disabled=false;
+    $('#invite-status').textContent='';
+  };
+  function selectCategory(button,animate=true) {
+    activeSection=button.dataset.settingsTab;
+    for(const item of buttons){
+      const selected=item===button;
+      item.setAttribute('aria-selected',String(selected));
+      item.tabIndex=selected?0:-1;
+      $('#settings-'+item.dataset.settingsTab).hidden=!selected;
+    }
+    indicator.select(button,animate);
+    if(activeSection==='library'){void dictionaryDownload.refresh();void translatorDownload.refresh();}
+    if(activeSection==='account' && $('#invite-panel')?.open) $('#refresh-invites').click();
+    else stopInviteLoad();
+  }
+  for(const button of buttons)button.onclick=()=>selectCategory(button);
+  nav.onkeydown=event=>{
+    const index=buttons.indexOf(event.target);
+    const direction={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[event.key];
+    if(index<0 || (direction===undefined && event.key!=='Home' && event.key!=='End'))return;
+    const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+direction+buttons.length)%buttons.length;
+    event.preventDefault();buttons[next].focus();selectCategory(buttons[next]);
+  };
   const task=async(button,action)=>{if(button.disabled)return;button.disabled=true;try{await action();}catch(e){toast(e.message);}finally{button.disabled=false;refreshSyncPanel();}};
-  $('#account-name').textContent=identity.username;
-  if(identity.canInvite){
+  $('#account-name').textContent=profile.username;
+  if(profile.canInvite){
+    const details=$('#invite-panel'), refresh=$('#refresh-invites');
     const codeBox=$('#invite-code'),codeText=$('#invite-text'),status=$('#invite-status'),list=$('#invite-list');
     const when=seconds=>new Date(seconds*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
     const loadInvites=async()=>{
+      if(inviteLoad || !details.open || activeSection!=='account')return;
+      const request=new AbortController();
+      inviteLoad=request;refresh.disabled=true;status.textContent='正在加载邀请码…';
+      const timeout=setTimeout(()=>request.abort(),6000);
       try{
-        const data=await invitesRequest(null,identity.vaultId);
+        const data=await invitesRequest(null,profile.vaultId,{signal:request.signal});
+        if(inviteLoad!==request)return;
         const rows=(data.invites||[]).map(item=>{
           const row=document.createElement('li'),state=document.createElement('span'),meta=document.createElement('span');
-          state.textContent=item.used?'已使用':'未使用';
+          state.textContent=item.used?'已使用':item.expires*1000<=Date.now()?'已过期':'未使用';
           meta.textContent=when(item.created)+' 创建'+(item.used?'':' · '+when(item.expires)+' 过期');
           row.append(state,meta);return row;
         });
         list.replaceChildren(...(rows.length?rows:[Object.assign(document.createElement('li'),{textContent:'还没有生成过邀请码。'})]));
-      }catch(error){status.textContent=error.message;}
+        status.textContent=codeBox.hidden?'':'7 天内有效，只能使用一次。';
+      }catch(error){if(inviteLoad===request)status.textContent=request.signal.aborted?'加载超时，可以刷新列表重试。':error.message;}
+      finally{
+        clearTimeout(timeout);
+        if(inviteLoad===request){inviteLoad=null;refresh.disabled=false;}
+      }
     };
+    details.ontoggle=()=>{
+      if(details.open)loadInvites();
+      else {stopInviteLoad();refresh.disabled=false;status.textContent='';}
+    };
+    refresh.onclick=loadInvites;
     $('#make-invite').onclick=event=>task(event.currentTarget,async()=>{
-      const made=await invitesRequest({},identity.vaultId);
+      stopInviteLoad();refresh.disabled=false;
+      const made=await invitesRequest({},profile.vaultId);
       codeBox.hidden=false;codeText.textContent=made.code;status.textContent='7 天内有效，只能使用一次。';
-      await loadInvites();
+      void loadInvites();
     });
     $('#copy-invite').onclick=async()=>{
       try{await navigator.clipboard.writeText(codeText.textContent);status.textContent='邀请码已复制。';}
       catch{status.textContent='请长按邀请码手动复制。';}
     };
-    loadInvites();
   }
-  $('#sync-now').onclick=e=>task(e.currentTarget,async()=>{await store.sync();toast('词库和学习记录已同步');});
-  $('#recover').onclick=e=>{if(confirm('保留本机笔记，重新与服务器逐篇核对？'))task(e.currentTarget,()=>store.recover());};
+  $('#sync-now').onclick=e=>task(e.currentTarget,async()=>{await ownedStore.sync();toast('词库和学习记录已同步');});
+  $('#recover').onclick=e=>{if(confirm('保留本机笔记，重新与服务器逐篇核对？'))task(e.currentTarget,()=>ownedStore.recover());};
   $('#logout').onclick=e=>task(e.currentTarget,async()=>{
     const owned=store,vault=identity.vaultId;localStorage.setItem(loggedOutKey,'1');localStorage.removeItem(identityKey);accountChannel?.postMessage({logout:true});
     try{await accountRequest('logout',{},null,vault);}finally{if(store===owned){closeAccount();renderAuth('login');}}
@@ -173,44 +257,67 @@ function renderSettings() {
   $('#ai-address').value=prefs.aiEndpoint;$('#ai-model').value=prefs.aiModel;$('#ai-key').value=prefs.aiKey;$('#classify').checked=prefs.classify;
   $('#ai-settings').onsubmit=e=>{e.preventDefault();try{
     const address=$('#ai-address').value.trim();if(address){const u=new URL(address);if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash)throw Error('请填写服务商的 HTTPS API 地址。');}
-    savePrefs({aiEndpoint:address,aiModel:$('#ai-model').value.trim(),aiKey:$('#ai-key').value.trim(),classify:$('#classify').checked});toast('AI 设置已保存在此设备');
+    savePrefs({aiEndpoint:address,aiModel:$('#ai-model').value.trim(),aiKey:$('#ai-key').value.trim()});toast('AI 设置已保存在此设备');
   }catch(error){toast(error.message);}};
   for(const [theme,label] of Object.entries({warm:'暖灰',ink:'墨白',rose:'玫红'})){
     const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label;b.setAttribute('aria-pressed',String(theme===prefs.theme));
     b.onclick=()=>{savePrefs({theme});for(const item of $('.theme-options').children)item.setAttribute('aria-pressed',String(item===b));};$('.theme-options').append(b);
   }
   $('#password-settings').onsubmit=e=>{e.preventDefault();task(e.currentTarget.querySelector('button'),async()=>{
-    await accountRequest('password',{currentPassword:$('#current-password').value,newPassword:$('#new-password').value},null,identity.vaultId);$('#password-settings').reset();toast('密码已更新');
+    await accountRequest('password',{currentPassword:$('#current-password').value,newPassword:$('#new-password').value},null,profile.vaultId);$('#password-settings').reset();toast('密码已更新');
   });};
   $('#prefix').value=prefs.vaultPrefix;
-  $('#links').onsubmit=e=>{e.preventDefault();savePrefs({vaultPrefix:$('#prefix').value.trim()});toast('目录已保存');};
-  $('#refresh-links').onclick=e=>task(e.currentTarget,async()=>{const count=await store.refreshLinks();toast(count?'已更新 '+count+' 篇笔记的链接':'词条链接已是最新');});
-  $('#dictionary-download').onclick=startDictionaryDownload;
-  $('#dictionary-cancel').onclick=()=>dictionaryTransfer?.controller.abort();
-  refreshDictionaryStatus();refreshSyncPanel();
+  $('#links').onsubmit=e=>{e.preventDefault();savePrefs({vaultPrefix:$('#prefix').value.trim(),classify:$('#classify').checked});toast('词库设置已保存');};
+  $('#refresh-links').onclick=e=>task(e.currentTarget,async()=>{const count=await ownedStore.refreshLinks();toast(count?'已更新 '+count+' 篇笔记的链接':'词条链接已是最新');});
+  for(const [panel,download] of [['#offline-dictionary',dictionaryDownload],['#offline-translator',translatorDownload]]){
+    $(panel).querySelector('[data-download]').onclick=download.start;
+    $(panel).querySelector('[data-cancel]').onclick=download.cancel;
+  }
+  const hasSettingsDraft=()=>$('#ai-address').value.trim()!==prefs.aiEndpoint ||
+    $('#ai-model').value.trim()!==prefs.aiModel || $('#ai-key').value.trim()!==prefs.aiKey ||
+    $('#prefix').value.trim()!==prefs.vaultPrefix || $('#classify').checked!==prefs.classify ||
+    !!($('#current-password').value || $('#new-password').value);
+  $('#check-web-update').onclick=event=>checkWebUpdate(event,hasSettingsDraft);
+  selectCategory(buttons.find(button=>button.dataset.settingsTab===detail) || buttons[0],false);
+  refreshSyncPanel();showWebUpdate();
+  return ()=>{stopInviteLoad();indicator.dispose();};
 }
-function showDictionaryStatus(){
-  const panel=root.querySelector('#offline-dictionary');if(!panel)return;
-  const info=dictionaryTransfer?.progress || dictionaryInfo,button=panel.querySelector('#dictionary-download'),cancel=panel.querySelector('#dictionary-cancel'),progress=panel.querySelector('progress');
-  button.disabled=!!dictionaryTransfer || !!info?.complete;cancel.hidden=!dictionaryTransfer;progress.hidden=!dictionaryTransfer;
-  if(info){progress.max=info.total;progress.value=info.completed??info.downloaded??0;}
-  const completed=info?.completed??info?.downloaded??0,bytes=info?.bytes??info?.downloadedBytes??0;
-  button.textContent=info?.complete?'完整离线词典已就绪':completed?'继续下载离线词典':'下载完整离线词典（约 27 MB）';
-  panel.querySelector('#dictionary-status').textContent=dictionaryMessage || (info?'已下载 '+completed+' / '+info.total+' 个字母分片 · '+(bytes/1000000).toFixed(1)+' / '+(info.totalBytes/1000000).toFixed(1)+' MB':'正在检查下载状态…');
-}
-async function refreshDictionaryStatus(){
-  showDictionaryStatus();
-  try{dictionaryInfo=await dictionaryStatus();}catch(error){if(!dictionaryTransfer)dictionaryMessage=error.message;}
-  showDictionaryStatus();
-}
-async function startDictionaryDownload(){
-  if(dictionaryTransfer)return;
-  dictionaryMessage='';const transfer={controller:new AbortController(),progress:dictionaryInfo};dictionaryTransfer=transfer;showDictionaryStatus();
-  try{
-    dictionaryInfo=await downloadDictionary({signal:transfer.controller.signal,onProgress:value=>{transfer.progress=value;showDictionaryStatus();}});
-    dictionaryMessage='完整离线词典已就绪。清理网站数据会移除这些下载。';
-  }catch(error){dictionaryMessage=error.name==='AbortError'?'下载已暂停，已完成的分片会保留。':error.message;}
-  finally{dictionaryTransfer=null;await refreshDictionaryStatus();}
+function offlineDownloadPanel({panelId,title,initialLabel,status,download}){
+  let transfer=null, info=null, message='';
+  function draw(){
+    const panel=root.querySelector('#'+panelId);
+    if(!panel)return;
+    const data=transfer?.progress || info;
+    const button=panel.querySelector('[data-download]');
+    const cancel=panel.querySelector('[data-cancel]');
+    const progress=panel.querySelector('progress');
+    const completed=data?.completed??data?.downloaded??0, bytes=data?.bytes??data?.downloadedBytes??0;
+    button.disabled=!!transfer || !!data?.complete;
+    button.textContent=data?.complete?title+'已就绪':completed?'继续下载'+title:initialLabel;
+    cancel.hidden=progress.hidden=!transfer;
+    if(data){progress.max=Math.max(1,data.total);progress.value=completed;}
+    panel.querySelector('[role=status]').textContent=message || (data
+      ? '已下载 '+(bytes/1000000).toFixed(1)+' / '+(data.totalBytes/1000000).toFixed(1)+' MB'
+      : '正在检查下载状态…');
+  }
+  async function refresh(){
+    draw();
+    if(transfer)return;
+    try{info=await status();}catch(error){if(!transfer)message=error.message;}
+    draw();
+  }
+  async function start(){
+    if(transfer)return;
+    message='';
+    const current={controller:new AbortController(),progress:info};
+    transfer=current;draw();
+    try{
+      info=await download({signal:current.controller.signal,onProgress:value=>{current.progress=value;draw();}});
+      message=title+'已就绪。';
+    }catch(error){message=error.name==='AbortError'?'下载已暂停，已完成的文件会保留。':error.message;}
+    finally{transfer=null;await refresh();}
+  }
+  return {refresh,start,cancel:()=>transfer?.controller.abort()};
 }
 function mainInteractivity(enabled){
   for(const element of [root,tabs,document.querySelector('.masthead')])if(element){element.inert=!enabled;if(enabled)element.removeAttribute('aria-hidden');else element.setAttribute('aria-hidden','true');}
@@ -218,6 +325,7 @@ function mainInteractivity(enabled){
 function closeAccount({cancelLogin=true}={}){
   if(cancelLogin){viewEpoch++;loginLifecycle.cancel();loginSurface?.remove();loginSurface=null;document.body.classList.remove('login-transitioning');mainInteractivity(true);}
   if(typeof cleanup==='function')cleanup();cleanup=undefined;unsubscribe?.();unsubscribe=null;store?.close();store=null;identity=null;
+  pageMotion?.cancel();pageMotion=null;activePage=null;moduleIndicator.select(null,false);
   prefs={...defaults};applyTheme();tabs.hidden=true;statusLabel.textContent='登录后同步';
 }
 function renderAuth(mode='login',message='') {
@@ -336,7 +444,48 @@ window.addEventListener('online',()=>{updateStatus();store?.sync().catch(()=>{})
 window.addEventListener('hashchange',()=>{if(loginLifecycle.active){closeAccount();renderAuth();}else if(store)render();else renderAuth();});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')store?.sync().catch(()=>{});});
 setInterval(()=>{if(document.visibilityState==='visible')store?.sync().catch(()=>{});},60000);
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'}).catch(() => toast('离线缓存暂未就绪，请联网重新打开。'));
+function showWebUpdate(message) {
+  settingsLink.dataset.update=webUpdateReady?'ready':'';
+  settingsLink.setAttribute('aria-label',webUpdateReady?'设置，有可用更新':'设置');
+  const dot=root.querySelector('#update-tab-dot');
+  if(dot) {
+    dot.hidden=!webUpdateReady;
+    root.querySelector('#settings-tab-app').setAttribute('aria-label',webUpdateReady?'应用，有可用更新':'应用');
+  }
+  const button=root.querySelector('#check-web-update');
+  if(!button)return;
+  button.dataset.update=webUpdateReady?'ready':'';
+  button.textContent=webUpdateReady?'重新打开以更新':'检查更新';
+  const status=root.querySelector('#web-update-status');
+  status.textContent=message || (webUpdateReady?'新版本已下载。':'联网后会自动检查新版。');
+}
+async function checkWebUpdate(event,hasSettingsDraft) {
+  const button=event.currentTarget;
+  if(webUpdateReady){
+    if(hasSettingsDraft())showWebUpdate('设置里还有未保存的内容，请先处理再更新。');
+    else location.reload();
+    return;
+  }
+  button.disabled=true;
+  showWebUpdate('正在检查更新…');
+  try {
+    const registration=await webRegistration;
+    if(!registration){showWebUpdate('此浏览器暂未启用离线更新。');return;}
+    await registration.update();
+    showWebUpdate(webUpdateReady?'':registration.installing || registration.waiting?'正在准备新版…':'当前已是最新版本。');
+  } catch { showWebUpdate(webUpdateReady?'':'检查更新失败，请检查网络后重试。'); }
+  finally {button.disabled=false;}
+}
+if ('serviceWorker' in navigator) {
+  let controlled=navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    const next=navigator.serviceWorker.controller;
+    if(controlled && next && next!==controlled){webUpdateReady=true;showWebUpdate();}
+    controlled=next;
+  });
+  webRegistration=navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'})
+    .catch(()=>{toast('离线缓存暂未就绪，请联网重新打开。');return null;});
+}
 async function bootstrapAccount(){
   const epoch=viewEpoch;
   try{

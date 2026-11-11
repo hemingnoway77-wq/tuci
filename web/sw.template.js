@@ -9,6 +9,25 @@ const fontCache = fontPrefix + "__FONT_VERSION__";
 const fontFiles = "__FONT_ASSETS__";
 const fontURLs = new Map(Object.entries(fontFiles).map(([path,info]) => [new URL(path,scope).href,info]));
 const fontRequests = new Map();
+const translationVersion = "__TRANSLATION_VERSION__";
+const translationFiles = "__TRANSLATION_ASSETS__";
+const translationCache = 'tuci:translation:' + new URL(scope).pathname + ':' + translationVersion;
+const translationURLs = new Map(Object.entries(translationFiles).map(([path,info]) => [new URL(path,scope).href,info]));
+
+async function cachedTranslationAsset(url, info) {
+  try {
+    const stored = await (await caches.open(translationCache)).match(url);
+    if (stored && stored.headers.get('X-Tuci-SHA256') === info.sha256 &&
+        stored.headers.get('Content-Length') === String(info.bytes)) {
+      const headers = new Headers(stored.headers);
+      headers.set('Content-Type', info.type);
+      headers.set('X-Content-Type-Options', 'nosniff');
+      headers.set('Content-Security-Policy', "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'");
+      return new Response(stored.body, { headers });
+    }
+  } catch { /* No optional asset should be fetched implicitly. */ }
+  return new Response(null, { status: 503 });
+}
 
 async function verifiedFont(response, info) {
   if (!response.ok || response.redirected || response.type === 'opaque' ||
@@ -57,6 +76,11 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+  const translation = translationURLs.get(url.href);
+  if (translation) {
+    event.respondWith(cachedTranslationAsset(url.href, translation));
+    return;
+  }
   const home = url.pathname === new URL(scope).pathname || url.pathname === new URL(indexURL).pathname;
   const file = event.request.mode === 'navigate' && home ? indexURL : url.href;
   if (!assetURLs.has(file)) {

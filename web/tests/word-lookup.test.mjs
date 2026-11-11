@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { translateWord, lookupPronunciation } from '../word-lookup.js';
+import { translateWord, lookupPronunciation, lookupWord } from '../word-lookup.js';
 
 const translated = text => Response.json({
   responseData: { translatedText:text, match:0.9 },
@@ -12,6 +12,21 @@ const pronunciation = (word, phonetic, phonetics) => Response.json([{
   license:{name:'CC BY-SA 3.0',url:'https://creativecommons.org/licenses/by-sa/3.0/'},
   sourceUrls:['https://en.wiktionary.org/wiki/'+word]
 }]);
+
+test('lookup uses the installed model only after a dictionary miss and before online fallback', async t => {
+  let modelCalls=0, networkCalls=0;
+  t.mock.method(globalThis,'fetch',async () => { networkCalls++; return translated('在线后备'); });
+  const installed=async word => { modelCalls++; assert.equal(word,'modelled'); return '本机译文'; };
+  const dictionary={word:'book',translation:'书',source:'offline'};
+  assert.equal(await lookupWord('book',{dictionaryLookup:async()=>dictionary,offlineTranslator:installed}),dictionary);
+  assert.equal(modelCalls,0);
+  assert.deepEqual(await lookupWord('Modelled',{dictionaryLookup:async()=>null,offlineTranslator:installed}),{
+    word:'modelled',translation:'本机译文',phonetic:'',lemma:null,meanings:null,source:'offline-translation'
+  });
+  assert.equal(modelCalls,1);assert.equal(networkCalls,0);
+  assert.equal((await lookupWord('fallback',{dictionaryLookup:async()=>null,offlineTranslator:async()=>null})).source,'online');
+  assert.equal(networkCalls,1);
+});
 
 test('translation normalizes the selected word and sends only that word without credentials', async t => {
   t.mock.method(globalThis,'fetch',async (address,options) => {

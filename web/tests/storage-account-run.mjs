@@ -4,6 +4,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 const {IDBFactory}=await import(process.env.FAKE_INDEXEDDB_MODULE || '../../.artifacts/web-qa/node_modules/fake-indexeddb/build/esm/index.js');
 import {openStore} from '../storage.js';
+import {buildPracticeSenses, choosePracticeQuestion, completePractice, preparePracticeBank} from '../practice.js';
+import {describeNote, planReview} from '../library.js';
 globalThis.indexedDB=new IDBFactory();
 globalThis.window=new EventTarget();globalThis.document=Object.assign(new EventTarget(),{visibilityState:'visible'});
 const fixture=id=>({userId:'user-'+id,vaultId:'vault-'+id,username:id,deviceId:'device-'+id});
@@ -32,6 +34,7 @@ globalThis.fetch=async(url,options)=>{
     return Response.json({key:change.key,seq:change.seq});
   }
   if(path==='state/changes'){const after=Number(target.searchParams.get('after'));return Response.json({changes:db.stateChanges.filter(n=>n.seq>after),cursor:db.stateChanges.length,hasMore:false});}
+  if(path==='practice/banks' && db.banks)return Response.json({banks:db.banks.filter(bank=>input.noteIds.includes(bank.noteId))});
   return Response.json({error:'unknown route'},{status:404});
 };
 test('account databases isolate private notes and preserve the correct offline outbox',async()=>{
@@ -101,6 +104,30 @@ test('a cookie changed in another tab cannot upload the previous account outbox'
   }finally{a.close();}
 });
 
+test('an exhausted origin proof retry leaves the account connected and the outbox retryable',async t=>{
+  account='origin-proof';const store=await openStore({identity:fixture(account),autoSync:false});
+  const normalFetch=globalThis.fetch,attempts=[];
+  let blocked=true;
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(url.endsWith('/account/origin-proof'))return Response.json({proof:'A'.repeat(96),expiresIn:120});
+    if(url.endsWith('/operations') && blocked){
+      attempts.push(JSON.parse(options.body).operationId);
+      return Response.json({error:'origin proof required'},{status:403,headers:{'X-Tuci-Origin-Error':'proof-required'}});
+    }
+    return normalFetch(url,options);
+  });
+  try{
+    await store.saveNote('verb/test.md','queued note');
+    await assert.rejects(store.sync(),{status:403,message:'origin proof required'});
+    assert.equal(attempts.length,2);assert.equal(attempts[0],attempts[1]);
+    assert.equal(store.status().needsBinding,false);assert.equal(store.status().pending,1);
+    blocked=false;
+    await store.sync();
+    assert.equal(remote().notes.values().next().value.markdown,'queued note');
+    assert.equal(store.status().pending,0);
+  }finally{store.close();}
+});
+
 test('first upload canonical dedupe remaps unsent review, reading, legacy and trash identities atomically',async()=>{
   account='canonical';const store=await openStore({identity:fixture(account),autoSync:false});
   try{
@@ -164,4 +191,40 @@ test('a failed legacy migration rolls notes and its migration marker back before
     store=await openStore({identity:fixture(account),autoSync:false});assert.equal(store.notes().length,0);assert.equal(store.stateEntries().length,0);
     await store.importLegacy(legacy,{roaming});assert.equal(store.notes()[0].markdown,'kept source');assert.equal(store.stateEntries().length,1);assert.equal(store.status().pending,1);
   }finally{IDBObjectStore.prototype.add=original;store.close();}
+});
+
+test('cloud practice banks and answer receipts remain account-local while completed review is queued once',async()=>{
+  account='practice-owner';
+  const identity=fixture(account), options={identity,autoSync:false};
+  let store=await openStore(options), other;
+  try{
+    await store.saveNote('book.md','**释义**：\n> n. 书籍');
+    await store.saveNote('pencil.md','**释义**：\n> n. 铅笔');
+    await store.sync();
+    const note=store.notes()[0], [sense]=await buildPracticeSenses(note), words=store.notes().map(describeNote);
+    remote().banks=[{noteId:note.id,word:'book',contexts:[{senseId:sense.id,english:'I found the book under your desk.',chinese:'我在你的桌子下找到了这本书。'}]}];
+    const first=planReview([],words,null,Date.now(),0);
+    await store.setStates(first.writes);
+    const bound=await preparePracticeBank(store.practice,note);
+    const {question}=await store.practice.updateLedger(ledger=>choosePracticeQuestion(ledger,bound,note.id,first.current.exposure));
+    await store.practice.updateLedger(ledger=>({ledger:completePractice(ledger,question,'correct','book')}));
+    const next=planReview(store.stateEntries(),words,{exposure:question.exposure,remembered:true,practice:true});
+    await store.setStates(next.writes,{expectedExposure:question.exposure});
+    const pending=store.status().pending;
+    await store.setStates(first.writes,{expectedExposure:question.exposure});
+    assert.equal(store.status().pending,pending);
+    assert.equal(store.stateEntries().find(row=>row.key==='roaming/current').value.exposureId,next.current.exposure);
+    await store.sync();
+    assert.equal([...remote().state.values()].filter(row=>row.key.endsWith('/completed')).length,1);
+    assert.ok([...remote().state.keys()].every(key=>!key.startsWith('practice/')));
+    assert.deepEqual(calls.find(call=>call.account===account && call.path==='practice/banks').input,{noteIds:[note.id]});
+    delete remote().banks;
+    store.close();store=await openStore(options);
+    assert.deepEqual(await preparePracticeBank(store.practice,note),bound);
+    const resumed=await store.practice.updateLedger(ledger=>choosePracticeQuestion(ledger,[],note.id,question.exposure));
+    assert.equal(resumed.completion.answer,'book');
+    account='practice-other';other=await openStore({identity:fixture(account),autoSync:false});
+    assert.equal(await preparePracticeBank(other.practice,note),null);
+    assert.equal(other.status().needsBinding,false);
+  }finally{store.close();other?.close();}
 });

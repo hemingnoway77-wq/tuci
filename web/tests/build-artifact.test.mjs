@@ -28,6 +28,18 @@ test('the published dictionary is complete while first install precaches only th
     assert.equal(fonts.files.filter(file=>file.precache).length,6);
     assert.ok(Object.hasOwn(assets,'dictionary/dictionary.manifest.json'));assert.ok(Object.hasOwn(assets,'dictionary/LICENSE.MIT.txt'));
     assert.equal(Object.keys(assets).some(path=>path.endsWith('.jsonl')),false);
+    const modelPath='offline-translation/manifest.json';
+    const translation=JSON.parse(readFileSync(join(target,modelPath),'utf8'));
+    const routed=JSON.parse(worker.match(/const translationFiles = (\{[^\n]+\});/)[1]);
+    assert.ok(Object.hasOwn(assets,modelPath));
+    assert.ok(Object.hasOwn(assets,'offline-translation.js'));
+    assert.equal(Object.keys(translation.files).length,7);
+    for(const [path,file] of Object.entries(translation.files)){
+      const url=`offline-translation/${translation.version}/${path}`;
+      const bytes=readFileSync(join(target,url));
+      assert.equal(bytes.length,file.bytes);assert.equal(createHash('sha256').update(bytes).digest('hex'),file.sha256);
+      assert.deepEqual(routed[url],file);assert.equal(Object.hasOwn(assets,url),false,'optional model assets must never be precached');
+    }
     for(const path of ['update.html','update-recovery.js']){assert.equal(Object.hasOwn(assets,path),false);assert.ok(statSync(join(target,path)).size>0);}
     assert.ok(Object.keys(assets).reduce((sum,path)=>sum+statSync(join(target,path)).size,0)<1024*1024,'default install must stay below 1 MiB');
     const inventory=[];function visit(directory,prefix=''){for(const entry of readdirSync(directory,{withFileTypes:true})){const path=prefix+entry.name;if(entry.isDirectory())visit(join(directory,entry.name),path+'/');else inventory.push(path);}}

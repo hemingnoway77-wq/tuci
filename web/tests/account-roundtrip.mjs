@@ -31,6 +31,7 @@ function dotnetRun(args,env=environment){
     const output=(result.stderr || result.stdout || '').replace(/\b[A-Fa-f0-9]{64}\b/g,'[redacted]');
     throw new Error('Dotnet phase failed ('+result.status+'): '+output);
   }
+  return result.stdout;
 }
 async function startServer(){
   backend=spawn(dotnet,[serverDll,'--urls','http://127.0.0.1:0'],{cwd:root,env:environment,stdio:['ignore','pipe','pipe'],windowsHide:true});
@@ -48,8 +49,9 @@ try{
     dotnetRun(['build',serverProject,'-c','Release','--nologo','-p:RestoreLockedMode=true']);
     dotnetRun(['build',driverProject,'-c','Release','--nologo','-p:RestoreLockedMode=true']);
   }
+  const invitation=JSON.parse(dotnetRun([serverDll,'invite-web']));
   const base=await startServer();
-  const driverEnv={...environment,TUCI_TEST_SERVER:base};
+  const driverEnv={...environment,TUCI_TEST_SERVER:base,TUCI_TEST_INVITE_CODE:invitation.code};
   dotnetRun([driverDll,'seed',directory],driverEnv);
   const fixture=JSON.parse(readFileSync(join(directory,'fixture.json'),'utf8').replace(/^\uFEFF/,''));
   assert.equal(fixture.server.replace(/\/$/,''),base.replace(/\/$/,''));

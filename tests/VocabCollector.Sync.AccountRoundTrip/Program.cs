@@ -29,7 +29,8 @@ if (mode == "seed")
     password ??= Guid.NewGuid().ToString("N") + "-test-only";
     var setup = new SyncClient(http, server);
     identity = supplied ? await setup.LoginAsync(username, password, "Windows roundtrip", ct)
-        : await setup.RegisterAsync(username, password, "Windows roundtrip", ct);
+        : await setup.RegisterAsync(username, password, "Windows roundtrip", ct,
+            Environment.GetEnvironmentVariable("TUCI_TEST_INVITE_CODE"));
     fixture = new(server.AbsoluteUri, username, password, identity.VaultId, "", "", "", "# apple\n\nOriginal from Windows.",
         "https://example.org/tuci-roundtrip/article");
 }

@@ -4,12 +4,13 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 import {webcrypto} from 'node:crypto';
 import * as data from '../learning-data.js';
+import {describeNote,resolveWiki} from '../library.js';
 const source=await readFile(new URL('../learning.js',import.meta.url),'utf8');
 const progressSource=await readFile(new URL('../reading-state.js',import.meta.url),'utf8');
 const fixture=JSON.parse(await readFile(new URL('./fixtures/legacy-capture.json',import.meta.url),'utf8'));
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
 const until=async predicate=>{for(let i=0;i<100;i++){if(predicate())return;await new Promise(resolve=>setImmediate(resolve));}assert.fail('reading capture did not reach expected state');};
-function page({ai=false,reduced=true,fetcher,save,settling,uncachedBody=false}={}){
+function page({ai=false,reduced=true,fetcher,save,settling,uncachedBody=false,width=390}={}){
   let document,scope='account-a',onCollect,progressPaused;
   const writes=[],navigations=[],notices=[],animations=[],scrolls=[],cache=new Map(),notes=[],progressMounts=[];
   class Events{
@@ -41,12 +42,13 @@ function page({ai=false,reduced=true,fetcher,save,settling,uncachedBody=false}={
   }
   const body=new Element('body'),root=new Element('main'),tabs=new Element('nav'),masthead=new Element('header');body.append(masthead,root,tabs);
   document=Object.assign(new Events(),{body,documentElement:new Element('html'),activeElement:body,visibilityState:'visible',createElement:tag=>new Element(tag),createElementNS:(namespace,tag)=>Object.assign(new Element(tag),{namespaceURI:namespace})});
-  const window=Object.assign(new Events(),{scrollX:0,scrollY:640,innerHeight:844,visualViewport:Object.assign(new Events(),{offsetTop:0,height:844}),matchMedia:()=>({matches:reduced}),scrollTo(x,y){this.scrollX=x;this.scrollY=y;scrolls.push([x,y]);}});
+  const window=Object.assign(new Events(),{scrollX:0,scrollY:640,innerWidth:width,innerHeight:844,visualViewport:Object.assign(new Events(),{offsetTop:0,height:844}),matchMedia:()=>({matches:reduced}),scrollTo(x,y){this.scrollX=x;this.scrollY=y;scrolls.push([x,y]);}});
   const storage={getItem:key=>cache.get(key)??null,setItem:(key,value)=>cache.set(key,String(value))};
   const day=new Date(),key=[day.getFullYear(),String(day.getMonth()+1).padStart(2,'0'),String(day.getDate()).padStart(2,'0')].join('-'),story={id:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',title:'A little story',summary:'A story.',source:'Test',category:'general',url:'https://www.bbc.com/news/story'};
   storage.setItem('tuci:reading:edition-v1',JSON.stringify({day:key,articles:[story]}));if(!uncachedBody)storage.setItem('tuci:reading:bodies-v1',JSON.stringify([{id:story.id,paragraphs:['We remain resilient. Reading helps every day.']} ]));storage.setItem('tuci:reading:open:account-a',JSON.stringify(story.id));storage.setItem('tuci:capture:account-a',JSON.stringify({word:'sentinel',context:'Full-page draft'}));
   const ctx={root,scope:()=>scope,notes:()=>notes,settings:()=>({classify:true,...(ai?{aiKey:'fixture-key',aiEndpoint:'https://fixture.invalid/v1',aiModel:'fixture'}:{})}),navigate:(...args)=>navigations.push(args),toast:message=>notices.push(message),saveNote:async(...args)=>{writes.push({scope,args});await save?.(...args);notes.push({path:args[0],markdown:args[1]});}};
   const realm={...data,document,window,localStorage:storage,sessionStorage:storage,setTimeout,clearTimeout,AbortController,DOMException,TextDecoder,URL,Response,console,fetch:fetcher||(()=>{throw Error('Unexpected request');}),settleLoginViewport:async options=>{document.activeElement?.blur();if(settling)await settling(options);},mountReadingWords:options=>{onCollect=options.onCollect;return ()=>{};},mountReadingProgress:(_ctx,_story,content,options)=>{progressMounts.push({content,options});progressPaused=options.paused;const cleanup=()=>{};cleanup.flush=()=>{};return cleanup;}};
+  Object.assign(realm,{describeNote,resolveWiki,noteBody(note){const body=new Element('article','nb-markdown');body.textContent=note.body;return body;}});
   const script=source.replace(/^import .*;\r?$/gm,'').replaceAll('export ','')+'\nglobalThis.api={renderReading,openReadingCapture};';
   vm.runInNewContext(script,realm,{filename:'web/learning.js'});
   const dispose=realm.api.renderReading(ctx);window.scrollY=640;scrolls.length=0;
@@ -64,6 +66,34 @@ test('reading capture saves in a temporary sheet then returns to the same articl
   assert.equal(p.form().querySelector('input').value,'resilient');assert.equal(p.form().querySelector('.learn-sentence').value,'We remain resilient.');
   p.submit();await until(()=>!p.sheet());
   assert.equal(p.writes.length,1);assert.equal(p.writes[0].scope,'account-a');assert.match(p.writes[0].args[1],/We remain resilient/);assert.equal(p.root.querySelector('article'),article);assert.deepEqual(p.root.children,children);assert.deepEqual(p.navigations,[]);assert.equal(p.window.scrollY,640);assert.deepEqual(p.scrolls.at(-1),[0,640]);assert.equal(p.root.inert,false);assert.equal(p.tabs.inert,false);assert.equal(p.paused(),false);assert.equal(p.document.body.style.position,'');assert.equal(p.cache.get('tuci:capture:account-a'),draft);assert.equal(p.document.activeElement,article);p.dispose();
+});
+
+test('wide article capture keeps the reader mounted and offers a saved or existing note preview',async()=>{
+  const p=page({width:1280}),article=p.root.querySelector('article'),draft=p.cache.get('tuci:capture:account-a');
+  p.collect();assert.ok(p.root.querySelector('.learn-capture-drawer'));
+  assert.equal(p.document.body.style.position,'');assert.equal(p.root.inert,false);
+  p.submit();await until(()=>p.findButton('打开笔记 →'));
+  assert.equal(p.writes.length,1);assert.equal(p.root.querySelector('article'),article);
+  assert.equal(p.sheet().querySelector('.learn-note-preview').querySelector('h2').textContent,'resilient');
+  p.submit();assert.equal(p.writes.length,1);assert.match(p.sheet().querySelector('.learn-feedback').children[0].textContent,/已收录/);
+  p.findButton('打开笔记 →').fire('click');assert.deepEqual(p.navigations,[['library','其他/resilient.md']]);
+  p.root.querySelectorAll('button').find(node=>node.textContent==='← 每日阅读').fire('click');
+  assert.equal(p.sheet(),null);assert.equal(p.document.listeners.keydown.size,0);assert.equal(p.window.scrollY,640);
+  assert.equal(p.cache.get('tuci:capture:account-a'),draft);p.dispose();
+});
+
+test('an unavailable article leaves progress untouched and lets the reader retry the same full text',async()=>{
+  let attempts=0;
+  const p=page({uncachedBody:true,fetcher:async()=>{
+    if(++attempts===1)throw Error('Network unavailable');
+    return Response.json({paragraphs:['The full article is available.']});
+  }});
+  const find=text=>p.root.querySelectorAll('button').find(node=>node.textContent===text);
+  await until(()=>find('重试全文'));assert.equal(p.paused(),true);
+  assert.match(p.root.querySelector('article').querySelector('p').textContent,/暂时无法载入全文/);
+  find('重试全文').fire('click');await until(()=>!p.paused());
+  assert.equal(attempts,2);assert.equal(p.root.querySelector('article').querySelector('p').textContent,'The full article is available.');
+  find('← 每日阅读').fire('click');assert.ok(p.root.querySelector('.learn-stories'));assert.equal(p.window.scrollY,640);p.dispose();
 });
 
 test('article source preserves its real external link and renders a monochrome SVG instead of a text arrow',()=>{

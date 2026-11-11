@@ -1,3 +1,6 @@
+import { buildPracticeSenses, choosePracticeQuestion, completePractice, evaluateSpelling, preparePracticeBank } from './practice.js';
+import { createTabIndicator } from './tab-indicator.js';
+
 // Notebook and review views share the Markdown files used by Windows and iPhone.
 const dayMs = 86_400_000;
 const normalize = value => value.normalize("NFC").toLowerCase();
@@ -134,7 +137,7 @@ export function planReview(entries, words, finished = null, now = Date.now(), ra
   if (finished && history.current?.exposure !== finished.exposure) return { writes, current: history.current };
   if (!finished && words.some(note => "note:" + note.id === history.current?.id)) return { writes, current: history.current };
   const at = new Date(now).toISOString(), day = dateKey(now);
-  if (finished && history.current) {
+  if (finished && finished.remembered !== null && history.current) {
     const noteId = history.current.id.slice(5), key = "event/" + finished.exposure + "/completed";
     writes.push({ key, value: { noteId, at, day, remembered: Boolean(finished.remembered) } });
     const record = history.records[history.current.id] ??= {};
@@ -142,7 +145,8 @@ export function planReview(entries, words, finished = null, now = Date.now(), ra
     record[finished.remembered ? "remembered" : "skipped"] = (record[finished.remembered ? "remembered" : "skipped"] || 0) + 1;
   }
   if (!words.length) return { writes, current: null };
-  const choices = words.map(note => ({ note, weight: reviewWeight(history.records["note:" + note.id], Number.isFinite(note.added) ? note.added : now, now) }));
+  const otherWords = finished?.practice ? words.filter(note => "note:" + note.id !== history.current?.id) : words;
+  const choices = (otherWords.length ? otherWords : words).map(note => ({ note, weight: reviewWeight(history.records["note:" + note.id], Number.isFinite(note.added) ? note.added : now, now) }));
   const unit = Number.isNaN(random) ? 0 : Math.max(0, Math.min(1, random));
   let needle = unit * choices.reduce((sum, choice) => sum + choice.weight, 0);
   const picked = choices.find(choice => (needle -= choice.weight) < 0) || choices.at(-1);
@@ -223,7 +227,7 @@ function excerpt(note) {
 }
 
 function appendInline(parent, line, onWiki) {
-  const tokens = /(\\[\\*_#|\x60]|`[^`\n]+`|\[\[[^\[\]\n]+\]\]|\*\*[^*\n]+\*\*|__[^_\n]+__|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/gi;
+  const tokens = /(\\[\\*_#|\x60]|`[^`\n]+`|\[\[[^\[\]\n]+\]\]|\*\*[^*\n]+\*\*|__[^_\n]+__|!\[[^\]\n]*\]\([^\n)]*\)|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|<https?:\/\/[^>\s]+>|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_)/gi;
   let offset = 0;
   for (const match of line.matchAll(tokens)) {
     parent.append(inlineLiteral(line.slice(offset, match.index)));
@@ -247,22 +251,33 @@ function appendInline(parent, line, onWiki) {
       parent.append(inlineLiteral(token));
     } else if (token.startsWith("`")) {
       parent.append(element("code", "", token.slice(1, -1)));
+    } else if (token.startsWith("![")) {
+      parent.append(element("span", "nb-image-alt", inlineLiteral(token.slice(2, token.indexOf("](")))));
     } else if (token.startsWith("[")) {
       const bits = /^\[([^\]]+)\]\((.*)\)$/.exec(token);
       const link = element("a", "", inlineLiteral(bits[1]));
       link.href = bits[2]; link.target = "_blank"; link.rel = "noopener noreferrer";
       parent.append(link);
+    } else if (token.startsWith("<")) {
+      const url = token.slice(1, -1);
+      const link = element("a", "", url);
+      link.href = url; link.target = "_blank"; link.rel = "noopener noreferrer";
+      parent.append(link);
+    } else if (token.startsWith("_") && (/\w/.test(line[match.index - 1] || "") || /\w/.test(line[match.index + token.length] || ""))) {
+      parent.append(inlineLiteral(token));
     } else {
-      const strong = element("strong");
-      appendInline(strong, token.slice(2, -2), onWiki);
-      parent.append(strong);
+      const strong = token.startsWith("**") || token.startsWith("__");
+      const width = strong ? 2 : 1;
+      const emphasis = element(strong ? "strong" : "em");
+      appendInline(emphasis, token.slice(width, -width), onWiki);
+      parent.append(emphasis);
     }
     offset = match.index + token.length;
   }
   parent.append(inlineLiteral(line.slice(offset)));
 }
 
-function noteBody(note, onWiki) {
+export function noteBody(note, onWiki = () => {}) {
   const article = element("article", "nb-markdown");
   let pre, fence, comment = false;
   for (const raw of note.body.split("\n")) {
@@ -275,7 +290,8 @@ function noteBody(note, onWiki) {
     if (comment) { if (line.includes("-->")) comment = false; continue; }
     if (line.startsWith("<!--")) { comment = !line.includes("-->"); continue; }
     if (/^(?:```|~~~)/.test(line)) { fence = line.slice(0, 3); pre = element("pre"); article.append(pre); continue; }
-    if (!line || line === "---" || (line.startsWith("# ") && normalize(line.slice(2)) === normalize(note.title))) continue;
+    if (!line || (line.startsWith("# ") && normalize(line.slice(2)) === normalize(note.title))) continue;
+    if (/^(?:-\s*){3,}$|^(?:\*\s*){3,}$|^(?:_\s*){3,}$/.test(line)) { article.append(element("hr")); continue; }
     const heading = /^(#{1,6})\s+(.+)$/.exec(line);
     const bullet = /^(?:[-*]|(\d+)\.)\s+(.*)$/.exec(line);
     let tag = "p", text = line, css = "";
@@ -440,7 +456,43 @@ function libraryRow(name, kind, detail, run) {
   return row;
 }
 
-function directory(ctx, frame, back, enter, edit, openTrash) {
+const markdownLimit = 1024 * 1024;
+
+export async function importMarkdownFiles(ctx, files, active = () => true) {
+  const scope = ctx.scope();
+  const current = () => active() && ctx.scope() === scope;
+  const result = { imported: 0, duplicates: 0, failed: 0 };
+  if (!current()) return result;
+  const occupied = new Set(ctx.notes().map(note => note.path.split("/", 1)[0].normalize("NFC").toUpperCase()));
+  for (const file of files) {
+    if (!current()) break;
+    const name = file.name.normalize("NFC");
+    if (name.startsWith(".") || !/^[^/\\<>:"|?*\p{Cc}]+\.md$/iu.test(name) || file.size > markdownLimit + 3) {
+      result.failed++;
+      continue;
+    }
+    const key = name.toUpperCase();
+    if (occupied.has(key)) {
+      result.duplicates++;
+      continue;
+    }
+    try {
+      const bytes = await file.arrayBuffer();
+      if (!current()) break;
+      if (bytes.byteLength > markdownLimit + 3) throw new Error("Markdown 文件过大。");
+      const markdown = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      if (markdown.includes("\0")) throw new Error("Markdown 文件不是文本。");
+      await ctx.saveNote(name, markdown, undefined, null);
+      occupied.add(key);
+      result.imported++;
+    } catch {
+      result.failed++;
+    }
+  }
+  return result;
+}
+
+function directory(ctx, frame, back, enter, edit, openTrash, importFiles, importing) {
   const notes = ctx.notes().map(describeNote);
   const prefix = frame.path ? frame.path + "/" : "";
   const under = notes.filter(note => note.path.startsWith(prefix));
@@ -459,6 +511,21 @@ function directory(ctx, frame, back, enter, edit, openTrash) {
   const header = element("header", "page-head nb-head");
   const heading = element("div"); heading.append(element("h1", "", frame.path ? basename(frame.path) : "词库"));
   const actions = element("div", "nb-note-actions");
+  if (!frame.path) {
+    const picker = element("input");
+    picker.type = "file"; picker.accept = ".md,text/markdown"; picker.multiple = true; picker.hidden = true;
+    const importButton = button(importing ? "正在导入…" : "导入 Markdown", "nb-text-btn", () => picker.click());
+    importButton.disabled = importing;
+    picker.addEventListener("change", () => {
+      const files = Array.from(picker.files || []);
+      picker.value = "";
+      if (!files.length) return;
+      importButton.disabled = true;
+      importButton.textContent = "正在导入…";
+      void importFiles(files);
+    });
+    actions.append(importButton, picker);
+  }
   if (openTrash) actions.append(button("回收站", "nb-text-btn", openTrash));
   actions.append(iconButton("新建笔记", "plus", () => edit(prefix))); header.append(heading, actions);
   ctx.root.append(header);
@@ -547,7 +614,7 @@ export function renderLibrary(ctx, path) {
   const state = session(ctx);
   const stack = state.stack;
   if (path && stack.at(-1)?.path !== path) stack.push({ kind: "note", path, scroll: 0 });
-  let displayed, cleaned = false, disposeProgress = () => {};
+  let displayed, cleaned = false, importing = false, disposeProgress = () => {};
   const back = () => { if (stack.length > 1) stack.pop(); draw(); };
   function enter(kind, nextPath) {
     rememberScroll(stack.at(-1));
@@ -559,6 +626,23 @@ export function renderLibrary(ctx, path) {
     stack.push({ kind: "edit", path, editing: Boolean(note), original: note?.markdown, source: note?.markdown || "", scroll: 0 });
     draw();
   }
+  async function importFiles(files) {
+    if (importing || cleaned) return;
+    const scope = ctx.scope();
+    const active = () => !cleaned && ctx.scope() === scope;
+    importing = true;
+    try {
+      const result = await importMarkdownFiles(ctx, files, active);
+      if (!active()) return;
+      const messages = [`已导入 ${result.imported} 篇 Markdown`];
+      if (result.duplicates) messages.push(`跳过 ${result.duplicates} 篇同名笔记`);
+      if (result.failed) messages.push(`${result.failed} 个文件未能导入`);
+      ctx.toast(messages.join("，") + "。");
+    } finally {
+      importing = false;
+      if (active() && displayed?.kind === "folder") { rememberScroll(displayed); draw(); }
+    }
+  }
   function draw() {
     if (cleaned) return;
     disposeProgress(); disposeProgress = () => {};
@@ -567,7 +651,7 @@ export function renderLibrary(ctx, path) {
     ctx.root.replaceChildren();
     const raw = ctx.notes().find(note => frame.noteId && note.id === frame.noteId || note.path === frame.path);
     if (raw && frame.kind === "note") { frame.noteId = raw.id; frame.path = raw.path; }
-    if (frame.kind === "folder") directory(ctx, frame, back, enter, edit, () => enter("trash", ""));
+    if (frame.kind === "folder") directory(ctx, frame, back, enter, edit, () => enter("trash", ""), importFiles, importing);
     else if (frame.kind === "trash") trashView(ctx, back, draw);
     else if (frame.kind === "edit") {
       editView(ctx, frame, frame.editing, back, dest => {
@@ -720,12 +804,207 @@ function activityContent(stats) {
 
 export function renderRoam(ctx) {
   const state = session(ctx), scope = ctx.scope();
+  const practiceStore = ctx.practice?.();
+  state.practiceMode ??= "browse";
+  let round = state.practiceRound, modes, clock = null, clockStart, timerLabel;
   let cleaned = false, busy = false, error = "", pendingPlan = null, signature = "", queued = false;
   let disposeReveal = () => {}, disposeProgress = () => {}, activityDialog = null, resizeObserver;
   const entries = () => ctx.stateEntries?.() || [];
   const currentIdentity = () => entries().find(row => row.key === "roaming/current" && !row.deleted)?.value?.exposureId || null;
   const relevantSignature = () => JSON.stringify(entries().filter(row => /^(event|legacy|roaming)\//.test(row.key)))
     + JSON.stringify(ctx.notes().map(note => [note.id, note.path, note.markdown]));
+  function syncPracticeClock() {
+    if (!round?.question || !timerLabel || round.revealed || currentIdentity() !== round.exposure || state.practiceMode !== "answer" || state.roamPath.length ||
+        activityDialog || document.visibilityState === "hidden" || (document.hasFocus && !document.hasFocus())) {
+      stopPracticeClock(); return;
+    }
+    if (clock != null) return;
+    clockStart = performance.now();
+    clock = setInterval(() => {
+      const seconds = Math.ceil(Math.max(0, round.remaining - (performance.now() - clockStart)) / 1000);
+      if (timerLabel) timerLabel.textContent = seconds + " 秒";
+      if (seconds === 0) {
+        stopPracticeClock();
+        revealPractice("timedOut");
+      }
+    }, 150);
+  }
+  function stopPracticeClock() {
+    if (clock == null) return;
+    clearInterval(clock); clock = null;
+    if (round) round.remaining = Math.max(0, round.remaining - (performance.now() - clockStart));
+  }
+  function revealPractice(outcome) {
+    if (busy || !round?.question || round.revealed) return;
+    stopPracticeClock();
+    round.revealed = true;
+    round.revealReason = round.remaining === 0 ? "timedOut" : outcome;
+    round.outcome = round.question.kind === "meaning" ? null : round.revealReason || evaluateSpelling(round.question, round.answer);
+    draw();
+    ctx.root.querySelector(".nb-practice-result")?.focus({preventScroll:true});
+  }
+  function gradeFor(outcome) {
+    if (outcome === "lemmaCorrect") return null;
+    return outcome === "correct" || outcome === "selfConfirmed";
+  }
+  async function finishPractice(outcome) {
+    if (busy || cleaned || ctx.scope() !== scope || !round || currentIdentity() !== round.exposure) return;
+    const active = round;
+    if (!active.question || !practiceStore) {
+      await advance({exposure:active.exposure,remembered:null,practice:true}); return;
+    }
+    busy = true;
+    stopPracticeClock();
+    for (const control of ctx.root.querySelectorAll(".nb-practice-card button, .nb-activity-entry")) control.disabled = true;
+    try {
+      const {completion} = await practiceStore.updateLedger(before => {
+        const ledger = completePractice(before,active.question,outcome,active.answer);
+        return {ledger,completion:ledger.receipts.find(receipt => receipt.question.exposure === active.exposure)};
+      });
+      active.completion = completion;
+      active.outcome = completion.outcome;
+      active.revealed = true;
+    } catch (problem) {
+      active.error = problem.message || "作答暂未保存，请重试。";
+      return;
+    } finally {
+      busy = false;
+      if (!cleaned && ctx.scope() === scope) draw();
+    }
+    if (!cleaned && ctx.scope() === scope && round === active && currentIdentity() === active.exposure)
+      await advance({exposure:active.exposure,remembered:gradeFor(active.outcome),practice:true});
+  }
+  function roundFor(note, current) {
+    const raw = ctx.notes().find(candidate => (candidate.id || candidate.path) === note.id);
+    const source = raw?.markdown || "";
+    if (round?.exposure !== current.exposure || round.noteId !== note.id || round.source !== source) {
+      stopPracticeClock();
+      round = state.practiceRound = {exposure:current.exposure,noteId:note.id,source,remaining:30_000,answer:"",status:"idle"};
+    }
+    return raw;
+  }
+  async function loadPractice(raw, generate = false) {
+    const active = round;
+    if (!practiceStore || !raw || !active || active.status === "loading" || active.question) return;
+    active.status = "loading";
+    active.error = "";
+    if (generate) draw();
+    const stillActive = () => !cleaned && ctx.scope() === scope && round === active && currentIdentity() === active.exposure &&
+      ctx.notes().some(note => (note.id || note.path) === active.noteId && note.markdown === active.source);
+    try {
+      const senses = await buildPracticeSenses(raw);
+      if (!stillActive()) return;
+      active.hasSenses = senses.length > 0;
+      const bound = await preparePracticeBank(practiceStore, raw, {senses, settings: generate ? ctx.settings?.() || {} : undefined});
+      if (!stillActive()) return;
+      const {question,completion} = await practiceStore.updateLedger(ledger =>
+        choosePracticeQuestion(ledger,bound || [],active.noteId,active.exposure));
+      if (!stillActive()) return;
+      active.question = question;
+      active.status = question ? "ready" : "missing";
+      if (completion) Object.assign(active,{completion,answer:completion.answer,outcome:completion.outcome,revealed:true});
+    } catch (problem) {
+      if (!stillActive()) return;
+      active.error = problem.message || "语境题暂时不可用，请重试。";
+      active.status = "missing";
+    } finally {
+      if (active.status === "loading") active.status = "idle";
+      if (stillActive() && state.practiceMode === "answer" && !state.roamPath.length && !activityDialog) draw();
+    }
+  }
+  function practiceContent(card, top, raw, note) {
+    card.classList.add("nb-practice-card");
+    const panel = element("div","nb-practice-body");
+    const actions = element("div","nb-review-controls");
+    card.append(top,panel,actions);
+    const question = round.question;
+    if (!question) {
+      const loading = round.status === "idle" || round.status === "loading";
+      panel.append(element("h2","nb-practice-heading",loading ? "正在查找语境…" : "这张词卡还没有语境题"));
+      if (!loading && round.hasSenses) panel.append(element("p","nb-meta","准备各义项的中英语境后即可作答。"));
+      if (round.error) {
+        const message = element("p","nb-error",round.error); message.setAttribute("role","alert"); panel.append(message);
+      }
+      const next = button("下一张","button secondary",() => finishPractice("skipped"));
+      next.disabled = busy || Boolean(pendingPlan); actions.append(next);
+      if (!loading && round.hasSenses) {
+        const prepare = button("准备语境","button",() => loadPractice(raw,true));
+        prepare.disabled = busy || Boolean(pendingPlan); actions.append(prepare);
+      }
+      if (round.status === "idle") queueMicrotask(() => {
+        if (!cleaned && state.practiceMode === "answer" && round?.status === "idle" && !state.roamPath.length) void loadPractice(raw);
+      });
+      return;
+    }
+    const spelling = question.kind === "spelling";
+    const label = spelling ? "拼写英文" : "写中文释义";
+    const heading = element("div","nb-practice-top");
+    heading.append(element("h2","nb-practice-heading",label),element("span","nb-meta","义项 "+question.number+"/"+question.count));
+    if (!round.revealed) {
+      timerLabel = element("span","nb-practice-timer",Math.ceil(round.remaining/1000)+" 秒");
+      timerLabel.setAttribute("aria-label","剩余作答时间"); heading.append(timerLabel);
+    }
+    panel.append(heading);
+    if (!spelling) panel.append(element("p","nb-practice-word",question.word));
+    panel.append(element("p","nb-practice-prompt",question.prompt));
+    if (spelling) panel.append(element("p","nb-practice-hint",question.hint),
+      element("p","nb-meta",question.word[0]+" 开头 · "+question.word.length+" 个字符"));
+    if (!round.revealed) {
+      const form = element("form","nb-practice-form");
+      const field = element(spelling ? "input" : "textarea","nb-practice-input");
+      field.value = round.answer; field.maxLength = spelling ? 64 : 2000;
+      if (spelling) field.type = "text"; else field.rows = 2;
+      field.autocomplete = "off"; field.spellcheck = false; field.setAttribute("autocapitalize","off");
+      field.setAttribute("aria-label",label); field.placeholder = spelling ? "输入缺少的单词" : "用自己的话写下这句话里的意思";
+      field.disabled = busy || Boolean(pendingPlan);
+      const submit = element("button","button",spelling ? "检查答案" : "对照答案"); submit.type = "submit";
+      submit.disabled = !round.answer.trim() || busy || Boolean(pendingPlan);
+      field.addEventListener("input",() => { round.answer = field.value; submit.disabled = !round.answer.trim(); });
+      form.addEventListener("submit",event => { event.preventDefault(); if (!submit.disabled) revealPractice(); });
+      form.append(field,submit); panel.append(form);
+      const skip = button("跳过","nb-text-btn",() => revealPractice("skipped"));
+      skip.disabled = busy || Boolean(pendingPlan); actions.append(skip);
+      return;
+    }
+    const titles = {correct:"拼写正确",lemmaCorrect:"原形正确 · 保留复习权重",incorrect:"再复习一次",timedOut:"时间到",
+      selfConfirmed:"已确认",selfRejected:"还需复习",skipped:"已跳过"};
+    const result = element("section","nb-practice-result"); result.tabIndex = -1;
+    result.append(element("strong","",titles[round.outcome] || (round.revealReason === "timedOut" ? "时间到 · 对照参考释义" : "对照参考释义")));
+    if (round.answer.trim()) result.append(element("p","nb-meta","你的答案："+round.answer));
+    result.append(element("p","",spelling ? question.word+" · "+question.meaning : question.meaning),
+      element("p","",question.english),element("p","nb-practice-hint",question.chinese));
+    if (question.formNote) result.append(element("p","nb-meta",question.formNote));
+    panel.append(result,button("阅读整篇笔记 →","nb-text-btn nb-read-note",() => open(note.path)));
+    if (round.error) {
+      const message = element("p","nb-error",round.error); message.setAttribute("role","alert"); panel.append(message);
+    }
+    if (spelling || round.outcome || round.completion) {
+      const next = button("下一张","button",() => finishPractice(round.outcome));
+      next.disabled = busy || Boolean(pendingPlan); actions.append(next);
+    } else {
+      const no = button("还没掌握","button secondary",() => finishPractice("selfRejected"));
+      const yes = button("意思相符","button",() => finishPractice("selfConfirmed"));
+      no.disabled = yes.disabled = busy || Boolean(pendingPlan); actions.append(no,yes);
+    }
+  }
+  function createModes() {
+    const track = element("div","nb-practice-modes");
+    track.setAttribute("role","group"); track.setAttribute("aria-label","漫游模式");
+    const modes = ["browse","answer"];
+    const buttons = modes.map((mode,index) => {
+      const choice = button(index ? "作答" : "翻卡","nb-practice-mode",() => {
+        if (busy || pendingPlan || state.practiceMode === mode) return;
+        stopPracticeClock(); state.practiceMode = mode; draw(true); choice.focus({preventScroll:true});
+      });
+      choice.addEventListener("keydown",event => {
+        if (!["ArrowLeft","ArrowRight"].includes(event.key)) return;
+        event.preventDefault(); buttons[1-index].click();
+      });
+      track.append(choice); return choice;
+    });
+    const indicator = createTabIndicator(track);
+    return {track,buttons,indicator};
+  }
   function measureViewport() {
     if (cleaned || ctx.root.dataset.roamMode !== "cards") return;
     const header = document.querySelector(".masthead")?.getBoundingClientRect();
@@ -749,11 +1028,16 @@ export function renderRoam(ctx) {
   function openActivity() {
     if (cleaned || busy || ctx.scope() !== scope || activityDialog) return;
     const popup = modal(ctx, "每日漫游"); activityDialog = popup;
+    stopPracticeClock();
     popup.classList.add("nb-activity-dialog");
     popup.append(activityContent(roamingStatistics(projectReview(entries()), ctx.notes().map(describeNote).filter(note => note.word))));
     popup.addEventListener("close", () => {
-      if (activityDialog === popup) activityDialog = null;
-      if (!cleaned && ctx.scope() === scope) refresh();
+      if (activityDialog !== popup) return;
+      activityDialog = null;
+      if (!cleaned && ctx.scope() === scope) {
+        if (practiceStore && state.practiceMode === "answer") draw();
+        else refresh();
+      }
     }, { once: true });
     popup.showModal();
   }
@@ -767,12 +1051,12 @@ export function renderRoam(ctx) {
     const words = ctx.notes().map(describeNote).filter(note => note.word);
     if (!words.length) return;
     const focusAction = document.activeElement?.dataset?.reviewAction;
-    busy = true; error = ""; disposeReveal();
-    for (const control of ctx.root.querySelectorAll(".nb-review-controls button, .nb-reveal, .nb-activity-entry")) control.disabled = true;
+    busy = true; error = ""; disposeReveal(); stopPracticeClock();
+    for (const control of ctx.root.querySelectorAll(".nb-review-controls button, .nb-reveal, .nb-activity-entry, .nb-practice-card button, .nb-practice-input, .nb-practice-mode")) control.disabled = true;
     try {
-      pendingPlan ??= { ...planReview(entries(), words, finished), baseExposure: currentIdentity() };
+      pendingPlan ??= { ...planReview(entries(), words, finished), baseExposure: currentIdentity(), practice: finished?.practice };
       if (pendingPlan.writes.length) {
-        if (ctx.setStates) await ctx.setStates(pendingPlan.writes);
+        if (ctx.setStates) await ctx.setStates(pendingPlan.writes, pendingPlan.practice ? {expectedExposure:pendingPlan.baseExposure} : undefined);
         else for (const row of pendingPlan.writes) await ctx.setState(row.key, row.value);
       }
       pendingPlan = null;
@@ -784,18 +1068,19 @@ export function renderRoam(ctx) {
       }
     }
   }
-  function draw() {
+  function draw(animateMode = false) {
     if (cleaned || ctx.scope() !== scope) return;
     if (!busy && pendingPlan && pendingPlan.baseExposure !== currentIdentity()) { pendingPlan = null; error = ""; }
+    stopPracticeClock(); timerLabel = null;
     disposeReveal(); disposeReveal = () => {}; disposeProgress(); disposeProgress = () => {};
     signature = relevantSignature();
     const words = ctx.notes().map(describeNote).filter(note => note.word), viewed = state.roamPath.at(-1);
     dismissActivity();
-    ctx.root.replaceChildren();
     ctx.root.dataset.roamMode = "note";
     if (viewed) {
       const raw = ctx.notes().find(note => viewed.noteId && note.id === viewed.noteId || note.path === viewed.path);
       if (raw) {
+        ctx.root.replaceChildren();
         viewed.noteId = raw.id; viewed.path = raw.path;
         const note = describeNote(raw), content = showNote(ctx, note, back, open);
         restoreScroll(viewed); disposeProgress = mountNoteProgress(ctx, note, content, viewed); return;
@@ -804,11 +1089,29 @@ export function renderRoam(ctx) {
     }
     const history = projectReview(entries()), current = history.current, note = words.find(word => "note:" + word.id === current?.id);
     ctx.root.dataset.roamMode = "cards";
-    const pageHead = element("header", "page-head nb-roam-heading");
+    let pageHead = practiceStore && ctx.root.querySelector(".nb-roam-heading");
+    if (pageHead) {
+      for (const child of [...ctx.root.children]) if (child !== pageHead) child.remove();
+      for (const child of [...pageHead.children]) if (child !== modes?.track) child.remove();
+    } else {
+      ctx.root.replaceChildren();
+      pageHead = element("header", "page-head nb-roam-heading"); ctx.root.append(pageHead);
+    }
     const activity = iconButton("每日漫游", "calendar", openActivity); activity.classList.add("nb-activity-entry"); activity.disabled = busy;
     pageHead.append(element("h1", "", "漫游复习"), compactCoverage(roamingStatistics(history, words)), activity);
-    ctx.root.append(pageHead);
-    const layout = element("div", "nb-roam-layout"); ctx.root.append(layout);
+    if (practiceStore) {
+      modes ??= createModes();
+      if (modes.track.parentNode !== pageHead) pageHead.append(modes.track);
+      const answer = state.practiceMode === "answer";
+      modes.buttons.forEach((choice,index) => {
+        choice.setAttribute("aria-pressed",String(Boolean(index) === answer));
+        choice.disabled = busy || Boolean(pendingPlan);
+      });
+      modes.indicator.select(modes.buttons[Number(answer)],animateMode);
+    }
+    const layout = element("div", "nb-roam-layout");
+    if (animateMode) layout.classList.add("nb-roam-mode-enter");
+    ctx.root.append(layout);
     if (!words.length) {
       layout.append(emptyState("还没有可复习的单词", "收录到词库的英文单词会出现在这里。", "去收录", () => ctx.navigate("capture")));
     } else if (note) {
@@ -820,6 +1123,11 @@ export function renderRoam(ctx) {
       weight.value = Number.isFinite(current.weightLevel) ? Math.max(0, Math.min(1, current.weightLevel)) : 0;
       weight.setAttribute("aria-label", "本次相对抽取倾向 " + Math.round(weight.value * 100) + "%");
       top.append(metadata, weight);
+      if (practiceStore && state.practiceMode === "answer") {
+        const raw = roundFor(note,current);
+        practiceContent(card,top,raw,note);
+        layout.append(card);
+      } else {
       const body = element("div", "nb-review-body"), title = element("h2", "nb-word", note.title);
       if (note.title.length > 18) title.classList.add("is-long");
       if (note.title.length > 28) title.classList.add("is-extra-long");
@@ -834,12 +1142,14 @@ export function renderRoam(ctx) {
       const remember = button("今天已记住", "button", () => advance({ exposure: current.exposure, remembered: true }));
       skip.dataset.reviewAction = "skip"; remember.dataset.reviewAction = "remember";
       skip.disabled = remember.disabled = busy || Boolean(pendingPlan); controls.append(skip, remember); card.append(controls); layout.append(card);
+      }
     } else layout.append(element("p", "nb-meta", busy ? "正在准备词卡…" : "准备下一张词卡"));
     if (error) {
       const message = element("p", "nb-error", error); message.setAttribute("role", "alert");
       const failure = element("div", "nb-roam-failure"); failure.append(message, button("重试", "nb-text-btn", () => advance())); ctx.root.append(failure);
     }
     measureViewport();
+    syncPracticeClock();
     if (words.length && !note && !busy && !error) void advance();
   }
   const refresh = () => {
@@ -851,6 +1161,11 @@ export function renderRoam(ctx) {
   };
   const unsubscribe = ctx.subscribeState?.(refresh) || (() => {});
   window.addEventListener("tuci-notes", refresh); window.addEventListener("resize", measureViewport);
+  if (practiceStore) {
+    document.addEventListener("visibilitychange",syncPracticeClock);
+    window.addEventListener("focus",syncPracticeClock);
+    window.addEventListener("blur",stopPracticeClock);
+  }
   window.visualViewport?.addEventListener("resize", measureViewport);
   if (window.ResizeObserver) {
     resizeObserver = new window.ResizeObserver(measureViewport);
@@ -859,7 +1174,12 @@ export function renderRoam(ctx) {
   }
   draw();
   return () => {
-    disposeReveal(); disposeProgress(); cleaned = true; unsubscribe();
+    stopPracticeClock(); modes?.indicator.dispose(); disposeReveal(); disposeProgress(); cleaned = true; unsubscribe();
+    if (practiceStore) {
+      document.removeEventListener("visibilitychange",syncPracticeClock);
+      window.removeEventListener("focus",syncPracticeClock);
+      window.removeEventListener("blur",stopPracticeClock);
+    }
     dismissActivity(); resizeObserver?.disconnect();
     delete ctx.root.dataset.roamMode;
     ctx.root.style.removeProperty("--roam-header-height"); ctx.root.style.removeProperty("--roam-tabs-height");
