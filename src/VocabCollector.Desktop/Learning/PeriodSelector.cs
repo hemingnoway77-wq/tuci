@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
+using VocabCollector.Desktop.Controls;
 
 namespace VocabCollector.Desktop.Learning;
 
@@ -172,8 +173,8 @@ public sealed class PeriodSelector : UserControl, IDisposable
         // jump back to the previous label or to an old animation's base position.
         SetValue(LeftEdgeProperty, fromLeft); SetValue(RightEdgeProperty, fromRight);
         var toRight = target.Left + target.Right > fromLeft + fromRight;
-        var left = EdgeAnimation(fromLeft, target.Left, leading: !toRight);
-        var right = EdgeAnimation(fromRight, target.Right, leading: toRight);
+        var left = PageTabIndicator.CreateEdgeAnimation(fromLeft, target.Left, leading: !toRight);
+        var right = PageTabIndicator.CreateEdgeAnimation(fromRight, target.Right, leading: toRight);
         var version = _animationVersion;
         (toRight ? left : right).Completed += (_, _) =>
         {
@@ -181,16 +182,6 @@ public sealed class PeriodSelector : UserControl, IDisposable
         };
         BeginAnimation(LeftEdgeProperty, left, HandoffBehavior.SnapshotAndReplace);
         BeginAnimation(RightEdgeProperty, right, HandoffBehavior.SnapshotAndReplace);
-    }
-    private static DoubleAnimationUsingKeyFrames EdgeAnimation(double from, double target, bool leading)
-    {
-        var animation = new DoubleAnimationUsingKeyFrames { Duration = TimeSpan.FromMilliseconds(250), FillBehavior = FillBehavior.HoldEnd };
-        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(from, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-        if (!leading) animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(from, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(80))));
-        animation.KeyFrames.Add(new EasingDoubleKeyFrame(target, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(leading ? 150 : 250)),
-            new CubicEase { EasingMode = leading ? EasingMode.EaseOut : EasingMode.EaseInOut }));
-        if (leading) animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(target, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(250))));
-        return animation;
     }
     private void StopClocks()
     {

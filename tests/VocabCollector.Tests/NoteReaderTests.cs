@@ -12,6 +12,7 @@ using VocabCollector.Desktop.Preview;
 
 namespace VocabCollector.Tests;
 
+[Collection("ReadingPage STA")]
 public sealed class NoteReaderTests
 {
     [Fact]
@@ -75,7 +76,10 @@ public sealed class NoteReaderTests
         reader.DirectLinks = true; reader.OpenNote(notes[0]);
         MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(50));
         var preview = Descendants<MarkdownPreview>(reader).Single();
+        owner.Activate();
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(30));
         preview.Focus(); var focused = System.Windows.Input.Keyboard.FocusedElement;
+        Assert.Same(preview, focused);
         var link = preview.Document.Blocks.OfType<Paragraph>().SelectMany(paragraph => paragraph.Inlines.OfType<Hyperlink>()).First();
         MarkdownPreviewTests.MoveMouseOver(link);
         var card = Assert.IsType<Popup>(HoverPopup(reader));

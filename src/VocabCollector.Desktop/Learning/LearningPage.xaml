@@ -1,6 +1,7 @@
 <UserControl x:Class="VocabCollector.Desktop.Learning.LearningPage"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- xmlns:local="clr-namespace:VocabCollector.Desktop.Learning">
+ xmlns:local="clr-namespace:VocabCollector.Desktop.Learning"
+ xmlns:controls="clr-namespace:VocabCollector.Desktop.Controls">
  <UserControl.Resources>
   <Style x:Key="RoamingMeter" TargetType="ProgressBar">
    <Setter Property="Background" Value="{DynamicResource LineSoft}"/><Setter Property="Foreground" Value="{DynamicResource Accent}"/>
@@ -19,9 +20,22 @@
    <Border x:Name="RoamingWordCard" Style="{DynamicResource SheetCard}" Padding="34,26,34,24">
     <Grid>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-     <TextBlock Text="漫游复习" Style="{DynamicResource PageTitle}" FontSize="25"/>
-     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="-32,24,-32,16">
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <TextBlock Text="漫游复习" Style="{DynamicResource PageTitle}" FontSize="25"/>
+      <Grid x:Name="RoamingModeSelector" Grid.Column="1" Height="34" VerticalAlignment="Center" Margin="6,0,0,0"
+            KeyboardNavigation.TabNavigation="Once" KeyboardNavigation.DirectionalNavigation="Contained" SizeChanged="RoamingModeSelector_SizeChanged">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="46"/><ColumnDefinition Width="46"/></Grid.ColumnDefinitions>
+       <RadioButton x:Name="RoamingBrowseModeButton" GroupName="RoamingMode" Content="翻卡" FontSize="13" IsChecked="True"
+                    Style="{DynamicResource NavTab}" AutomationProperties.Name="翻卡" Checked="PracticeMode_Changed" PreviewKeyDown="PracticeMode_KeyDown"/>
+       <RadioButton x:Name="RoamingPracticeModeButton" Grid.Column="1" GroupName="RoamingMode" Content="作答" FontSize="13"
+                    Style="{DynamicResource NavTab}" AutomationProperties.Name="作答" Checked="PracticeMode_Changed" PreviewKeyDown="PracticeMode_KeyDown"/>
+       <controls:PageTabIndicator x:Name="RoamingModeUnderline" Grid.ColumnSpan="2" VerticalAlignment="Bottom" Margin="0,0,0,3" Opacity="0.55" SnapsToDevicePixels="True"/>
+      </Grid>
+     </Grid>
+     <ScrollViewer x:Name="RoamingCardScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="-32,24,-32,16">
       <StackPanel x:Name="RoamingCardBody" Margin="32,0,32,0">
+      <StackPanel.RenderTransform><TranslateTransform x:Name="RoamingModeSlide"/></StackPanel.RenderTransform>
+      <StackPanel x:Name="NormalRoamingBody">
        <TextBlock Text="{Binding RememberedLabel}" Margin="0,0,0,10" Foreground="{DynamicResource InkTertiary}">
         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="FontSize" Value="12"/><Style.Triggers><DataTrigger Binding="{Binding RememberedLabel}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
        </TextBlock>
@@ -31,11 +45,46 @@
        <local:HoldToReveal x:Name="RoamingMeaningReveal" Text="{Binding RoamingMeaning}" CanReveal="{Binding HasExposure}"/>
        <Button x:Name="RoamingReadNoteButton" Content="阅读整篇笔记 →" Click="RoamingRead_Click" Style="{DynamicResource LinkAction}" IsEnabled="{Binding HasExposure}" Margin="0,20,0,0"/>
       </StackPanel>
+      <StackPanel x:Name="PracticePanel" Visibility="Collapsed">
+       <TextBlock x:Name="PracticeKindText" Style="{DynamicResource MetaText}" Margin="0,0,0,14"/>
+       <TextBlock x:Name="PracticePreparationText" Style="{DynamicResource BodyText}" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,18"/>
+       <TextBlock x:Name="PracticePromptText" FontFamily="{DynamicResource ContentFont}" FontSize="25" LineHeight="36" Foreground="{DynamicResource Ink}" TextWrapping="Wrap"/>
+       <TextBlock x:Name="PracticeContextText" Style="{DynamicResource BodyText}" TextWrapping="Wrap" Margin="0,14,0,0" Visibility="Collapsed"/>
+       <TextBlock x:Name="PracticeMeaningHint" Style="{DynamicResource BodyText}" TextWrapping="Wrap" Margin="0,14,0,0"/>
+       <TextBlock x:Name="PracticeLetterHint" Style="{DynamicResource MetaText}" Margin="0,10,0,0"/>
+       <TextBox x:Name="PracticeAnswerBox" Margin="0,22,0,0" MinHeight="48" MaxHeight="108" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontSize="19" MaxLength="2000" TextChanged="PracticeAnswer_Changed" PreviewKeyDown="PracticeAnswer_KeyDown" AutomationProperties.Name="复习答案"/>
+       <TextBlock x:Name="PracticeTimerText" Style="{DynamicResource MetaText}" HorizontalAlignment="Right" Margin="0,8,0,0"/>
+       <StackPanel x:Name="PracticeResultPanel" Visibility="Collapsed" Margin="0,22,0,0">
+        <Border Height="1" Background="{DynamicResource Line}" Margin="0,0,0,17"/>
+        <TextBlock x:Name="PracticeResultText" Foreground="{DynamicResource Accent}" FontSize="14" TextWrapping="Wrap"/>
+        <TextBlock x:Name="PracticeCorrectWord" FontFamily="{DynamicResource ContentFont}" FontSize="30" Foreground="{DynamicResource Ink}" Margin="0,9,0,0" TextWrapping="Wrap"/>
+        <TextBlock x:Name="PracticeReferenceMeaning" Style="{DynamicResource BodyText}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+        <TextBlock x:Name="PracticeTranslationText" Style="{DynamicResource HintText}" TextWrapping="Wrap" Margin="0,9,0,0"/>
+        <TextBlock x:Name="PracticeFormText" Style="{DynamicResource HintText}" TextWrapping="Wrap" Margin="0,9,0,0"/>
+        <Button x:Name="PracticeReadNoteButton" Content="阅读整篇笔记 →" Click="RoamingRead_Click" Style="{DynamicResource LinkAction}" Margin="0,15,0,0"/>
+       </StackPanel>
+      </StackPanel>
+      </StackPanel>
      </ScrollViewer>
-     <UniformGrid Grid.Row="2" Columns="2">
+     <UniformGrid x:Name="RoamingBrowseActions" Grid.Row="2" Columns="2">
       <Button x:Name="RoamingSkipButton" Content="下一张" Click="Skip_Click" Style="{DynamicResource OutlineAction}" IsEnabled="{Binding CanAdvance}" Margin="0,0,10,0" Height="46"/>
       <Button x:Name="RoamingRememberButton" Content="今天已记住" Click="Remember_Click" Style="{DynamicResource PrimaryAction}" IsEnabled="{Binding CanAdvance}" Height="46"/>
      </UniformGrid>
+     <Grid x:Name="PracticeActions" Grid.Row="2" Visibility="Collapsed">
+      <UniformGrid x:Name="PracticeInputActions" Columns="2">
+       <Button x:Name="PracticeSkipButton" Content="想不起来" Click="PracticeSkip_Click" Style="{DynamicResource OutlineAction}" Margin="0,0,10,0" Height="46"/>
+       <Button x:Name="PracticeSubmitButton" Content="提交" Click="PracticeSubmit_Click" Style="{DynamicResource PrimaryAction}" Height="46"/>
+      </UniformGrid>
+      <Button x:Name="PracticeNextButton" Content="下一张" Click="PracticeNext_Click" Style="{DynamicResource PrimaryAction}" Visibility="Collapsed" Height="46"/>
+      <UniformGrid x:Name="PracticeSelfAssessmentActions" Columns="2" Visibility="Collapsed">
+       <Button x:Name="PracticeNoButton" Content="不符合" Click="PracticeNo_Click" Style="{DynamicResource OutlineAction}" Margin="0,0,10,0" Height="46"/>
+       <Button x:Name="PracticeYesButton" Content="符合" Click="PracticeYes_Click" Style="{DynamicResource PrimaryAction}" Height="46"/>
+      </UniformGrid>
+      <UniformGrid x:Name="PracticePreparationActions" Columns="2" Visibility="Collapsed">
+       <Button x:Name="PracticeUnpreparedNextButton" Content="换一个词" Click="PracticeUnpreparedNext_Click" Style="{DynamicResource OutlineAction}" Margin="0,0,10,0" Height="46"/>
+       <Button x:Name="PracticePrepareButton" Content="准备语境题" Click="PracticePrepare_Click" Style="{DynamicResource PrimaryAction}" Height="46"/>
+      </UniformGrid>
+     </Grid>
     </Grid>
    </Border>
    <Border x:Name="RoamingStatusPanel" Grid.Column="2" Style="{DynamicResource SheetCard}" Padding="22,26,22,20">

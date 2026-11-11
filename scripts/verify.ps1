@@ -12,6 +12,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
     & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build
     if ($LASTEXITCODE -ne 0) { throw 'WPF smoke checks failed.' }
+    & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --practice-only
+    if ($LASTEXITCODE -ne 0) { throw 'Roaming practice checks failed.' }
     & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --reading-only
     if ($LASTEXITCODE -ne 0) { throw 'Article reading navigation checks failed.' }
     & dotnet run --project tests/VocabCollector.Desktop.Smoke -c Release --no-build -- --startup-only

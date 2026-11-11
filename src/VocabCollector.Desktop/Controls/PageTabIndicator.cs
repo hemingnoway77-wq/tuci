@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 
@@ -9,10 +10,13 @@ public sealed class PageTabIndicator : FrameworkElement, IDisposable
     public static readonly DependencyProperty AnimateTransitionsProperty = DependencyProperty.Register(nameof(AnimateTransitions), typeof(bool), typeof(PageTabIndicator),
         new PropertyMetadata(true, (sender, args) => { if (!(bool)args.NewValue) ((PageTabIndicator)sender).Settle(); }));
     public static readonly DependencyProperty LineBrushProperty = DependencyProperty.Register(nameof(LineBrush), typeof(Brush), typeof(PageTabIndicator), new FrameworkPropertyMetadata(Brushes.Black, FrameworkPropertyMetadataOptions.AffectsRender));
+    public static readonly DependencyProperty OrientationProperty = DependencyProperty.Register(nameof(Orientation), typeof(Orientation), typeof(PageTabIndicator),
+        new FrameworkPropertyMetadata(Orientation.Horizontal, FrameworkPropertyMetadataOptions.AffectsRender));
     private static readonly DependencyProperty LeftEdgeProperty = DependencyProperty.Register(nameof(LeftEdge), typeof(double), typeof(PageTabIndicator), new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.AffectsRender));
     private static readonly DependencyProperty RightEdgeProperty = DependencyProperty.Register(nameof(RightEdge), typeof(double), typeof(PageTabIndicator), new FrameworkPropertyMetadata(56d, FrameworkPropertyMetadataOptions.AffectsRender));
     public bool AnimateTransitions { get => (bool)GetValue(AnimateTransitionsProperty); set => SetValue(AnimateTransitionsProperty, value); }
     public Brush LineBrush { get => (Brush)GetValue(LineBrushProperty); set => SetValue(LineBrushProperty, value); }
+    public Orientation Orientation { get => (Orientation)GetValue(OrientationProperty); set => SetValue(OrientationProperty, value); }
     public double LeftEdge => (double)GetValue(LeftEdgeProperty);
     public double RightEdge => (double)GetValue(RightEdgeProperty);
     private double _left, _right = 56;
@@ -28,7 +32,11 @@ public sealed class PageTabIndicator : FrameworkElement, IDisposable
     protected override void OnRender(DrawingContext drawingContext)
     {
         base.OnRender(drawingContext);
-        drawingContext.DrawRectangle(LineBrush, null, new Rect(LeftEdge, 0, Math.Max(0, RightEdge - LeftEdge), 1));
+        var length = Math.Max(0, RightEdge - LeftEdge);
+        var line = Orientation == Orientation.Vertical
+            ? new Rect(0, LeftEdge, 1, length)
+            : new Rect(LeftEdge, 0, length, 1);
+        drawingContext.DrawRectangle(LineBrush, null, line);
     }
     public void MoveTo(double left, double width, bool animate = true)
     {
@@ -43,17 +51,27 @@ public sealed class PageTabIndicator : FrameworkElement, IDisposable
         // WPF can expose the base value until the replacement clock's first
         // tick. Keep that value at the current position to avoid a one-frame jump.
         SetValue(LeftEdgeProperty, fromLeft); SetValue(RightEdgeProperty, fromRight);
-        var leftMotion = Edge(fromLeft, _left);
-        var rightMotion = Edge(fromRight, _right);
+        var toRight = _left + _right > fromLeft + fromRight;
+        var leftMotion = CreateEdgeAnimation(fromLeft, _left, leading: !toRight);
+        var rightMotion = CreateEdgeAnimation(fromRight, _right, leading: toRight);
         var version = _version;
-        rightMotion.Completed += (_, _) => { if (!_disposed && version == _version) Settle(); };
+        (toRight ? leftMotion : rightMotion).Completed += (_, _) => { if (!_disposed && version == _version) Settle(); };
         BeginAnimation(LeftEdgeProperty, leftMotion, HandoffBehavior.SnapshotAndReplace);
         BeginAnimation(RightEdgeProperty, rightMotion, HandoffBehavior.SnapshotAndReplace);
     }
-    // Only this small indicator animates during module navigation. Both edges
-    // start together, and a new selection takes over the current visual position.
-    private static DoubleAnimation Edge(double from, double to) => new(from, to, TimeSpan.FromMilliseconds(140))
-        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }, FillBehavior = FillBehavior.HoldEnd };
+    internal static DoubleAnimationUsingKeyFrames CreateEdgeAnimation(double from, double target, bool leading)
+    {
+        var duration = TimeSpan.FromMilliseconds(250);
+        var animation = new DoubleAnimationUsingKeyFrames { Duration = duration, FillBehavior = FillBehavior.HoldEnd };
+        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(from, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        if (!leading)
+            animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(from, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(80))));
+        animation.KeyFrames.Add(new EasingDoubleKeyFrame(target, KeyTime.FromTimeSpan(leading ? TimeSpan.FromMilliseconds(150) : duration),
+            new CubicEase { EasingMode = leading ? EasingMode.EaseOut : EasingMode.EaseInOut }));
+        if (leading)
+            animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(target, KeyTime.FromTimeSpan(duration)));
+        return animation;
+    }
     private void StopClocks() { _version++; BeginAnimation(LeftEdgeProperty, null); BeginAnimation(RightEdgeProperty, null); }
     private void Settle() { StopClocks(); SetValue(LeftEdgeProperty, _left); SetValue(RightEdgeProperty, _right); }
     public void Dispose() { if (_disposed) return; Settle(); _disposed = true; }

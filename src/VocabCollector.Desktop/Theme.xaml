@@ -13,6 +13,7 @@
  <SolidColorBrush x:Key="AccentSoft" Color="#F0E2E2" />
  <SolidColorBrush x:Key="Margin" Color="#D8A7A0" />
  <SolidColorBrush x:Key="Error" Color="#8F3B32" />
+ <SolidColorBrush x:Key="UpdateNotification" Color="#D7494E" />
  <SolidColorBrush x:Key="Selection" Color="#EADFCB" />
  <SolidColorBrush x:Key="Hover" Color="#EDE3D3" />
  <SolidColorBrush x:Key="ShellBackground" Color="#F1E9DA" />

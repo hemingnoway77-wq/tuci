@@ -22,7 +22,7 @@
         "dependencies": {
           "Markdig": "[1.4.2, )",
           "Microsoft.Web.WebView2": "[1.0.4314.35, )",
-          "VocabCollector.Core": "[1.1.0, )"
+          "VocabCollector.Core": "[1.3.3, )"
         }
       },
       "vocabcollector.core": {

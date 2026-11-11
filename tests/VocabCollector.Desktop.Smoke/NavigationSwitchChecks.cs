@@ -63,6 +63,15 @@ public sealed partial class SmokeRunner
             articleReader.ScrollToVerticalOffset(180);
             await SelectPageAsync(main, "CaptureTab");
             await Dispatcher.Yield(DispatcherPriority.ContextIdle); await Task.Delay(300);
+            if (!baseline && SystemParameters.ClientAreaAnimation)
+            {
+                var indicator = Control<PageTabIndicator>(main, "PageUnderline");
+                var restingWidth = indicator.RightEdge - indicator.LeftEdge;
+                Control<RadioButton>(main, "LibraryTab").IsChecked = true;
+                await Until(() => indicator.RightEdge - indicator.LeftEdge > restingWidth + 12);
+                await SelectPageAsync(main, "CaptureTab");
+                await Task.Delay(300);
+            }
             var tree = LearningControl<TreeView>(learning, "BrowserFilesTree");
             var rows = Descendants<TreeViewItem>(tree).ToArray();
             Check(rows.Length == 240 && articleReader.Document.Blocks.Count == 45, "navigation fixture has real tree rows and two fully rendered long documents");
@@ -177,9 +186,11 @@ public sealed partial class SmokeRunner
         var indicator = Control<PageTabIndicator>(main, "PageUnderline");
         var nav = Control<Grid>(main, "MainNavigation");
         var selected = new[] { "CaptureTab", "LibraryTab", "RoamingTab", "ReadingTab" }.Select(name => Control<RadioButton>(main, name)).Single(tab => tab.IsChecked == true);
-        var left = selected.TranslatePoint(new Point(), nav).X;
-        Check(!indicator.HasAnimatedProperties && Math.Abs(indicator.LeftEdge - left) < .1 && Math.Abs(indicator.RightEdge - left - selected.ActualWidth) < .1,
+        var center = selected.TranslatePoint(new Point(selected.ActualWidth / 2, 0), nav).X;
+        var width = indicator.RightEdge - indicator.LeftEdge;
+        Check(!indicator.HasAnimatedProperties && Math.Abs(indicator.LeftEdge + width / 2 - center) < .1 && width is >= 21 and <= 38,
             "interrupted underline animations release their clocks and settle beneath the final tab");
+        Check(VisibleBounds(indicator, main).Height >= 1, "the selected underline remains visible above the header divider");
     }
 
     private static async Task<bool> CheckDelayedRoamingSelectionAsync(MainWindow main, LearningPage learning)

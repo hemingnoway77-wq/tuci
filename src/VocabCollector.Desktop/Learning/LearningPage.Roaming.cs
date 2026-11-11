@@ -135,7 +135,7 @@ public partial class LearningPage
 
     public void OpenRoamingPreview()
     {
-        if (_disposed || _catalog is null || _exposure is not { } card) return;
+        if (_disposed || _catalog is null || _exposure is not { } card || (_practiceEnabled && (_practiceLoading || _practiceQuestion is not null) && !_practiceRevealed)) return;
         RoamingMeaningReveal.Hide();
         var opening = !_previewOpen;
         _previewOpen = true;

@@ -2,11 +2,13 @@ using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using VocabCollector.Core;
 using VocabCollector.Core.Reading;
 using VocabCollector.Core.Storage;
+using VocabCollector.Core.Library;
 using VocabCollector.Core.Sync;
 using System.Security.Cryptography;
 using System.Text;
@@ -42,6 +44,7 @@ public partial class MainWindow : Window
     private Task? _preparation;
     private readonly UpdateController? _updates;
     private UpdateWindow? _updateWindow;
+    private SettingsWindow? _settingsWindow;
     private VaultOptions _guestVault;
     private ApiOptions _guestApi;
     private bool _guestSettingsDirty;
@@ -62,7 +65,8 @@ public partial class MainWindow : Window
         DesktopSync? sync = null, string? learningStateDirectory = null,
         IArticleContentService? articleContentService = null, IWordTranslationService? wordTranslationService = null,
         Func<Task>? prepareLocalData = null, UpdateController? updateController = null,
-        VaultOptions? guestVault = null, string? settingsDirectory = null, AppSettings? guestSettings = null, bool requireAccount = false)
+        VaultOptions? guestVault = null, string? settingsDirectory = null, AppSettings? guestSettings = null, bool requireAccount = false,
+        IPracticeContextGenerator? automaticPracticeGenerator = null)
     {
         if (requireAccount && sync?.CanUseAccount != true) throw new InvalidOperationException("请先登录账号，再打开兔词。");
         _requireAccount = requireAccount;
@@ -71,6 +75,7 @@ public partial class MainWindow : Window
         _readingService = readingService; _openArticle = openArticle; _sync = sync;
         _learningStateDirectory = learningStateDirectory;
         _articleContentService = articleContentService; _wordTranslationService = wordTranslationService;
+        _automaticPracticeGenerator = automaticPracticeGenerator;
         _prepareLocalData = prepareLocalData;
         _updates = updateController;
         _guestVault = guestVault ?? viewModel.Settings.Vault;
@@ -78,22 +83,23 @@ public partial class MainWindow : Window
         _settingsDirectory = settingsDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VocabCollector");
         InitializeComponent();
         DataContext = viewModel;
-        UpdateButton.Visibility = _updates is null ? Visibility.Collapsed : Visibility.Visible;
         if (_updates is not null) _updates.Changed += UpdateStatusChanged;
-        SyncButton.Visibility = sync == null ? Visibility.Collapsed : Visibility.Visible;
+        UpdateStatusChanged(this, EventArgs.Empty);
         if (sync != null)
         {
-            SyncButton.ToolTip = sync.Status; sync.Updated += SyncStatusChanged;
+            sync.Updated += SyncStatusChanged;
             sync.BindingChanged += AccountBindingChanged;
             sync.ExportStateAsync = ExportAccountStateAsync;
             sync.GetNoteIdentitiesAsync = GetNoteIdentitiesAsync;
             sync.ImportStateAsync = ImportAccountStateAsync;
+            if (_automaticPracticeGenerator is not null) sync.ImportPracticeBanksAsync = ImportCloudPracticeAsync;
         }
         Activated += (_, _) => { _sync?.Request(); _learningPage?.RequestReload(false); };
         SelectThemeOption(_themes.CurrentTheme);
         _themes.ThemeChanged += ThemeChanged;
         _themes.PreferenceSaved += ThemePreferenceSaved;
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        _viewModel.CaptureSaved += CapturedWordSaved;
         StatusMetaText.Text = DateTime.Now.ToString("yyyy.MM.dd") + " · 兔词";
         _initializingUi = false;
         SourceInitialized += (_, _) => TitleBarTheme.Apply(this);
@@ -169,7 +175,8 @@ public partial class MainWindow : Window
         var selected = _page switch { "library" => LibraryTab, "roaming" => RoamingTab, "reading" => ReadingTab, _ => CaptureTab };
         if (selected is null || selected.ActualWidth <= 0) return;
         var origin = selected.TranslatePoint(new Point(), MainNavigation);
-        PageUnderline.MoveTo(origin.X, selected.ActualWidth, animate);
+        var width = ReferenceEquals(selected, ReadingTab) ? 38 : 22;
+        PageUnderline.MoveTo(origin.X + (selected.ActualWidth - width) / 2, width, animate);
     }
     public Task PrepareForUseAsync() => _preparation ??= PrepareModulesCoreAsync();
     private async Task PrepareModulesCoreAsync()
@@ -225,7 +232,8 @@ public partial class MainWindow : Window
     {
         if (_learningPage != null) return _learningPage;
         var stateDirectory = _sync?.AccountStateDirectory is { } account ? Path.Combine(account, "library") : _learningStateDirectory;
-        _learningPage = new LearningPage(_viewModel.Settings.Vault, stateDirectory) { Visibility = Visibility.Hidden };
+        _learningPage = new LearningPage(_viewModel.Settings.Vault, stateDirectory,
+            practiceApiOptions: () => _viewModel.Settings.Api) { Visibility = Visibility.Hidden };
         _learningPage.StatusChanged += (_, _) => UpdateStatus();
         _learningPage.ReaderRequested += (_, _) => SelectPage("library");
         _learningPage.WebLinkRequested += (_, url) => OpenArticle(url);
@@ -322,14 +330,11 @@ public partial class MainWindow : Window
     }
     private void SyncStatusChanged(object? sender, EventArgs args)
     {
-        SyncButton.ToolTip = _sync?.Status;
-        if (_sync?.Status.StartsWith("上次同步", StringComparison.Ordinal) == true) _learningPage?.RequestReload();
+        if (_closed || _sync is not { } sync) return;
+        if (sync.Status.StartsWith("上次同步", StringComparison.Ordinal)) _learningPage?.RequestReload();
     }
-    private void Sync_Click(object sender, RoutedEventArgs e)
-    {
-        if (_viewModel.IsBusy || _learningPage?.IsBusy == true || _readingPage?.CapturePreviewViewModel?.IsBusy == true) return;
-        if (_sync != null) new SyncWindow(_sync, _viewModel.Settings.Vault) { Owner = this }.ShowDialog();
-    }
+    private bool CanManageAccount() => !_closed && !_accountLocked && !_viewModel.IsBusy &&
+        _learningPage?.IsBusy != true && _readingPage?.CapturePreviewViewModel?.IsBusy != true;
 
     public void LockForSignIn()
     {
@@ -338,6 +343,8 @@ public partial class MainWindow : Window
         _viewModel.CancelCommand.Execute(null);
         _readingPage?.Cancel();
         _navigationCancellation.Cancel(); _accountCancellation.Cancel();
+        // End the modal settings session before the account host closes the main window.
+        if (_settingsWindow?.IsVisible == true) _settingsWindow.Hide();
         IsEnabled = false; Hide();
     }
 
@@ -561,14 +568,18 @@ public partial class MainWindow : Window
     private void UpdateStatusChanged(object? sender, EventArgs e)
     {
         if (_closed) return;
-        UpdateButton.Content = _updates?.Update is not null ? "发现新版本" : "检查更新";
-        UpdateButton.ToolTip = _updates?.Message;
+        var release = _updates?.Update?.Release;
+        var hasUpdate = release is not null;
+        SettingsUpdateDot.Visibility = hasUpdate ? Visibility.Visible : Visibility.Collapsed;
+        SettingsButton.ToolTip = release is null ? "设置" : $"设置 · 发现新版本 {release.Version}";
+        AutomationProperties.SetName(SettingsButton, hasUpdate ? "设置，有可用更新" : "设置");
+        _settingsWindow?.UpdateAvailability(hasUpdate);
     }
-    private async void Update_Click(object sender, RoutedEventArgs e)
+    private async void OpenUpdates(object? sender, EventArgs e)
     {
-        if (_updates is null || _closed) return;
+        if (_updates is null || _closed || sender is not SettingsWindow dialog) return;
         if (_updateWindow is not null) { _updateWindow.Activate(); return; }
-        var window = new UpdateWindow(_updates, UpdateInstallationBlockReason, Close) { Owner = this };
+        var window = new UpdateWindow(_updates, UpdateInstallationBlockReason, Close) { Owner = dialog };
         _updateWindow = window;
         window.Closed += (_, _) => { if (ReferenceEquals(_updateWindow, window)) _updateWindow = null; };
         window.Show();
@@ -578,8 +589,12 @@ public partial class MainWindow : Window
     {
         if (_closed) return "主窗口已经关闭，请重新启动兔词后更新。";
         if (_preparation is { IsCompleted: false } || _viewModel.IsBusy || _readingPage?.CapturePreviewViewModel?.IsBusy == true
-            || _learningPage?.IsBusy == true || _sync?.IsBusy == true)
+            || _learningPage?.IsBusy == true || _sync?.IsBusy == true || _settingsWindow?.IsManagingAccount == true)
             return "请等待当前收录、词库处理或同步完成，再安装更新。";
+        if (_settingsWindow?.IsSaving == true)
+            return "请等待设置保存完成，再安装更新。";
+        if (_settingsWindow?.HasUnsavedChanges == true)
+            return "设置里还有未保存的修改。请先保存或取消修改，再安装更新。";
         if (!string.IsNullOrWhiteSpace(_viewModel.Word) || !string.IsNullOrWhiteSpace(_viewModel.Context))
             return "收录区还有输入。请先返回保存需要的内容并清空输入，再安装更新。";
         return null;
@@ -587,11 +602,20 @@ public partial class MainWindow : Window
 
     private async void Settings_Click(object sender, RoutedEventArgs e)
     {
-        if (_viewModel.IsBusy) return;
+        if (_closed || _viewModel.IsBusy || _settingsWindow is not null) return;
         var generation = _accountGeneration;
         var scopeStore = LocalAccountSettings.Store(_store, _sync?.AccountStateDirectory);
         var dialog = new SettingsWindow(_viewModel.Settings, scopeStore, _themes) { Owner = this };
-        dialog.ShowDialog();
+        dialog.ConfigureServices(_sync, CanManageAccount, _updates?.CurrentVersion);
+        dialog.UpdateAvailability(_updates?.Update is not null);
+        _settingsWindow = dialog;
+        dialog.UpdateRequested += OpenUpdates;
+        try { dialog.ShowDialog(); }
+        finally
+        {
+            dialog.UpdateRequested -= OpenUpdates;
+            _settingsWindow = null;
+        }
         if (dialog.SavedSettings is not { } saved) return;
         if (_closed || generation != _accountGeneration) return;
         if (_sync?.SignedIn == true && _sync.ActiveVault is { } accountVault)
@@ -610,7 +634,7 @@ public partial class MainWindow : Window
             if (_page is "library" or "roaming") _ = ShowLearningAsync(_page == "roaming");
         }
         if (_sync?.Connected == true && !Path.GetFullPath(_sync.Folder).Equals(VaultPaths.WordRoot(saved.Vault), StringComparison.OrdinalIgnoreCase))
-            SetMessage("词库位置已改变；云端仍绑定原目录，请在「词库同步」中重新核对绑定。");
+            SetMessage("词库位置已改变，云端仍绑定原目录。请在设置的「账号与同步」中重新核对绑定。");
     }
     private async void OpenNote_Click(object sender, RoutedEventArgs e)
     { if (_viewModel.SelectedNote is { } note) await OpenInLibraryAsync(note); }
@@ -652,11 +676,13 @@ public partial class MainWindow : Window
         _themes.ThemeChanged -= ThemeChanged;
         _themes.PreferenceSaved -= ThemePreferenceSaved;
         _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        _viewModel.CaptureSaved -= CapturedWordSaved;
         if (_readingViewModel != null) _readingViewModel.PropertyChanged -= ViewModel_PropertyChanged;
         if (_sync != null)
         {
             _sync.Updated -= SyncStatusChanged; _sync.BindingChanged -= AccountBindingChanged;
             _sync.ExportStateAsync = null; _sync.ImportStateAsync = null; _sync.GetNoteIdentitiesAsync = null;
+            _sync.ImportPracticeBanksAsync = null;
         }
         _learningPage?.Dispose(); NotePreview.Dispose();
         if (_readingPage != null) { _readingPage.WordCaptureRequested -= ReadingWordCaptureRequested; _readingPage.CaptureLinkRequested -= Preview_LinkRequested; _readingPage.Dispose(); }

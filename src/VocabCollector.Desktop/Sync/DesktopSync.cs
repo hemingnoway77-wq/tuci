@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using VocabCollector.Core;
 using VocabCollector.Core.Storage;
 using VocabCollector.Core.Sync;
+using VocabCollector.Core.Library;
 
 namespace VocabCollector.Desktop;
 
@@ -23,6 +24,8 @@ public sealed class DesktopSync : IDisposable
     private readonly DispatcherTimer _debounce;
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _gate = new(1);
+    private readonly HashSet<Task> _revocations = [];
+    private CancellationTokenSource _sessionOperations = new();
     private readonly HttpClient _http;
     private Binding? _binding;
     private FileSystemWatcher? _watcher;
@@ -48,6 +51,7 @@ public sealed class DesktopSync : IDisposable
     public Func<IReadOnlyList<SyncedNote>, CancellationToken, Task<IEnumerable<SyncStateEntry>>>? ExportStateAsync { get; set; }
     public Func<CancellationToken, Task<IReadOnlyDictionary<string, string>>>? GetNoteIdentitiesAsync { get; set; }
     public Func<IReadOnlyList<SyncStateEntry>, CancellationToken, Task>? ImportStateAsync { get; set; }
+    public Func<IReadOnlyList<CloudPracticeBank>, CancellationToken, Task>? ImportPracticeBanksAsync { get; set; }
     public bool IsBusy => _gate.CurrentCount == 0;
     public string Status { get; private set; } = "尚未绑定词库。";
     public event EventHandler? Updated;
@@ -134,6 +138,7 @@ public sealed class DesktopSync : IDisposable
         try
         {
             await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(value), ct);
+            ct.ThrowIfCancellationRequested();
             File.Move(temp, path, true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
@@ -211,14 +216,23 @@ public sealed class DesktopSync : IDisposable
 
     public async Task<bool> VerifySessionAsync(CancellationToken ct = default)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
-        await _gate.WaitAsync(linked.Token);
-        try { return await VerifySessionCore(linked.Token); }
-        finally { _gate.Release(); }
+        using var linked = LinkSession(ct);
+        try
+        {
+            await _gate.WaitAsync(linked.Token);
+            try { return await VerifySessionCore(linked.Token); }
+            finally { _gate.Release(); }
+        }
+        catch (OperationCanceledException) when (linked.IsCancellationRequested && !ct.IsCancellationRequested && !_stop.IsCancellationRequested)
+        { return false; }
     }
+
+    private CancellationTokenSource LinkSession(CancellationToken ct = default) =>
+        CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token, _sessionOperations.Token);
 
     private async Task<bool> VerifySessionCore(CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (_binding is not { UserId: not null } binding)
         {
             SetAccess(AccountAccess.LoginRequired); return false;
@@ -230,6 +244,7 @@ public sealed class DesktopSync : IDisposable
         try
         {
             var profile = await Client(binding).AccountAsync(ct);
+            ct.ThrowIfCancellationRequested();
             if (profile.UserId != binding.UserId || profile.VaultId != binding.VaultId || profile.DeviceId != binding.DeviceId ||
                 string.IsNullOrWhiteSpace(profile.Username))
             {
@@ -240,9 +255,11 @@ public sealed class DesktopSync : IDisposable
                 binding = binding with { CanInvite = profile.CanInvite };
                 _binding = binding;
                 await SaveJson(ConfigPath, binding, ct);
+                ct.ThrowIfCancellationRequested();
                 Updated?.Invoke(this, EventArgs.Empty);
             }
             await SaveJson(Path.Combine(ProfileDirectory(binding), "library-binding.json"), binding.Vault, ct);
+            ct.ThrowIfCancellationRequested();
             SetAccess(AccountAccess.Online); return true;
         }
         catch (HttpRequestException error) when (error.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
@@ -259,24 +276,29 @@ public sealed class DesktopSync : IDisposable
 
     private async Task RequireLogin(string message, CancellationToken ct)
     {
+        if (ct.IsCancellationRequested) return;
         SetAccess(AccountAccess.LoginRequired);
         if (_binding is { UserId: not null } binding)
         {
             try { await SaveJson(Path.Combine(ProfileDirectory(binding), "library-binding.json"), binding.Vault, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         }
+        if (ct.IsCancellationRequested) return;
         Disconnect(); SetStatus(message);
     }
 
     public async Task<InviteIssued> IssueInvite(CancellationToken ct = default)
     {
-        await _gate.WaitAsync(_stop.Token);
+        using var linked = LinkSession(ct);
+        await _gate.WaitAsync(linked.Token);
         try
         {
             if (!SignedIn || _binding is null) throw new InvalidOperationException("请先登录账号。");
             if (!CanInvite) throw new InvalidOperationException("当前账号没有生成邀请码的权限。");
-            var issued = await Client(_binding).IssueInviteAsync(ct);
-            SetStatus("已生成邀请码：" + issued.Code + "，7 天内有效，仅可使用一次。");
+            var issued = await Client(_binding).IssueInviteAsync(linked.Token);
+            linked.Token.ThrowIfCancellationRequested();
+            SetStatus("已生成邀请码，7 天内有效，仅可使用一次。");
             return issued;
         }
         finally { _gate.Release(); }
@@ -284,12 +306,14 @@ public sealed class DesktopSync : IDisposable
 
     public async Task<string> RefreshInvites(CancellationToken ct = default)
     {
-        await _gate.WaitAsync(_stop.Token);
+        using var linked = LinkSession(ct);
+        await _gate.WaitAsync(linked.Token);
         try
         {
             if (!SignedIn || _binding is null) throw new InvalidOperationException("请先登录账号。");
             if (!CanInvite) throw new InvalidOperationException("当前账号没有查看邀请码的权限。");
-            var invites = await Client(_binding).InvitesAsync(ct);
+            var invites = await Client(_binding).InvitesAsync(linked.Token);
+            linked.Token.ThrowIfCancellationRequested();
             if (invites.Length == 0) return "还没有生成过邀请码。";
             return string.Join(Environment.NewLine, invites.Select(Describe));
         }
@@ -308,13 +332,15 @@ public sealed class DesktopSync : IDisposable
 
     public async Task ChangePassword(string currentPassword, string newPassword)
     {
-        await _gate.WaitAsync(_stop.Token);
+        using var linked = LinkSession();
+        await _gate.WaitAsync(linked.Token);
         try
         {
             if (!SignedIn) throw new InvalidOperationException("请先登录账号。");
             if (string.IsNullOrWhiteSpace(currentPassword) || string.IsNullOrWhiteSpace(newPassword)) throw new ArgumentException("请填写当前密码和新密码。");
             if (newPassword.Length is < 8 or > 128) throw new ArgumentException("新密码长度应为 8–128 位。");
-            await Client(_binding!).ChangePasswordAsync(currentPassword, newPassword, _stop.Token);
+            await Client(_binding!).ChangePasswordAsync(currentPassword, newPassword, linked.Token);
+            linked.Token.ThrowIfCancellationRequested();
             SetStatus("密码已更新。");
         }
         finally { _gate.Release(); }
@@ -322,22 +348,47 @@ public sealed class DesktopSync : IDisposable
 
     public async Task Logout()
     {
-        await _gate.WaitAsync(_stop.Token);
+        if (_binding is not { } binding) return;
+        Disconnect();
+        var signedOut = _sessionOperations.Token;
+        SetStatus("已退出账号，本地词库与学习记录保留。");
+        if (binding.UserId is null) return;
+
+        var revoke = RevokeSessionAsync(binding, signedOut);
+        _revocations.Add(revoke);
+        try { await revoke; }
+        finally { _revocations.Remove(revoke); }
+    }
+
+    internal Task FinishRevocationsAsync() => Task.WhenAll(_revocations.ToArray());
+
+    private async Task RevokeSessionAsync(Binding binding, CancellationToken signedOut)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
         try
         {
-            var revoked = true;
-            if (_binding is { UserId: not null } b)
+            // Older installations can have only a connection record. Preserve their
+            // vault mapping before a new login needs to read it.
+            var profile = Path.Combine(ProfileDirectory(binding), "library-binding.json");
+            if (!File.Exists(profile))
             {
-                try { await SaveJson(Path.Combine(ProfileDirectory(b), "library-binding.json"), b.Vault, _stop.Token); }
+                await _gate.WaitAsync(deadline.Token);
+                try
+                {
+                    if (!File.Exists(profile)) await SaveJson(profile, binding.Vault, deadline.Token);
+                }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
-                Disconnect();
-                try { await Client(b).LogoutAsync(_stop.Token); }
-                catch (Exception error) when (error is HttpRequestException or OperationCanceledException) { revoked = false; }
+                finally { _gate.Release(); }
             }
-            else Disconnect();
-            SetStatus(revoked ? "已退出账号，本地词库与学习记录保留。" : "本机已退出。服务暂不可达，服务器上的此设备会话未能撤销。");
+            await Client(binding).LogoutAsync(deadline.Token).WaitAsync(deadline.Token);
         }
-        finally { _gate.Release(); }
+        catch (HttpRequestException error) when (error.StatusCode == HttpStatusCode.Unauthorized) { }
+        catch (Exception error) when (error is HttpRequestException or OperationCanceledException or CryptographicException or FormatException)
+        {
+            if (_binding is null && !signedOut.IsCancellationRequested && !_stop.IsCancellationRequested)
+                SetStatus("本机已退出。服务器上的此设备会话未能撤销。");
+        }
     }
 
     public async Task QueueStateAsync(string key, object value)
@@ -422,6 +473,10 @@ public sealed class DesktopSync : IDisposable
     }
     private void Disconnect()
     {
+        var oldSession = _sessionOperations;
+        _sessionOperations = new CancellationTokenSource();
+        oldSession.Cancel();
+        oldSession.Dispose();
         // A separate local tombstone prevents a locked connection.json from
         // reopening a deliberately signed-out session during an offline restart.
         try { Directory.CreateDirectory(_dir); File.WriteAllText(LocalLockPath, "signed-out"); }
@@ -462,13 +517,17 @@ public sealed class DesktopSync : IDisposable
 
     public async Task Tick()
     {
-        if (!CanUseAccount || !_gate.Wait(0)) return;
+        if (!CanUseAccount || _stop.IsCancellationRequested || !_gate.Wait(0)) return;
+        using var linked = LinkSession();
+        var ct = linked.Token;
         try
         {
-            if (!await VerifySessionCore(_stop.Token)) return;
+            if (!await VerifySessionCore(ct)) return;
+            ct.ThrowIfCancellationRequested();
             var b = _binding!;
             SetStatus("正在同步…");
-            var identities = GetNoteIdentitiesAsync is { } getIds ? await getIds(_stop.Token) : null;
+            var identities = GetNoteIdentitiesAsync is { } getIds ? await getIds(ct) : null;
+            ct.ThrowIfCancellationRequested();
             var result = await Task.Run(async () =>
             {
                 void Verify(string root)
@@ -477,26 +536,70 @@ public sealed class DesktopSync : IDisposable
                     if (!File.Exists(marker) || File.ReadAllText(marker) != AccountKey(b))
                         throw new InvalidOperationException("词库绑定记录缺失或与当前设备不符，同步已暂停。");
                 }
-                return await new VaultSync(b.Vault, StateFile(b), Client(b), Verify, identities).RunAsync(_stop.Token);
-            });
+                return await new VaultSync(b.Vault, StateFile(b), Client(b), Verify, identities).RunAsync(ct);
+            }, ct);
+            ct.ThrowIfCancellationRequested();
             _notes = result.Notes ?? [];
-            await SaveJson(StateFile(b) + ".notes.json", _notes, _stop.Token);
+            await SaveJson(StateFile(b) + ".notes.json", _notes, ct);
+            ct.ThrowIfCancellationRequested();
             if (_stateSync is { } states)
             {
-                if (ExportStateAsync is { } export) await states.EnqueueAsync(await export(_notes, _stop.Token), _stop.Token);
-                StateEntries = await states.RunAsync(_stop.Token);
+                if (ExportStateAsync is { } export) await states.EnqueueAsync(await export(_notes, ct), ct);
+                var entries = await states.RunAsync(ct);
+                ct.ThrowIfCancellationRequested();
+                StateEntries = entries;
                 StateSyncGeneration++;
-                if (ImportStateAsync is { } import) await import(StateEntries, _stop.Token);
+                if (ImportStateAsync is { } import) await import(entries, ct);
             }
+            if (ImportPracticeBanksAsync is { } importBanks)
+                await ImportCloudPracticeBanksAsync(b, importBanks, _notes.ToArray(), ct);
+            if (ct.IsCancellationRequested || !ReferenceEquals(b, _binding)) return;
             var message = result.Reconciled ? "已重新合并本地与云端词库，旧同步记录已备份" : "已完成";
             if (result.Conflicts > 0) message += " · 已保留冲突版本";
             SetStatus("上次同步 " + DateTime.Now.ToString("HH:mm") + " · " + message);
         }
-        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (HttpRequestException error) when (error.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-        { await RequireLogin("账号会话已失效，请重新登录。本机词库与未同步改动已保留。", _stop.Token); }
-        catch (Exception e) { SetStatus(Friendly(e)); }
+        { await RequireLogin("账号会话已失效，请重新登录。本机词库与未同步改动已保留。", ct); }
+        catch (Exception e) { if (!ct.IsCancellationRequested) SetStatus(Friendly(e)); }
         finally { _gate.Release(); }
+    }
+    private async Task ImportCloudPracticeBanksAsync(Binding binding,
+        Func<IReadOnlyList<CloudPracticeBank>, CancellationToken, Task> import, IReadOnlyList<SyncedNote> notes, CancellationToken ct)
+    {
+        bool CurrentScope() => !ct.IsCancellationRequested && ReferenceEquals(binding, _binding) &&
+            ReferenceEquals(import, ImportPracticeBanksAsync);
+        foreach (var ids in notes.Select(note => note.Id).Distinct(StringComparer.Ordinal).Chunk(32))
+        {
+            var pending = ids;
+            while (pending.Length > 0)
+            {
+                if (!CurrentScope()) return;
+                try
+                {
+                    var page = await Client(binding).PracticeBanksAsync(pending, ct);
+                    if (!CurrentScope()) return;
+                    if (page.Banks.Count == 0) break;
+                    await import(page.Banks, ct);
+                    if (!CurrentScope()) return;
+                    // The response cap can omit whole banks. Remove those already delivered so
+                    // a large earlier bank cannot permanently crowd out the rest of this batch.
+                    var delivered = page.Banks.Select(bank => bank.NoteId).ToHashSet(StringComparer.Ordinal);
+                    var remaining = pending.Where(id => !delivered.Contains(id)).ToArray();
+                    if (remaining.Length == pending.Length) return;
+                    pending = remaining;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+                catch (HttpRequestException error) when (error.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                { if (CurrentScope()) throw; return; }
+                catch (Exception)
+                {
+                    // Banks are optional. Unsupported servers, network errors and local import failures
+                    // never roll back or relabel the note/state exchange that has already completed.
+                    return;
+                }
+            }
+        }
     }
     internal static string Friendly(Exception error) => error switch
     {
@@ -515,6 +618,7 @@ public sealed class DesktopSync : IDisposable
     public void Dispose()
     {
         _stop.Cancel();
+        _sessionOperations.Dispose();
         _poll.Stop(); _debounce.Stop();
         _watcher?.Dispose(); _http.Dispose();
     }

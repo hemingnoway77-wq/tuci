@@ -4,6 +4,7 @@ using System.Net.Http;
 using VocabCollector.Core;
 using VocabCollector.Core.Ai;
 using VocabCollector.Core.Storage;
+using VocabCollector.Core.Library;
 using VocabCollector.Core.Updates;
 using VocabCollector.Desktop.Updates;
 namespace VocabCollector.Desktop;
@@ -45,10 +46,15 @@ public partial class App : Application
             _updates = new UpdateController(new DesktopUpdateService(new UpdateClient(_updateHttp, UpdateConfiguration.ManifestUri, UpdateConfiguration.PublicKeyPem)));
             return new MainWindow(vm, store, new WindowsNavigator(), themeManager: themes, sync: _sync,
                 prepareLocalData: () => vm.InitializeAsync(loaded.Warning), updateController: _updates,
-                settingsDirectory: settingsDirectory, requireAccount: true);
+                settingsDirectory: settingsDirectory, requireAccount: true,
+                automaticPracticeGenerator: new OpenAiPracticeContextGenerator(_client));
         }, window => MainWindow = window);
         try { await host.RunAsync(); }
-        finally { Shutdown(); }
+        finally
+        {
+            try { await _sync.FinishRevocationsAsync(); }
+            finally { Shutdown(); }
+        }
     }
     protected override void OnExit(ExitEventArgs e) { _updates?.Dispose(); _updateHttp?.Dispose(); _sync?.Dispose(); _client?.Dispose(); base.OnExit(e); }
 }

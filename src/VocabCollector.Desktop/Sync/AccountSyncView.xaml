@@ -1,0 +1,57 @@
+<UserControl x:Class="VocabCollector.Desktop.AccountSyncView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Focusable="False">
+ <Grid>
+  <TextBlock x:Name="UnavailableText" Text="账号同步当前不可用" Style="{StaticResource BodyText}" />
+  <StackPanel x:Name="AccountActions" Visibility="Collapsed">
+   <Border BorderBrush="{DynamicResource LineSoft}" BorderThickness="0,1,0,1" Padding="0,15">
+    <Grid>
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+     <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+      <TextBlock x:Name="AccountLabel" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+      <TextBlock x:Name="SyncStatusText" Style="{StaticResource StatusText}" Margin="0,5,0,0" />
+     </StackPanel>
+     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+      <Button x:Name="SyncNowButton" Content="立即同步" Style="{StaticResource OutlineAction}" Click="Sync_Click" Margin="0,0,9,0" />
+      <Button x:Name="LogoutButton" Content="退出账号" Style="{StaticResource QuietAction}" Click="Logout_Click" />
+     </StackPanel>
+    </Grid>
+   </Border>
+   <TextBlock x:Name="OperationErrorText" Style="{StaticResource ErrorText}" Visibility="Collapsed" Margin="0,12,0,0" />
+
+   <Grid Margin="0,14,0,3">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="82" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <TextBlock Text="同步目录" Style="{StaticResource FieldLabel}" Margin="0,0,0,6" />
+    <TextBlock x:Name="FolderText" Grid.Column="1" Style="{StaticResource MetaText}" TextTrimming="CharacterEllipsis" Margin="0,0,0,6"
+               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+    <TextBlock Text="同步服务器" Grid.Row="1" Style="{StaticResource FieldLabel}" />
+    <TextBlock x:Name="ServerText" Grid.Row="1" Grid.Column="1" Style="{StaticResource MetaText}" TextTrimming="CharacterEllipsis"
+               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+   </Grid>
+
+   <Expander x:Name="ChangePasswordPanel" Header="修改密码" Margin="0,17,0,0">
+    <StackPanel Margin="0,11,0,0">
+     <TextBlock Text="当前密码" Style="{StaticResource FieldLabel}" />
+     <PasswordBox x:Name="CurrentPasswordBox" AutomationProperties.Name="当前密码" Margin="0,5,0,10" />
+     <TextBlock Text="新密码（8–128 位）" Style="{StaticResource FieldLabel}" />
+     <PasswordBox x:Name="NewPasswordBox" AutomationProperties.Name="新密码" Margin="0,5,0,10" />
+     <Button x:Name="ChangePasswordButton" Content="保存新密码" Style="{StaticResource OutlineAction}" HorizontalAlignment="Left" Click="ChangePassword_Click" />
+    </StackPanel>
+   </Expander>
+
+   <Expander x:Name="InvitePanel" Header="邀请码" Visibility="Collapsed" Expanded="Invite_Expanded" Collapsed="Invite_Collapsed" Margin="0,16,0,0">
+    <StackPanel Margin="0,10,0,0">
+     <TextBlock Text="邀请码用于注册账号，7 天内有效，仅可使用一次。" Style="{StaticResource HintText}" Margin="0,0,0,10" />
+     <WrapPanel>
+      <Button x:Name="IssueInviteButton" Content="生成邀请码" Style="{StaticResource OutlineAction}" Click="Invite_Click" Margin="0,0,8,0" />
+      <Button x:Name="RefreshInvitesButton" Content="刷新列表" Style="{StaticResource QuietAction}" Click="Invites_Click" />
+     </WrapPanel>
+     <TextBox x:Name="InviteCodeBox" IsReadOnly="True" Visibility="Collapsed" Margin="0,10,0,0" AutomationProperties.Name="新生成的邀请码" />
+     <TextBlock x:Name="InviteListStatus" Style="{StaticResource StatusText}" Visibility="Collapsed" Margin="0,8,0,0"
+                AutomationProperties.LiveSetting="Polite" />
+     <TextBlock x:Name="InviteListText" Style="{StaticResource HintText}" Margin="0,10,0,0" />
+    </StackPanel>
+   </Expander>
+  </StackPanel>
+ </Grid>
+</UserControl>

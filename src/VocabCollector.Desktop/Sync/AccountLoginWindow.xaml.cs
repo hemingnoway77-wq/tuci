@@ -13,6 +13,8 @@ public partial class AccountLoginWindow : Window
     {
         _sync = sync ?? throw new ArgumentNullException(nameof(sync));
         InitializeComponent();
+        Resources.MergedDictionaries.Add(ThemePalette.Create(AppTheme.Mono));
+        MaxHeight = Math.Clamp(SystemParameters.WorkArea.Height, MinHeight, MaxHeight);
         UrlBox.Text = string.IsNullOrWhiteSpace(sync.Server) ? DefaultServer : sync.Server;
         UsernameBox.Text = sync.Username;
         PasswordBox.Clear();
@@ -37,9 +39,11 @@ public partial class AccountLoginWindow : Window
         _registerMode = register;
         var visible = register ? Visibility.Visible : Visibility.Collapsed;
         ConfirmPanel.Visibility = InvitePanel.Visibility = visible;
+        ModeTitle.Text = register ? "创建账号" : "登录账号";
+        PasswordLabel.Text = register ? "密码（8–128 位）" : "密码";
         LoginButton.Content = register ? "创建账号" : "登录";
         RegisterButton.Content = register ? "返回登录" : "用邀请码注册";
-        StatusText.Text = register ? "填写邀请码即可创建新账号；邀请码需要向管理员索取。" : "登录后，词库与学习记录会随账号同步。";
+        StatusText.Text = register ? "已有账号可返回登录。" : "登录后，词库与学习记录会随账号同步。";
         if (register) InviteBox.Focus(); else PasswordBox.Focus();
     }
 

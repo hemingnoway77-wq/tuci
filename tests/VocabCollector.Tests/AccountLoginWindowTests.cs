@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using VocabCollector.Desktop;
 
@@ -13,6 +14,65 @@ namespace VocabCollector.Tests;
 [Collection("ReadingPage STA")]
 public sealed class AccountLoginWindowTests
 {
+    [Fact]
+    public void LoginUsesItsOwnMonoPaletteAndRegistrationCanScrollToServiceSettingsAtMinimumSize() => OnUi(() =>
+    {
+        using var fixture = new Fixture();
+        using var sync = new DesktopSync(fixture.Directory, Dispatcher.CurrentDispatcher, fixture.Remote);
+        var application = Application.Current.Resources;
+        var pink = ThemePalette.Create(AppTheme.Pink);
+        var mono = ThemePalette.Create(AppTheme.Mono);
+        var keys = pink.Keys.Cast<object>().ToArray();
+        var previous = application.Keys.Cast<object>().Where(keys.Contains).ToDictionary(key => key, key => application[key]);
+        AccountLoginWindow? window = null;
+        try
+        {
+            foreach (var key in keys) application[key] = pink[key];
+            window = new AccountLoginWindow(sync);
+            window.Show();
+            window.UpdateLayout();
+            var submit = Find<Button>(window, "LoginButton");
+            Assert.Equal(ColorOf(mono["Sheet"]), ColorOf(window.Background));
+            Assert.Equal(ColorOf(mono["Accent"]), ColorOf(submit.Background));
+            Assert.Equal(ColorOf(pink["Accent"]), ColorOf(Application.Current.FindResource("Accent")));
+            Assert.NotEqual(ColorOf(application["Accent"]), ColorOf(submit.Background));
+            UiRegressionSnapshot.Save(window, "account-login-mono.png");
+
+            window.SizeToContent = SizeToContent.Manual;
+            window.Width = window.MinWidth;
+            window.Height = window.MinHeight;
+            window.UpdateLayout();
+            Assert.InRange(window.ActualWidth, window.MinWidth - 1, window.MinWidth + 1);
+            Assert.InRange(window.ActualHeight, window.MinHeight - 1, window.MinHeight + 1);
+            Assert.True(FitsInViewport(submit), "Login must be fully visible at the minimum window size.");
+
+            Find<Button>(window, "RegisterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var advanced = Find<Expander>(window, "AdvancedOptions");
+            advanced.IsExpanded = true;
+            window.UpdateLayout();
+            var invite = Find<TextBox>(window, "InviteBox");
+            var service = Find<TextBox>(window, "UrlBox");
+            var scroll = Ancestors(service).OfType<ScrollViewer>().First();
+            Assert.True(scroll.ScrollableHeight > 0);
+            invite.BringIntoView();
+            Until(() => FitsInViewport(invite));
+            service.BringIntoView();
+            Until(() => FitsInViewport(service));
+            Assert.True(scroll.VerticalOffset > 0);
+            UiRegressionSnapshot.Save(window, "account-registration-minimum.png");
+            Assert.Empty(fixture.Remote.Requests);
+        }
+        finally
+        {
+            window?.Close();
+            foreach (var key in keys)
+            {
+                if (previous.TryGetValue(key, out var value)) application[key] = value;
+                else application.Remove(key);
+            }
+        }
+    });
+
     [Fact]
     public void InitialGateHasOnlyAccountActionsAndNeverContainsAPassword() => OnUi(() =>
     {
@@ -206,6 +266,19 @@ public sealed class AccountLoginWindowTests
     });
 
     private static T Find<T>(Window window, string name) where T : class => Assert.IsType<T>(window.FindName(name));
+    private static Color ColorOf(object brush) => Assert.IsType<SolidColorBrush>(brush).Color;
+    private static IEnumerable<DependencyObject> Ancestors(DependencyObject element)
+    {
+        for (var parent = VisualTreeHelper.GetParent(element); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+            yield return parent;
+    }
+    private static bool FitsInViewport(FrameworkElement element)
+    {
+        if (!element.IsVisible || Ancestors(element).OfType<ScrollContentPresenter>().FirstOrDefault() is not { } viewport) return false;
+        var bounds = element.TransformToAncestor(viewport).TransformBounds(new Rect(element.RenderSize));
+        return bounds.Width > 0 && bounds.Height > 0 && bounds.Left >= -1 && bounds.Top >= -1 &&
+            bounds.Right <= viewport.ActualWidth + 1 && bounds.Bottom <= viewport.ActualHeight + 1;
+    }
     private static void OnUi(Action action) => ((Lazy<Dispatcher>)typeof(ReadingPageTests)
         .GetField("Ui", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Value.Invoke(action);
     private static void Until(Func<bool> condition)

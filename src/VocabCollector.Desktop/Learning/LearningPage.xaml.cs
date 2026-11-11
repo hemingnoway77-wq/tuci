@@ -44,11 +44,14 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     private string _reviewError = "", _libraryWarnings = "";
     private bool _loading, _advancing, _disposed, _refreshingReader;
 
-    public LearningPage(VaultOptions vault, string? stateDirectory = null, TimeProvider? clock = null)
+    public LearningPage(VaultOptions vault, string? stateDirectory = null, TimeProvider? clock = null,
+        IPracticeContextGenerator? practiceContextGenerator = null, Func<ApiOptions>? practiceApiOptions = null)
     {
         _vault = vault;
         _stateDirectory = stateDirectory;
         _clock = clock ?? TimeProvider.System;
+        _practiceContextGenerator = practiceContextGenerator;
+        _practiceApiOptions = practiceApiOptions ?? (() => new ApiOptions("", "", ""));
         InitializeComponent();
         DataContext = this;
         Browser.NoteChanged += Reader_NoteChanged;
@@ -59,6 +62,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
         Browser.NotesChanged += Browser_NotesChanged;
         Browser.ImportRequested += async (_, files) => await ImportAsync(files);
         InitializeRoaming();
+        InitializePractice();
         _refreshTimer = new(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(600) };
         _refreshTimer.Tick += async (_, _) => { _refreshTimer.Stop(); await EnsureLoadedAsync(); };
     }
@@ -70,6 +74,13 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     public event EventHandler? LearningStateChanged;
     public IReadOnlyDictionary<string, string> CloudNoteIds => _catalog?.CloudNoteIds ?? new Dictionary<string, string>();
     public string? LocalStateDirectory => _catalog?.LocalStateDirectory;
+
+    public static string ResolveLocalStateDirectory(VaultOptions vault, string? stateDirectory = null)
+    {
+        var metadata = stateDirectory is null ? null : Path.Combine(stateDirectory,
+            Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(VaultPaths.WordRoot(vault).ToUpperInvariant()))));
+        return new LibraryCatalog(vault, metadata).LocalStateDirectory;
+    }
 
     public async Task SetCloudNotesAsync(IReadOnlyList<SyncedNote> notes)
     {
@@ -174,9 +185,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
             if (_disposed) return false;
             if (_catalog == null)
             {
-                var state = _stateDirectory == null ? null : Path.Combine(_stateDirectory,
-                    Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(VaultPaths.WordRoot(_vault).ToUpperInvariant()))));
-                _catalog = new LibraryCatalog(_vault, state);
+                _catalog = new LibraryCatalog(_vault, ResolveLocalStateDirectory(_vault, _stateDirectory));
                 ApplyCloudIdentities();
             }
             // Watch before scanning, including an empty library whose notes
@@ -352,6 +361,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     {
         foreach (var name in new[] { nameof(HasExposure), nameof(CanAdvance), nameof(RoamingTitle), nameof(RoamingPhonetics), nameof(RoamingMeaning), nameof(RememberedLabel), nameof(RoamingWeightLabel), nameof(RoamingCountLabel) }) Changed(name);
         Changed(nameof(WeightLevel)); Changed(nameof(WeightDescription));
+        PracticeExposureChanged();
     }
     private async void Reload_Click(object sender, RoutedEventArgs e) => await ReloadAsync();
     private async void Import_Click(object sender, RoutedEventArgs e)
@@ -425,6 +435,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
     {
         if (_disposed) return;
         Changed(nameof(IsBusy)); Changed(nameof(CanInteract)); Changed(nameof(CanAdvance));
+        RenderPractice();
         StatusChanged?.Invoke(this, EventArgs.Empty);
     }
     private string WithWarnings(string message) => string.Join(" ", new[] { message, _libraryWarnings, _reviewError }.Where(s => s.Length > 0));
@@ -435,6 +446,7 @@ public partial class LearningPage : UserControl, INotifyPropertyChanged, IDispos
         if (_disposed) return;
         _disposed = true;
         if (_session is not null) _session.StateChanged -= SessionStateChanged;
+        DisposePractice();
         _stop.Cancel(); _refreshTimer.Stop(); _watcher?.Dispose(); Browser.Dispose();
         DisposeRoaming();
     }

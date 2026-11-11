@@ -12,6 +12,7 @@ using System.Windows.Threading;
 using VocabCollector.Core;
 using VocabCollector.Core.Ai;
 using VocabCollector.Core.Storage;
+using VocabCollector.Desktop.Controls;
 using VocabCollector.Desktop.Preview;
 namespace VocabCollector.Desktop.Smoke;
 
@@ -27,7 +28,12 @@ public static class Program
             try
             {
                 var runner = new SmokeRunner(app);
-                if (args.Contains("--updates-only", StringComparer.Ordinal))
+                if (args.Contains("--practice-only", StringComparer.Ordinal))
+                {
+                    await runner.RunPracticeChecksOnlyAsync();
+                    Console.WriteLine("PASS: isolated spelling and meaning practice, sense interleaving, lemma-neutral completion, manual progression, retained drafts, themes and minimum window without AI");
+                }
+                else if (args.Contains("--updates-only", StringComparer.Ordinal))
                 {
                     await runner.RunUpdateChecksAsync();
                     Console.WriteLine("PASS: isolated signed update checks, startup ordering, nonmodal notification, retry, progress, cancellation, stale-window callbacks, input guards and explicit recorded installation");
@@ -123,9 +129,11 @@ public sealed partial class SmokeRunner(App app)
         await Until(() => app.Windows.OfType<SettingsWindow>().Any(w => w.IsVisible));
         var dialog = app.Windows.OfType<SettingsWindow>().Single(w => w.IsVisible);
         Check(dialog.Icon != null, "settings window uses the same application icon");
+        await SelectSettingsCategoryAsync(dialog, "ApiTab");
         Control<TextBox>(dialog,"BaseUrlBox").Text = server.BaseUrl;
         Control<PasswordBox>(dialog,"KeyBox").Password = "sk-smoke-canary-secret";
         Control<TextBox>(dialog,"ModelBox").Text = "mock-model";
+        await SelectSettingsCategoryAsync(dialog, "LibraryTab");
         Control<TextBox>(dialog,"VaultBox").Text = vault;
         Control<TextBox>(dialog,"SubfolderBox").Text = "英语单词";
         Control<CheckBox>(dialog,"ClassifyBox").IsChecked = true;
@@ -318,6 +326,14 @@ public sealed partial class SmokeRunner(App app)
     {
         Check(button.IsEnabled,"button enabled: " + button.Name);
         var provider = (IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)!; provider.Invoke();
+    }
+    private static async Task SelectSettingsCategoryAsync(SettingsWindow settings, string tabName)
+    {
+        var tab = Control<RadioButton>(settings, tabName);
+        var provider = (ISelectionItemProvider)new RadioButtonAutomationPeer(tab).GetPattern(PatternInterface.SelectionItem)!;
+        provider.Select();
+        var indicator = Control<PageTabIndicator>(settings, "CategoryIndicator");
+        await Until(() => tab.IsChecked == true && !indicator.HasAnimatedProperties);
     }
     private static async Task Until(Func<bool> condition)
     {

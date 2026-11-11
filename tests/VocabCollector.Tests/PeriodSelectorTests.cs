@@ -16,7 +16,7 @@ public sealed class PeriodSelectorTests
     public void FocusUsesTextEmphasisWithoutAddingAFrameAroundTheLabel() => Run((selector, _) =>
     {
         selector.AnimateTransitions = false;
-        selector.MonthButton.Focus();
+        FocusButton(selector.MonthButton);
         Assert.True(selector.MonthButton.IsKeyboardFocused);
         Assert.Equal(Colors.Transparent, Assert.IsType<SolidColorBrush>(selector.MonthButton.BorderBrush).Color);
         Assert.True(selector.MonthButton.FontWeight >= FontWeights.Medium);
@@ -85,7 +85,7 @@ public sealed class PeriodSelectorTests
         selector.AnimateTransitions = false;
         var changes = 0;
         selector.SelectionChanged += (_, _) => changes++;
-        selector.MonthButton.Focus();
+        FocusButton(selector.MonthButton);
         Key(selector.MonthButton, Keyboard.KeyDownEvent, System.Windows.Input.Key.Space);
         Key(selector.MonthButton, Keyboard.KeyUpEvent, System.Windows.Input.Key.Space);
         Assert.True(selector.IsMonthly);
@@ -155,7 +155,15 @@ public sealed class PeriodSelectorTests
         using var selector = new PeriodSelector { IsMonthly = initiallyMonthly, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
         var window = new Window { Style = null, Icon = null, Content = selector, Width = 300, Height = 180, ShowInTaskbar = false };
         window.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/兔词;component/Theme.xaml", UriKind.Relative) });
-        try { window.Show(); window.Activate(); Pump(40); action(selector, window); }
+        try
+        {
+            // Finish Loaded/layout before requesting activation; its queued work must
+            // not invalidate the keyboard-input precondition after Activate returns.
+            window.Show(); Pump(40);
+            window.Activate(); Pump(10);
+            FocusButton(initiallyMonthly ? selector.MonthButton : selector.WeekButton);
+            action(selector, window);
+        }
         finally { selector.Dispose(); window.Close(); }
     });
 
@@ -171,6 +179,13 @@ public sealed class PeriodSelectorTests
     }
     private static void Key(RadioButton button, RoutedEvent routedEvent, System.Windows.Input.Key key) => button.RaiseEvent(
         new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(button)!, Environment.TickCount, key) { RoutedEvent = routedEvent });
+    private static void FocusButton(RadioButton button)
+    {
+        button.Focus();
+        var owner = Window.GetWindow(button);
+        Assert.True(owner?.IsActive == true && button.IsKeyboardFocused,
+            $"Keyboard input setup failed: windowActive={owner?.IsActive}, button={button.Name}, focused={button.IsKeyboardFocused}, keyboardTarget={Keyboard.FocusedElement?.GetType().Name ?? "none"}.");
+    }
     private static void Pump(int milliseconds) => MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(milliseconds));
 }
 

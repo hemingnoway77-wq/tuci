@@ -21,7 +21,7 @@
      <RadioButton x:Name="RoamingTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="漫游" MinWidth="56" Margin="0,0,28,0" Checked="RoamingTab_Checked" AutomationProperties.Name="漫游" />
      <RadioButton x:Name="ReadingTab" GroupName="Pages" Style="{StaticResource NavTab}" Content="每日阅读" MinWidth="78" Checked="ReadingTab_Checked" AutomationProperties.Name="每日阅读" />
     </StackPanel>
-    <controls:PageTabIndicator x:Name="PageUnderline" VerticalAlignment="Bottom"/>
+    <controls:PageTabIndicator x:Name="PageUnderline" VerticalAlignment="Bottom" Margin="0,0,6,5" SnapsToDevicePixels="True" />
     </Grid>
     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
      <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
@@ -46,13 +46,15 @@
        <TextBlock Text="刷新关联" />
       </StackPanel>
      </Button>
-     <Button x:Name="SyncButton" Content="账号与同步" Style="{StaticResource UtilityButton}" Click="Sync_Click" Margin="6,0,0,0" ToolTip="账号、同步、退出登录" />
-     <Button x:Name="UpdateButton" Content="检查更新" Style="{StaticResource UtilityButton}" Click="Update_Click" Margin="6,0,0,0" ToolTip="检查并下载兔词的新版本" />
-     <Button x:Name="SettingsButton" Style="{StaticResource UtilityOutline}" Click="Settings_Click" IsEnabled="{Binding CanConfigure}" Margin="7,0,0,0" ToolTip="API 与词库设置">
+     <Button x:Name="SettingsButton" Style="{StaticResource UtilityOutline}" Click="Settings_Click" IsEnabled="{Binding CanConfigure}" Margin="7,0,0,0" ToolTip="设置" AutomationProperties.Name="设置">
+      <Grid>
       <StackPanel Orientation="Horizontal">
        <Path Data="M 2,4.5 L 14,4.5 M 2,11.5 L 14,11.5 M 6,2 L 6,7 M 10,9 L 10,14" Stroke="{DynamicResource Accent}" StrokeThickness="1.3" Width="14" Height="14" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center" />
        <TextBlock Text="设置" />
       </StackPanel>
+      <Ellipse x:Name="SettingsUpdateDot" Width="7" Height="7" Fill="{DynamicResource UpdateNotification}" HorizontalAlignment="Right" VerticalAlignment="Top"
+               Margin="0,-3,-5,0" IsHitTestVisible="False" Visibility="Collapsed" />
+      </Grid>
      </Button>
     </StackPanel>
    </Grid>
@@ -94,7 +96,7 @@
         </StackPanel>
        </Button>
        <Button x:Name="CancelButton" Content="取消本次操作" Command="{Binding CancelCommand}" Style="{StaticResource QuietAction}" Margin="0,5,0,0" Visibility="{Binding IsBusy,Converter={StaticResource BoolVisibility}}" />
-       <TextBlock Style="{StaticResource MetaCenter}" Text="自动纠错 · 收进本地词库" Margin="0,10,0,0" />
+       <TextBlock Style="{StaticResource MetaCenter}" Text="自动纠错 · 自动准备语境练习" Margin="0,10,0,0" />
       </StackPanel>
      </Grid>
     </Border>

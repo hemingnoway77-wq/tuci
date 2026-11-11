@@ -94,8 +94,9 @@ public sealed partial class SmokeRunner
                 "warm module switches retain the current card and never add an extra encounter");
             var indicator = Control<PageTabIndicator>(main, "PageUnderline");
             var nav = Control<Grid>(main, "MainNavigation"); var target = Control<RadioButton>(main, "RoamingTab");
-            var left = target.TranslatePoint(new Point(), nav).X;
-            Check(Math.Abs(indicator.LeftEdge - left) < .1 && Math.Abs(indicator.RightEdge - left - target.ActualWidth) < .1 && !indicator.HasAnimatedProperties,
+            var center = target.TranslatePoint(new Point(target.ActualWidth / 2, 0), nav).X;
+            var width = indicator.RightEdge - indicator.LeftEdge;
+            Check(Math.Abs(indicator.LeftEdge + width / 2 - center) < .1 && width is >= 21 and <= 23 && !indicator.HasAnimatedProperties,
                 "rapid real module switches settle one shared underline beneath the current navigation label");
             Check(handler.Requests == 0 && translations.Calls == 0, "warm switching does not initialize a model or call AI");
             Snapshot(main, Path.Combine(run, "warm-roaming.png"));

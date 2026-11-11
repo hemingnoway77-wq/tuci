@@ -12,19 +12,17 @@ public sealed class NavigationMotionCollection;
 public sealed class PageTabIndicatorTests
 {
     [Fact]
-    public void BothEdgesMoveImmediatelyWithoutAStretchAndPause() => WithIndicator(indicator =>
+    public void LeadingEdgeStretchesBeforeTheTrailingEdgeCatchesUp() => WithIndicator(indicator =>
     {
         indicator.MoveTo(0, 56, false);
         indicator.MoveTo(180, 78);
         if (!SystemParameters.ClientAreaAnimation) return;
-        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(45));
-        var leftProgress = indicator.LeftEdge / 180;
-        var rightProgress = (indicator.RightEdge - 56) / (258 - 56);
-        Assert.True(leftProgress > .01, "The underline must respond immediately instead of holding its trailing edge.");
-        Assert.InRange(Math.Abs(leftProgress - rightProgress), 0, .02);
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(75));
+        Assert.True(indicator.RightEdge - indicator.LeftEdge > 90,
+            "The leading edge should stretch the line toward the new label.");
         // Re-aligning an unchanged selection must not extend its animation.
         indicator.MoveTo(180, 78);
-        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(150));
+        MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(275));
         Assert.Equal(180, indicator.LeftEdge, 2);
         Assert.Equal(258, indicator.RightEdge, 2);
         Assert.False(indicator.HasAnimatedProperties);

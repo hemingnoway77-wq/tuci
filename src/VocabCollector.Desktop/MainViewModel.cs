@@ -6,6 +6,8 @@ using VocabCollector.Core;
 using VocabCollector.Core.Storage;
 namespace VocabCollector.Desktop;
 
+public sealed record SavedWordCapture(CaptureResult Result, AppSettings Settings);
+
 public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly ICaptureService _service;
@@ -16,6 +18,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _busy;
     private NoteLocation? _selected;
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<SavedWordCapture>? CaptureSaved;
     public MainViewModel(ICaptureService service, AppSettings settings, ILinkMaintenance? maintenance = null)
     {
         _service = service; _maintenance = maintenance; Settings = settings;
@@ -135,13 +138,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             var submittedWord = Word;
-            var result = await _service.CaptureAsync(new(submittedWord, Context), Settings, progress, _cancellation.Token);
+            var submittedSettings = Settings;
+            var result = await _service.CaptureAsync(new(submittedWord, Context), submittedSettings, progress, _cancellation.Token);
             Markdown = result.Markdown; Message = result.Message;
             if (result.Status == CaptureStatus.AlreadyExists && Markdown.Length == 0 && result.Notes.FirstOrDefault() is { } existing)
             {
                 try
                 {
-                    VaultPaths.EnsureInside(VaultPaths.WordRoot(Settings.Vault), existing.AbsolutePath);
+                    VaultPaths.EnsureInside(VaultPaths.WordRoot(submittedSettings.Vault), existing.AbsolutePath);
                     Markdown = await File.ReadAllTextAsync(existing.AbsolutePath, _cancellation.Token);
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -155,10 +159,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             foreach (var note in result.Notes) Notes.Add(note);
             SelectedNote = Notes.FirstOrDefault();
+            if (result.Status == CaptureStatus.Saved) NotifyCaptureSaved(result, submittedSettings);
         }
         catch (OperationCanceledException) { Message = "已取消，输入已保留。"; }
         catch (Exception) { Message = "处理失败，请检查配置后重试。输入已保留。"; }
         finally { IsBusy = false; _cancellation.Dispose(); _cancellation = null; }
+    }
+    private void NotifyCaptureSaved(CaptureResult result, AppSettings settings)
+    {
+        if (CaptureSaved is not { } handlers) return;
+        var capture = new SavedWordCapture(result, settings);
+        foreach (EventHandler<SavedWordCapture> handler in handlers.GetInvocationList())
+        {
+            // The note is committed. Optional observers cannot turn that success into a capture failure.
+            try { handler(this, capture); }
+            catch (Exception) { }
+        }
     }
     private static bool SameWord(string first, string second)
     {

@@ -6,6 +6,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using VocabCollector.Core;
 using VocabCollector.Desktop;
+using VocabCollector.Desktop.Controls;
 using Xunit.Abstractions;
 
 namespace VocabCollector.Tests;
@@ -26,14 +27,16 @@ public sealed class SettingsWindowLayoutTests(ITestOutputHelper output)
         var icon = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[4], 4); icon.Freeze(); window.Icon = icon;
         try
         {
-            window.Show(); MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(80)); window.UpdateLayout();
+            window.Show();
+            Assert.IsType<RadioButton>(window.FindName("LibraryTab")).IsChecked = true;
+            MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(80)); window.UpdateLayout();
             var browse = Assert.IsType<Button>(window.FindName("BrowseButton"));
             var vault = Assert.IsType<TextBox>(window.FindName("VaultBox"));
             var viewport = Ancestors(browse).OfType<ScrollContentPresenter>().First();
             var bounds = browse.TransformToAncestor(viewport).TransformBounds(new Rect(browse.RenderSize));
             var fieldBounds = vault.TransformToAncestor(viewport).TransformBounds(new Rect(vault.RenderSize));
-            var columns = Ancestors(browse).OfType<Grid>().First(grid => grid.ColumnDefinitions.Count == 3);
-            output.WriteLine($"{width}x{height}, longPath={longPath}, fakeKeyLength={draft.Api.ApiKey.Length}: viewport={viewport.ActualWidth:0.00}, gridActual={columns.ActualWidth}, gridDesired={columns.DesiredSize.Width}, browse={bounds}, desired={browse.DesiredSize}, vaultMin={vault.MinWidth}, vault={fieldBounds}");
+            var row = Assert.IsType<DockPanel>(window.FindName("VaultPathRow"));
+            output.WriteLine($"{width}x{height}, longPath={longPath}, fakeKeyLength={draft.Api.ApiKey.Length}: viewport={viewport.ActualWidth:0.00}, rowActual={row.ActualWidth}, rowDesired={row.DesiredSize.Width}, browse={bounds}, desired={browse.DesiredSize}, vaultMin={vault.MinWidth}, vault={fieldBounds}");
             UiRegressionSnapshot.Save(window, $"settings-{width:0}x{height:0}-{(longPath ? "long-path" : "initial")}.png");
             Assert.True(bounds.Left >= -.5 && bounds.Right <= viewport.ActualWidth + .5,
                 $"Folder picker is horizontally clipped: {bounds}; viewport width {viewport.ActualWidth}.");
@@ -42,6 +45,51 @@ public sealed class SettingsWindowLayoutTests(ITestOutputHelper output)
             Assert.True(fieldBounds.Right <= bounds.Left + .5, "The path field must not overlap the picker.");
             Assert.True(vault.ActualWidth >= 60, "The path remains usable beside the complete picker.");
             Assert.Equal(path, vault.Text);
+        }
+        finally { window.Close(); }
+    });
+
+    [Fact]
+    public void CategoryChangesPreserveDraftAndAlignTheVerticalIndicator() => OnUi(() =>
+    {
+        var window = new SettingsWindow(AppSettings.Default, new NoSettingsWrites());
+        var icon = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[4], 4); icon.Freeze(); window.Icon = icon;
+        try
+        {
+            window.Show(); MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(80)); window.UpdateLayout();
+            var account = Assert.IsType<RadioButton>(window.FindName("AccountTab"));
+            var library = Assert.IsType<RadioButton>(window.FindName("LibraryTab"));
+            var api = Assert.IsType<RadioButton>(window.FindName("ApiTab"));
+            var updates = Assert.IsType<RadioButton>(window.FindName("UpdateTab"));
+            var navigation = Assert.IsType<Grid>(window.FindName("CategoryNavigation"));
+            var indicator = Assert.IsType<PageTabIndicator>(window.FindName("CategoryIndicator"));
+            var vault = Assert.IsType<TextBox>(window.FindName("VaultBox"));
+            var key = Assert.IsType<PasswordBox>(window.FindName("KeyBox"));
+            double Center(RadioButton tab) => tab.TranslatePoint(new Point(0, tab.ActualHeight / 2), navigation).Y;
+            double IndicatorCenter() => (indicator.LeftEdge + indicator.RightEdge) / 2;
+
+            Assert.Equal(Orientation.Vertical, indicator.Orientation);
+            Assert.True(account.IsChecked == true);
+            Assert.InRange(Math.Abs(IndicatorCenter() - Center(account)), 0, .5);
+
+            library.IsChecked = true;
+            window.UpdateLayout();
+            Assert.True(vault.IsVisible);
+            vault.Text = @"C:\reader\draft";
+            api.IsChecked = true;
+            window.UpdateLayout();
+            Assert.True(key.IsVisible);
+            key.Password = "draft-key";
+            updates.IsChecked = true;
+            Assert.False(key.IsVisible);
+            MarkdownPreviewTests.Pump(TimeSpan.FromMilliseconds(310));
+            Assert.InRange(Math.Abs(IndicatorCenter() - Center(updates)), 0, .5);
+            Assert.False(indicator.HasAnimatedProperties);
+
+            library.IsChecked = true;
+            Assert.Equal(@"C:\reader\draft", vault.Text);
+            api.IsChecked = true;
+            Assert.Equal("draft-key", key.Password);
         }
         finally { window.Close(); }
     });

@@ -71,6 +71,7 @@ public sealed partial class SmokeRunner
         Invoke(Control<Button>(main, "SettingsButton"));
         await Until(() => app.Windows.OfType<SettingsWindow>().Any(window => window.IsVisible));
         var settings = app.Windows.OfType<SettingsWindow>().Single(window => window.IsVisible);
+        await SelectSettingsCategoryAsync(settings, "ApiTab");
         var model = Control<TextBox>(settings, "ModelBox").Text;
         Snapshot(settings, Path.Combine(output, "theme-warm-settings.png"));
 

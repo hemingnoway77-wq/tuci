@@ -73,15 +73,33 @@ public sealed partial class SmokeRunner
                 await Until(() => Control<FrameworkElement>(main, "PreparationOverlay").IsVisible);
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                 Check(fixture.Checks == checksBefore, "production-style update check waits for the real startup preparation");
+                var parentDot = Control<FrameworkElement>(main, "SettingsUpdateDot");
+                Check(parentDot.Visibility == Visibility.Collapsed && main.FindName("UpdateButton") is null && main.FindName("SyncButton") is null,
+                    "the header starts without a notification and exposes both actions through settings");
+                Invoke(Control<Button>(main, "SettingsButton"));
+                await Until(() => app.Windows.OfType<SettingsWindow>().Any(w => w.IsVisible));
+                var dialog = app.Windows.OfType<SettingsWindow>().Single(w => w.IsVisible);
+                var categoryDot = Control<FrameworkElement>(dialog, "UpdateCategoryDot");
+                var childDot = Control<FrameworkElement>(dialog, "CheckUpdateDot");
+                Check(categoryDot.Visibility == Visibility.Collapsed && childDot.Visibility == Visibility.Collapsed,
+                    "settings starts without an update notification");
                 prepare.SetResult(); await main.PrepareForUseAsync();
                 await Until(() => controller.State == UpdateState.Available);
-                Check(Control<Button>(main, "UpdateButton").Content.ToString() == "发现新版本" && !app.Windows.OfType<UpdateWindow>().Any(w => w.IsVisible),
-                    "automatic signed check only updates the header and never opens a modal or window");
+                Check(parentDot.IsVisible && categoryDot.IsVisible && !childDot.IsVisible && !app.Windows.OfType<UpdateWindow>().Any(w => w.IsVisible),
+                    "automatic signed check shows the parent and category dots without changing the open settings page");
                 Check(feed.Calls == 0 && translations.Calls == 0 && noNetwork.Requests == 0 && settingsStore.Loads == 0 && settingsStore.Saves == 0,
                     "update startup does not read real settings or call models, translations or feeds");
-                Invoke(Control<Button>(main, "UpdateButton"));
+                await SelectSettingsCategoryAsync(dialog, "ApiTab");
+                var modelBox = Control<TextBox>(dialog, "ModelBox");
+                var savedModel = modelBox.Text;
+                modelBox.Text = "settings-draft";
+                await SelectSettingsCategoryAsync(dialog, "UpdateTab");
+                Check(categoryDot.IsVisible && childDot.IsVisible, "the selected update category displays both in-settings notifications");
+                Snapshot(dialog, Path.Combine(run, "settings-update-available.png"));
+                Invoke(Control<Button>(dialog, "CheckUpdateButton"));
                 await Until(() => app.Windows.OfType<UpdateWindow>().Any(w => w.IsVisible));
                 var window = app.Windows.OfType<UpdateWindow>().Single(w => w.IsVisible);
+                Check(ReferenceEquals(window.Owner, dialog), "settings opens the real update window as its child");
                 Check(Control<TextBlock>(window, "VersionText").Text.Contains("1.1.0") && Control<TextBlock>(window, "ReleaseNotesText").Text.Contains("隔离升级验收"),
                     "update window shows current version and the signed release notes");
                 Snapshot(main, Path.Combine(run, "main-update-available.png"));
@@ -89,6 +107,11 @@ public sealed partial class SmokeRunner
                 main.Width = main.MinWidth; main.UpdateLayout();
                 Snapshot(main, Path.Combine(run, "main-update-minimum.png"));
                 main.Width = 1220;
+                Invoke(Control<Button>(window, "InstallUpdateButton"));
+                await Until(() => controller.Message.Contains("未保存"));
+                Check(launches.Count == 0 && fixture.Downloads == 0 && modelBox.Text == "settings-draft",
+                    "explicit installation refuses to discard an unsaved settings draft");
+                modelBox.Text = savedModel;
                 vm.Word = "unsaved";
                 Invoke(Control<Button>(window, "InstallUpdateButton"));
                 await Until(() => controller.Message.Contains("输入"));

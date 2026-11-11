@@ -5,6 +5,117 @@ namespace VocabCollector.Tests;
 public class MainViewModelTests
 {
     [Fact]
+    public async Task SavedCaptureNotifiesOnceAfterSelectionWithCorrectedResultAndSubmittedSettings()
+    {
+        var pending = new TaskCompletionSource<CaptureResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settings = new AppSettings(new ApiOptions("https://capture-fixture.invalid/v1", "fixture-key", "fixture-model"),
+            new VaultOptions("C:\\capture-event-fixture", "words", false));
+        CaptureRequest? submitted = null;
+        AppSettings? submittedSettings = null;
+        var calls = 0;
+        var service = new SettingsService((request, options, _) =>
+        {
+            calls++; submitted = request; submittedSettings = options; return pending.Task;
+        });
+        var vm = new MainViewModel(service, settings) { Word = "introdce", Context = "Please introduce the speaker." };
+        var notes = new[] { new NoteLocation("introduce", "C:\\capture-event-fixture\\words\\introduce.md", "words/introduce.md") };
+        var result = new CaptureResult(CaptureStatus.Saved, "introduce", "# introduce\n\nSaved fixture.", notes, "已保存。") { CorrectedFrom = "introdce" };
+        var observed = new List<(object? Sender, SavedWordCapture Capture, NoteLocation? Selected, int Notes, string Markdown, string Message)>();
+        vm.CaptureSaved += (sender, capture) => observed.Add((sender, capture, vm.SelectedNote, vm.Notes.Count, vm.Markdown, vm.Message));
+        var running = vm.GenerateAsync();
+        await vm.GenerateAsync(); // The existing busy guard must not create another completion notification.
+        Assert.Empty(observed);
+        vm.Word = "banana";
+        vm.Context = "I am editing a different draft now.";
+        pending.SetResult(result);
+        await running;
+
+        var notification = Assert.Single(observed);
+        Assert.Same(vm, notification.Sender);
+        Assert.Same(result, notification.Capture.Result);
+        Assert.Equal("introduce", notification.Capture.Result.Word);
+        Assert.Same(settings, notification.Capture.Settings);
+        Assert.Same(settings, submittedSettings);
+        Assert.Equal(new CaptureRequest("introdce", "Please introduce the speaker."), submitted);
+        Assert.Equal(1, calls);
+        Assert.Equal(notes[0], notification.Selected);
+        Assert.Equal(1, notification.Notes);
+        Assert.Equal(result.Markdown, notification.Markdown);
+        Assert.Equal(result.Message, notification.Message);
+        Assert.Equal("banana", vm.Word);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Theory]
+    [InlineData(CaptureStatus.AlreadyExists)]
+    [InlineData(CaptureStatus.InvalidInput)]
+    [InlineData(CaptureStatus.Failed)]
+    [InlineData(CaptureStatus.Cancelled)]
+    public async Task ResultsThatDidNotSaveANewNoteNeverNotifyCaptureSaved(CaptureStatus status)
+    {
+        var notifications = 0;
+        var vm = new MainViewModel(new TestService((_, _) => Task.FromResult(new CaptureResult(
+            status, "word", "not newly saved", [], "not saved"))), AppSettings.Default) { Word = "word" };
+        vm.CaptureSaved += (_, _) => notifications++;
+        await vm.GenerateAsync();
+        Assert.Equal(0, notifications);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CaptureServiceFailureOrCancellationNeverNotifiesCaptureSaved(bool cancelled)
+    {
+        var notifications = 0;
+        var vm = new MainViewModel(new TestService((_, _) =>
+        {
+            if (cancelled) throw new OperationCanceledException("private-cancel-fixture");
+            throw new IOException("private-failure-fixture");
+        }), AppSettings.Default) { Word = "word" };
+        vm.CaptureSaved += (_, _) => notifications++;
+        await vm.GenerateAsync();
+        Assert.Equal(0, notifications);
+        Assert.DoesNotContain("private-", vm.Message);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task CancellingPendingCaptureProducesNoSavedNotification()
+    {
+        var pending = new TaskCompletionSource<CaptureResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var vm = new MainViewModel(new TestService((_, token) => pending.Task.WaitAsync(token)), AppSettings.Default) { Word = "word" };
+        var notifications = 0;
+        vm.CaptureSaved += (_, _) => notifications++;
+        var running = vm.GenerateAsync();
+        vm.CancelCommand.Execute(null);
+        await running;
+        Assert.Equal(0, notifications);
+        Assert.Contains("取消", vm.Message);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task FailingSavedSubscriberCannotBreakTheSavedResultOrOtherSubscribers()
+    {
+        var note = new NoteLocation("apple", "C:\\capture-event-fixture\\words\\apple.md", "words/apple.md");
+        var result = new CaptureResult(CaptureStatus.Saved, "apple", "# apple", [note], "已保存。");
+        var vm = new MainViewModel(new TestService((_, _) => Task.FromResult(result)), AppSettings.Default) { Word = "apple" };
+        var reached = new List<string>();
+        vm.CaptureSaved += (_, _) => { reached.Add("first"); throw new InvalidOperationException("subscriber-secret-canary"); };
+        vm.CaptureSaved += (_, _) => reached.Add("second");
+        await vm.GenerateAsync();
+        Assert.Equal(new[] { "first", "second" }, reached);
+        Assert.Equal(result.Message, vm.Message);
+        Assert.Equal(result.Markdown, vm.Markdown);
+        Assert.Equal(note, vm.SelectedNote);
+        Assert.Equal(note, Assert.Single(vm.Notes));
+        Assert.DoesNotContain("subscriber-secret-canary", vm.Message);
+        Assert.False(vm.IsBusy);
+        Assert.True(vm.GenerateCommand.CanExecute(null));
+    }
+
+    [Fact]
     public async Task ReplacingAnArticleWordClearsItsAutomaticSentenceBeforeSubmittingTheNewWord()
     {
         CaptureRequest? submitted = null;
@@ -376,4 +487,6 @@ public class MainViewModelTests
     { public Task<LinkRefreshResult> RefreshLinksAsync(VaultOptions options, CancellationToken ct) => action(options, ct); }
     private sealed class TestService(Func<CaptureRequest,CancellationToken,Task<CaptureResult>> action):ICaptureService
     {public Task<CaptureResult> CaptureAsync(CaptureRequest r,AppSettings s,IProgress<CaptureStage>? p,CancellationToken ct)=>action(r,ct);}
+    private sealed class SettingsService(Func<CaptureRequest, AppSettings, CancellationToken, Task<CaptureResult>> action) : ICaptureService
+    { public Task<CaptureResult> CaptureAsync(CaptureRequest request, AppSettings settings, IProgress<CaptureStage>? progress, CancellationToken ct) => action(request, settings, ct); }
 }
